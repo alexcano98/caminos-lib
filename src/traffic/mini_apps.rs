@@ -1,3 +1,4 @@
+use std::cmp::max;
 use crate::pattern::extra::{get_hotspot_destination, get_stencil_pattern, get_switch_pattern};
 use std::collections::BTreeSet;
 use std::convert::TryInto;
@@ -274,7 +275,6 @@ Starts at the corner of the space (0,0,...,0) and ends at the opposite corner (n
 	Wavefront{
 		task_space: [10,10,10],
 		data_size: 16,
-		num_messages: 1000,
 	}
 ```
 
@@ -306,19 +306,16 @@ impl MiniApp {
             "Wavefront" => {
                 let mut task_space = None;
                 let mut data_size = None;
-                let mut num_messages = None;
 
                 match_object_panic!(arg.cv, "Wavefront", value,
                     "task_space" => task_space = Some(value.as_array().expect("Bad task_space value").iter().map(|v| v.as_f64().expect("Bad task_space value") as usize).collect()),
                     "data_size" => data_size = Some(value.as_f64().expect("Bad data_size value") as usize),
-                    "num_messages" => num_messages = Some(value.as_f64().expect("Bad num_messages value") as usize),
                 );
 
                 let task_space = task_space.expect("task_space is required");
                 let data_size = data_size.expect("data_size is required");
-                let num_messages = num_messages.expect("num_messages is required");
 
-                get_wavefront(task_space, data_size, num_messages)
+                get_wavefront(task_space, data_size)
             },
 			"Stencil" => {
 				let mut task_space = None;
@@ -344,9 +341,22 @@ impl MiniApp {
 
 }
 
-fn get_wavefront(task_space: Vec<usize>, data_size:usize, num_messages: usize) -> ConfigurationValue{
+fn get_wavefront(task_space: Vec<usize>, data_size:usize) -> ConfigurationValue{
 	let tasks = task_space.iter().product();
 	let _task_space_cv: Vec<_> = task_space.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect();
+
+	let mut num_messages = 0;
+	for i in 0..task_space.len(){
+		let mut mul = 1;
+		for j in 0..task_space.len(){
+			if i != j{
+				mul *= task_space[j];
+			}else{
+				mul *= max(task_space[j] - 1, 1);
+			}
+		}
+		num_messages += mul;
+	}
 
 	let identity_pattern_vector = vec![ConfigurationValue::Object("Identity".to_string(), vec![]); task_space.len()];
 
