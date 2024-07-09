@@ -53,9 +53,20 @@ impl Traffic for MessageBarrier
     fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let message = self.traffic.generate_message(origin,cycle,topology,rng);
-        if !message.is_err(){
+        // if !message.is_err(){
             self.total_sent += 1;
             self.total_sent_per_task[origin] += 1;
+        // }
+        if message.as_ref().is_err_and(|a| matches!(a, TrafficError::SelfMessage) )
+        {
+            self.total_consumed += 1;
+            self.total_consumed_per_task[origin] += 1;
+            if self.total_sent == self.total_consumed && self.messages_per_task_to_wait * self.tasks == self.total_sent {
+                self.total_sent = 0;
+                self.total_consumed = 0;
+                self.total_sent_per_task = vec![0; self.tasks];
+                self.total_consumed_per_task = vec![0; self.tasks];
+            }
         }
         message
     }

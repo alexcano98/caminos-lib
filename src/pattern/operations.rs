@@ -570,7 +570,7 @@ impl SubApp
 /**
 Boolean function which puts a 1 if the pattern contains the server, and 0 otherwise.
 ```ignore
-BooleanFunction{
+CandidatesSelection{
 	pattern: Hotspots{selected_destinations: [0]}, //1 if the server is 0, 0 otherwise
 	pattern_destination_size: 1,
 }

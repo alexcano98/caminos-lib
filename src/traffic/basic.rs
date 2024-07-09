@@ -327,8 +327,8 @@ Traffic which allows to generate a specific number of messages in total followin
 It finishes when all the messages have been generated and consumed.
 Optionally, messages per task could be indicated to restrict all the tasks to generate the same amount of messages.
 ```ignore
-TrafficMessages{
-	task:1000,
+Messages{
+	tasks:1000,
 	traffic: HomogeneousTraffic{...},
 	num_messages: 10000,
 	messages_per_task: 10, //optional
@@ -366,7 +366,6 @@ impl Traffic for TrafficMessages
             self.total_sent += 1;
             if let Some(task_messages) = self.messages_per_task.as_mut() {
                 task_messages[origin] -= 1;
-                self.total_consumed_per_task[origin] -= 1;
             }
         }
         message
