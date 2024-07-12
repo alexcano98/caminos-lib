@@ -17,7 +17,7 @@ use crate::AsMessage;
 use crate::traffic::mini_apps::{MiniApp, Stencil, TrafficCredit};
 use crate::traffic::collectives::MessageBarrier;
 use crate::traffic::collectives::MPICollective;
-use crate::traffic::sequences::MessageTaskSequence;
+use crate::traffic::sequences::{MessageTaskSequence, TaskSequence};
 use crate::traffic::sequences::Sequence;
 use crate::traffic::sequences::TimeSequenced;
 use crate::traffic::sequences::MultimodalBurst;
@@ -267,6 +267,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"TrafficCredit" => Box::new(TrafficCredit::new(arg)),
 			"Messages" => Box::new(TrafficMessages::new(arg)),
 			"MessageTaskSequence" => Box::new(MessageTaskSequence::new(arg)),
+			"TaskSequence" => Box::new(TaskSequence::new(arg)),
 			"MessageBarrier" => Box::new(MessageBarrier::new(arg)),
 			"Stencil" => Box::new(Stencil::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),

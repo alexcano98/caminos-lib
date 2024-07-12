@@ -148,6 +148,125 @@ impl Sequence
 }
 
 /**
+When the state of the task is Finished, the task goes to the next traffic.
+```ignore
+TaskSequence{
+    traffics: [Burst{...}, Burst{...}],
+}
+```
+**/
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct TaskSequence
+{
+    ///List of applicable traffics.
+    traffics: Vec<Box<dyn Traffic>>,
+    ///The traffic which is currently in use.
+    task_current_traffic:  Vec<usize>,
+}
+
+impl Traffic for TaskSequence
+{
+    fn generate_message(&mut self, origin: usize, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError>
+    {
+        let current_traffic = self.task_current_traffic[origin];
+        let m = self.traffics[current_traffic].generate_message(origin, cycle, topology, rng);
+
+        if m.is_ok(){
+            let message = m.unwrap();
+            let payload = current_traffic as u128;
+            let mut payload_vec = Vec::with_capacity(message.payload().len() + 16);
+            let my_payload = bytemuck::bytes_of( &payload );
+            payload_vec.extend_from_slice(&my_payload);
+            payload_vec.extend_from_slice(message.payload());
+
+            let message = Rc::new(Message {
+                origin: message.origin(),
+                destination: message.destination(),
+                size: message.size(),
+                creation_cycle: message.creation_cycle(),
+                payload: payload_vec,
+                id_traffic: message.id_traffic(),
+            });
+
+            Ok(message)
+        }else {
+            m
+        }
+    }
+    fn probability_per_cycle(&self, task: usize) -> f32
+    {
+        self.traffics[self.task_current_traffic[task]].probability_per_cycle(task)
+    }
+    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> bool
+    {
+        let current_traffic = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload")) as usize;
+        let other_payload = &message.payload()[16..];
+        let mut message = ReferredPayload::from(message);
+        message.payload = other_payload;
+        assert_eq!(current_traffic, self.task_current_traffic[task], "TaskSequence: Task advanced in traffic but didnt consume everything");
+
+        self.traffics[self.task_current_traffic[task]].consume(task, &message, cycle, topology, rng)
+    }
+    fn is_finished(&self) -> bool
+    {
+        self.task_current_traffic.iter().all(|&current_traffic| self.traffics[current_traffic].is_finished())
+    }
+
+    fn should_generate(&mut self, task: usize, cycle: Time, rng: &mut StdRng) -> bool
+    {
+        let current_traffic = self.task_current_traffic[task];
+        if self.traffics[current_traffic].should_generate(task, cycle, rng)
+        {
+            return true;
+        }
+
+        let mut next_traffic = current_traffic;
+        while matches!(self.traffics[next_traffic].task_state(task, cycle).expect("TaskSequence: Task finished but should_generate called"), Finished) && (next_traffic+1) < self.traffics.len() - 1
+        {
+            next_traffic = (next_traffic + 1) % self.traffics.len();
+            if self.traffics[next_traffic].should_generate(task, cycle, rng)
+            {
+                self.task_current_traffic[task] = next_traffic;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn task_state(&self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
+        self.traffics[self.task_current_traffic[task]].task_state(task, cycle)
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.traffics[0].number_tasks()
+    }
+}
+
+impl TaskSequence
+{
+    pub fn new(arg: TrafficBuilderArgument) -> TaskSequence
+    {
+        let mut traffics_args = None;
+        match_object_panic!(arg.cv, "TaskSequence", value,
+            "traffics" => traffics_args = Some(value.as_array().expect("bad value for traffics")),
+        );
+        let traffics_args = traffics_args.expect("There were no traffics");
+        let TrafficBuilderArgument { plugs, topology, rng, .. } = arg;
+        let traffics: Vec<_> = traffics_args.iter().map(|v| new_traffic(TrafficBuilderArgument { cv: v, plugs, topology, rng: &mut *rng })).collect();
+        let size = traffics[0].number_tasks();
+        for traffic in traffics.iter().skip(1)
+        {
+            assert_eq!(traffic.number_tasks(), size, "In TaskSequence all sub-traffics must involve the same number of tasks.");
+        }
+        TaskSequence {
+            traffics,
+            task_current_traffic: vec![0; size],
+        }
+    }
+}
+
+/**
 A sequence of traffics. Each task independently sends/consumes a number of messages before moving to the next traffic.
 ```ignore
 MessageTaskSequence{
