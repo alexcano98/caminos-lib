@@ -21,7 +21,7 @@ use crate::{Plugs};
 use crate::pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, EncapsulatedPattern, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
 use crate::pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
 use crate::pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
-use crate::pattern::transformations::{CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
+use crate::pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
 
 /// Some things most uses of the pattern module will use.
 pub mod prelude
@@ -329,6 +329,7 @@ pub fn new_pattern(arg:PatternBuilderArgument) -> Box<dyn Pattern>
             "Components" => Box::new(ComponentsPattern::new(arg)),
             "CartesianTransform" => Box::new(CartesianTransform::new(arg)),
             "LinearTransform" => Box::new(LinearTransform::new(arg)),
+            "AddVector" => Box::new(AddVector::new(arg)),
             "CartesianTiling" => Box::new(CartesianTiling::new(arg)),
             "Composition" => Box::new(Composition::new(arg)),
             "Pow" => Box::new(Pow::new(arg)),
@@ -363,7 +364,7 @@ pub fn new_pattern(arg:PatternBuilderArgument) -> Box<dyn Pattern>
             "RecursiveDistanceHalving" => Box::new(RecursiveDistanceHalving::new(arg)),
             "BinomialTree" => Box::new(BinomialTree::new(arg)),
             "InmediateSequencePattern" => Box::new(InmediateSequencePattern::new(arg)),
-            "Stencil" => EncapsulatedPattern::new(cv_name.clone(), arg),
+            "ManhattanNeighbours" | "KingNeighbours" => EncapsulatedPattern::new(cv_name.clone(), arg),
             _ => panic!("Unknown pattern {}",cv_name),
         }
     }

@@ -1,5 +1,5 @@
 use std::cell::{RefCell};
-use ::rand::{Rng,rngs::StdRng};
+use ::rand::{rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::config_parser::ConfigurationValue;
 use crate::topology::{Topology};
@@ -310,14 +310,11 @@ impl RoundRobin
 
 /**
 For each server, it keeps a shuffled list of destinations to which send.
-Select each destination with a probability.
-
-TODO: describe `weights` parameter.
+It removes destinations which point to self.
 
 ```ignore
 DestinationSets{
-	patterns: [RandomPermutation, RandomPermutation, RandomPermutation], //2 random destinations
-	weights: [1, 1, 2], //First 25% of chances, second 25% of chances, and third 50% of chances of being chosen
+	patterns: [RandomPermutation, RandomPermutation, RandomPermutation], //3 random destinations
 }
 ```
  **/
@@ -327,66 +324,61 @@ pub struct DestinationSets
 {
     ///Patterns to get the set of destinations
     patterns: Vec<Box<dyn Pattern>>,
-    ///Weights for each pattern
-    weights: Vec<usize>,
     ///Set of destinations.
     destination_set: Vec<Vec<usize>>,
+    ///Exclude self references
+    exclude_self_references: bool,
+    ///Indexes
+    index: RefCell<Vec<usize>>,
 }
 
 impl Pattern for DestinationSets
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
     {
-        for (index,pattern) in self.patterns.iter_mut().enumerate()
+        self.destination_set = vec![vec![]; source_size];
+        self.index.replace(vec![0;source_size]);
+        for (_index,pattern) in self.patterns.iter_mut().enumerate()
         {
             pattern.initialize(source_size,target_size,topology,rng);
             for source in 0..source_size
             {
                 let destination = pattern.get_destination(source,topology,rng);
-                self.destination_set[index].push(destination);
+                if !self.exclude_self_references || source!=destination
+                {
+                    self.destination_set[source].push(destination);
+                }
             }
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
     {
-        let total_weight=self.weights.iter().sum();
-        let mut w = rng.gen_range(0..total_weight);
-        let mut index = 0;
-        while w>self.weights[index]
-        {
-            w-=self.weights[index];
-            index+=1;
-        }
-        self.destination_set[index][origin]
+        let mut indexes = self.index.borrow_mut();
+        let pattern_index = indexes[origin];
+        let destination = self.destination_set[origin][pattern_index];
+        indexes[origin] = (indexes[origin]+1) % self.destination_set[origin].len();
+        destination
     }
 }
 
 impl DestinationSets
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> DestinationSets
+    pub fn new(arg:PatternBuilderArgument) -> DestinationSets
     {
         let mut patterns=None;
-        let mut weights: Option<Vec<usize>>=None;
+        let mut exclude_self_references = false;
         match_object_panic!(arg.cv,"DestinationSets",value,
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
 				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
-			"weights" => weights=Some(value.as_array().expect("bad value for weights").iter()
-				.map(|v|v.as_f64().expect("bad value in weights") as usize).collect()),
+            "exclude_self_references" => exclude_self_references = value.as_bool().expect("bad value for exclude_self_references"),
 		);
         let patterns:Vec<Box<dyn Pattern>>=patterns.expect("There were no patterns");
-        let weights = if let Some(ref weights)=weights
-        {
-            assert_eq!(patterns.len(),weights.len(),"The number of patterns must match the number of weights");
-            weights.clone()
-        }else {
-            vec![1usize; patterns.len()]
-        };
-        let size = patterns.len();
 
         DestinationSets{
             patterns,
-            weights,
-            destination_set:vec![vec![];size],//to be filled in initialization
+            destination_set:vec![],//to be filled in initialization
+            exclude_self_references,
+            index: RefCell::new(vec![]),
         }
     }
 }

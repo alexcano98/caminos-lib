@@ -299,6 +299,7 @@ impl Burst
     }
 }
 
+#[allow(dead_code)]
 pub struct BuildBurstCVArgs{
     pub tasks: usize,
     pub pattern: ConfigurationValue,
@@ -307,6 +308,7 @@ pub struct BuildBurstCVArgs{
     pub expected_messages_to_consume_per_task: Option<usize>,
 }
 
+#[allow(dead_code)]
 pub fn build_burst_cv(args: BuildBurstCVArgs) -> ConfigurationValue {
     let mut cv_list = vec![
         ("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),

@@ -1039,3 +1039,78 @@ impl RemappedNodes
         }
     }
 }
+
+/**
+Add a vector to the origin and get the result
+Example adding a vector `[1,0,0]` to each node in a 4x4x4 mesh.
+```ignore
+AddVector{
+    sides: [4,4,4],
+    vector: [1,0,0],
+    modulo: false, //Returns origin if it goes out of bounds.
+}
+```
+**/
+#[derive(Debug,Quantifiable)]
+pub struct AddVector
+{
+    ///sides
+    sides: CartesianData,
+    /// The vector to add to the origin.
+    vector: Vec<i32>,
+    /// Modular addition is used.
+    modulo: bool,
+}
+
+impl Pattern for AddVector
+{
+    fn initialize(&mut self, _source_size:usize, _target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    {
+    }
+    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    {
+        let up_origin=self.sides.unpack(origin);
+        let up_destination:Vec<i32> = up_origin.iter().zip(self.vector.iter()).map(|(&coord,&v)|coord as i32 + v).collect();
+
+        let mut new_up_destination = vec![0usize;up_destination.len()];
+        for (index,&side) in up_origin.iter().enumerate()
+        {
+            if self.modulo
+            {
+                new_up_destination[index] = side.rem_euclid(self.sides.sides[index]);
+            }
+            else if side as i32 + self.vector[index] < 0 || side as i32 + self.vector[index] >= self.sides.sides[index] as i32
+            {
+                return origin;
+            } else {
+                new_up_destination[index] = (side as i32 + self.vector[index]) as usize;
+            }
+        }
+        // println!(" {:?}+{:?}={:?}",up_origin,self.vector,new_up_destination);
+        self.sides.pack(&new_up_destination)
+    }
+}
+
+impl AddVector
+{
+    pub fn new(arg:PatternBuilderArgument) -> AddVector
+    {
+        let mut vector = None;
+        let mut sides:Option<Vec<_>>=None;
+        let mut modulo = true;
+        match_object_panic!(arg.cv, "AddVector", value,
+            "sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+                .map(|v|v.as_usize().expect("bad value in sides")).collect()),
+            "shift" => vector = Some(value.as_array().expect("bad value for vector").iter()
+                .map(|v|v.as_i32().expect("bad value in vector")).collect()),
+            "modulo" => modulo = value.as_bool().expect("bad value for modulo"),
+        );
+        let vector = vector.expect("There were no vector in configuration of AddVector.");
+        let sides = sides.expect("There were no sides in configuration of AddVector.");
+        AddVector{
+            sides: CartesianData::new(&sides),
+            vector,
+            modulo,
+        }
+    }
+}

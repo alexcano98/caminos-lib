@@ -1,5 +1,6 @@
+use std::cell::RefCell;
 use std::cmp::max;
-use crate::pattern::extra::{get_hotspot_destination, get_stencil_pattern, get_switch_pattern};
+use crate::pattern::extra::{get_hotspot_destination, get_switch_pattern};
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -14,9 +15,8 @@ use crate::config_parser::ConfigurationValue;
 use crate::pattern::{new_pattern, PatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
-use crate::traffic::basic::{build_burst_cv, build_message_cv, BuildBurstCVArgs, BuildMessageCVArgs};
-use crate::traffic::collectives::{build_message_barrier_cv, BuildMessageBarrierCVArgs};
-use crate::traffic::TaskTrafficState::{Generating, UnspecifiedWait};
+use crate::traffic::basic::{build_message_cv, BuildMessageCVArgs};
+use crate::traffic::TaskTrafficState::{Finished, Generating, UnspecifiedWait};
 use crate::pattern::extra::{get_candidates_selection,get_cartesian_transform};
 
 
@@ -277,20 +277,6 @@ Starts at the corner of the space (0,0,...,0) and ends at the opposite corner (n
 		data_size: 16,
 	}
 ```
-
-## Stencil
-The stencil traffic is applied over a n-dimensional space.
-The n dimensions are go through, and in each dimension, each task sends a message to its +1 and -1 neighbors.
-The parameter `synchronization_at_each_dimension` indicates if a barrier is placed at the end of each dimension.
-
-```ignore
-	Stencil{
-		task_space: [10,10,10],
-		message_size: 16,
-		synchronization_at_each_dimension: true,
-	}
-```
-
 **/
 
 #[derive(Quantifiable)]
@@ -317,23 +303,6 @@ impl MiniApp {
 
                 get_wavefront(task_space, data_size)
             },
-			"Stencil" => {
-				let mut task_space = None;
-				let mut message_size = None;
-				let mut barriers_at_each_dimension = None;
-
-				match_object_panic!(arg.cv, "Stencil", value,
-					"task_space" => task_space = Some(value.as_array().expect("Bad task_space value").iter().map(|v| v.as_f64().expect("Bad task_space value") as usize).collect()),
-					"message_size" => message_size = Some(value.as_f64().expect("Bad message_size value") as usize),
-					"synchronization_at_each_dimension" => barriers_at_each_dimension = Some(value.as_bool().expect("Bad barriers_at_each_dimension value")),
-				);
-
-				let task_space = task_space.expect("task_space is required");
-				let message_size = message_size.expect("message_size is required");
-				let barriers_at_each_dimension = barriers_at_each_dimension.expect("barriers_at_each_dimension is required");
-
-				get_stencil(task_space, message_size, barriers_at_each_dimension)
-			},
             _ => panic!("Unknown traffic type: {}", traffic),
         };
         new_traffic(TrafficBuilderArgument{cv: &traffic_cv, ..arg})
@@ -373,19 +342,19 @@ fn get_wavefront(task_space: Vec<usize>, data_size:usize) -> ConfigurationValue{
 	]);
 
 	let traffic_credit_pattern = (0..task_space.len()).into_iter().map(|i|
-		 {
-			 let mut patterns = identity_pattern_vector.clone();
-			 patterns[i]= get_hotspot_destination(vec![task_space[i] -1]);
-			 let cartesian_transform = get_cartesian_transform(task_space.clone(), None, Some(patterns));
-			 let switch_indexing = get_candidates_selection(cartesian_transform, tasks);
-			 let mut shift = vec![0; task_space.len()];
-			 shift[i] = 1;
-			 let switch_patterns = vec![
-				 get_cartesian_transform(task_space.clone(), Some(shift), None),
-				 ConfigurationValue::Object("Identity".to_string(), vec![]), //Its in a edge of the n-dimensional space
-			 ];
-			 get_switch_pattern(switch_indexing, switch_patterns)
-		 }
+	 {
+		 let mut patterns = identity_pattern_vector.clone();
+		 patterns[i]= get_hotspot_destination(vec![task_space[i] -1]);
+		 let cartesian_transform = get_cartesian_transform(task_space.clone(), None, Some(patterns));
+		 let switch_indexing = get_candidates_selection(cartesian_transform, tasks);
+		 let mut shift = vec![0; task_space.len()];
+		 shift[i] = 1;
+		 let switch_patterns = vec![
+			 get_cartesian_transform(task_space.clone(), Some(shift), None),
+			 ConfigurationValue::Object("Identity".to_string(), vec![]), //Its in a edge of the n-dimensional space
+		 ];
+		 get_switch_pattern(switch_indexing, switch_patterns)
+	 }
 	).collect();
 	let traffic_credit_pattern = ConfigurationValue::Object( "RoundRobin".to_string(), vec![
 		("patterns".to_string(), ConfigurationValue::Array(traffic_credit_pattern)),
@@ -415,28 +384,172 @@ fn get_wavefront(task_space: Vec<usize>, data_size:usize) -> ConfigurationValue{
 	build_message_cv(traffic_message_cv_builder)
 }
 
-fn get_stencil(task_space: Vec<usize>, message_size: usize, barriers_at_each_dimension: bool) -> ConfigurationValue
+/**
+Stencil traffic pattern. Get destinations from a pattern and send messages to each destination available.
+The pattern should not repeat destinations from each source.
+
+```ignore
+Stencil{
+	tasks: 9,
+	pattern: KingNeighbours{ //Iter the neighbours inside a chessboard distance. No wrap-around
+		sides: [3,3],
+		distance: 1,
+	},
+	message_size: 16,
+	messages_per_destination: 1,
+}
+```
+**/
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct Stencil
 {
-	let tasks = task_space.iter().product();
-	let stencil_pattern = get_stencil_pattern(task_space.clone());
-	let traffic_message_cv_builder = BuildBurstCVArgs{
-		pattern: stencil_pattern,
-		tasks,
-		messages_per_task: task_space.len() * 2,
-		message_size,
-		expected_messages_to_consume_per_task: Some(task_space.len() * 2),
-	};
+	///Number of tasks applying this traffic.
+	tasks: usize,
+	///The size of each sent message.
+	message_size: usize,
+	///The number of messages each task can sent to each destination.
+	messages_per_destination: usize,
+	///The destinations of each task.
+	destinations: Vec<Vec<usize>>,
+	///The index of the next destination to send a message.
+	index_to_send: Vec<usize>,
+	///The number of messages each task has sent to each destination.
+	messages_sent: Vec<Vec<usize>>,
+	///The number of messages to recieve
+	messages_to_recieve: RefCell<Vec<usize>>,
+	///id of the next message to generate
+	next_id: u128,
+	///Set of generated messages.
+	generated_messages: BTreeSet<u128>,
+}
 
-	if barriers_at_each_dimension{
-		let message_barrier_cv_builder = BuildMessageBarrierCVArgs{
-			traffic: build_burst_cv(traffic_message_cv_builder),
+impl Traffic for Stencil
+{
+	fn generate_message(&mut self, origin: usize, cycle: Time, _topology: &dyn Topology, _rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
+		let id = self.next_id;
+		let index_to_send = self.index_to_send[origin];
+
+		let destination = self.destinations[origin][index_to_send];
+		self.messages_sent[origin][index_to_send] += 1;
+		self.generated_messages.insert(id);
+
+		self.index_to_send[origin] = (index_to_send+1) % self.destinations[origin].len();
+		self.next_id += 1;
+
+		Ok(Rc::new(Message {
+			origin,
+			destination,
+			size: self.message_size,
+			creation_cycle: cycle,
+			payload: id.to_le_bytes().into(),
+			id_traffic: None,
+		}))
+	}
+
+	fn probability_per_cycle(&self, task: usize) -> f32 {
+		if self.messages_sent[task][self.index_to_send[task]] < self.messages_per_destination
+		{
+			1.0
+		}
+		else
+		{
+			0.0
+		}
+	}
+
+	fn consume(&mut self, task: usize, message: &dyn AsMessage, _cycle: Time, _topology: &dyn Topology, _rng: &mut StdRng) -> bool {
+		let mut consumed_messages = self.messages_to_recieve.borrow_mut();
+		if consumed_messages[task] == 0
+		{
+			panic!("Task {} has no messages to consume", task);
+		}
+		consumed_messages[task] -= 1;
+		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
+		self.generated_messages.remove(&id)
+	}
+
+	fn is_finished(&self) -> bool {
+		self.generated_messages.is_empty() && self.messages_sent.iter().enumerate().all(|(i,v)| v[self.index_to_send[i]] == self.messages_per_destination)
+	}
+
+	fn should_generate(&mut self, task: usize, _cycle: Time, _rng: &mut StdRng) -> bool {
+		self.messages_sent[task][self.index_to_send[task]] < self.messages_per_destination
+	}
+
+	fn task_state(&self, task: usize, _cycle: Time) -> Option<TaskTrafficState> {
+		if self.messages_sent[task][self.index_to_send[task]] < self.messages_per_destination {
+			Some(Generating)
+		} else {
+			if self.messages_to_recieve.borrow()[task] > 0 {
+				Some(UnspecifiedWait)
+			} else {
+				Some(Finished)
+			}
+		}
+	}
+
+	fn number_tasks(&self) -> usize {
+		self.tasks
+	}
+}
+
+impl Stencil
+{
+	pub fn new(arg: TrafficBuilderArgument) -> Stencil
+	{
+		let mut tasks = None;
+		let mut pattern_cv = None;
+		let mut message_size = None;
+		let mut messages_per_destination = None;
+
+		match_object_panic!(arg.cv, "Stencil", value,
+			"tasks" => tasks = Some(value.as_usize().expect("bad value for tasks")),
+			"pattern" => pattern_cv = Some(value),
+			"message_size" => message_size = Some(value.as_usize().expect("bad value for message_size")),
+			"messages_per_destination" => messages_per_destination = Some(value.as_usize().expect("bad value for messages_per_destination")),
+		);
+
+		let tasks = tasks.expect("There were no tasks");
+		let pattern_cv = pattern_cv.expect("There were no pattern");
+		let messages_per_destination = messages_per_destination.expect("There were no messages_per_destination");
+		let message_size = message_size.expect("There were no message_size");
+		// let pattern = new_pattern(PatternBuilderArgument{cv:pattern_cv, plugs:arg.plugs});
+
+		let mut pattern_count = new_pattern(PatternBuilderArgument{cv:pattern_cv, plugs:arg.plugs});
+		pattern_count.initialize(tasks, tasks, arg.topology, arg.rng);
+		let mut messages_per_task = vec![vec![]; tasks];
+		let mut destinations_per_task = vec![vec![]; tasks];
+		let mut messages_to_recieve = vec![0; tasks];
+
+		'outer: for i in 0..tasks{
+			let mut destinations = vec![];
+			for _ in 0..tasks{
+				let dest = pattern_count.get_destination(i, arg.topology, arg.rng);
+				if !destinations.contains(&dest){
+					destinations.push(dest);
+				} else {
+					messages_per_task[i] = vec![0; destinations.len()];
+					messages_to_recieve[i] = destinations.len() * messages_per_destination;
+					destinations_per_task[i] = destinations;
+					continue 'outer;
+				}
+			}
+			messages_per_task.push(vec![0; destinations.len()]);
+			messages_to_recieve.push(destinations.len() * messages_per_destination);
+			destinations_per_task.push(destinations);
+		}
+
+		Stencil{
 			tasks,
-			messages_per_task_to_wait: 2,
-			expected_messages_to_consume_to_wait: Some(2),
-		};
-		build_message_barrier_cv(message_barrier_cv_builder)
-
-	}else{
-		build_burst_cv(traffic_message_cv_builder)
+			message_size,
+			messages_per_destination,
+			destinations: destinations_per_task,
+			index_to_send: vec![0; tasks],
+			messages_sent: messages_per_task,
+			messages_to_recieve: RefCell::new(messages_to_recieve),
+			next_id: 0,
+			generated_messages: BTreeSet::new(),
+		}
 	}
 }

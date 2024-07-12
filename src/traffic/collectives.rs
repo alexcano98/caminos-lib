@@ -159,6 +159,7 @@ impl MessageBarrier
     }
 }
 
+#[allow(dead_code)]
 pub struct BuildMessageBarrierCVArgs {
     pub traffic: ConfigurationValue,
     pub tasks: usize,
@@ -166,6 +167,7 @@ pub struct BuildMessageBarrierCVArgs {
     pub expected_messages_to_consume_to_wait: Option<usize>,
 }
 
+#[allow(dead_code)]
 pub fn build_message_barrier_cv(args: BuildMessageBarrierCVArgs) -> ConfigurationValue
 {
     let mut cv = vec![
@@ -186,7 +188,7 @@ pub fn build_message_barrier_cv(args: BuildMessageBarrierCVArgs) -> Configuratio
 MPI collectives implementations based on TrafficCredit
 
 ```ignore
-Allgather{
+AllGather{
     tasks: 64,
     data_size: 1000, //The total data size to all-gather. Each task starts with a data slice of size data_size/tasks.
     algorithm: "Hypercube",
@@ -199,7 +201,7 @@ ScatterReduce{
     algorithm: "Hypercube",
 }
 
-Allreduce{
+AllReduce{
     tasks: 64,
     data_size: 1000, //The total data size to all-reduce.
     algorithm: "Optimal",

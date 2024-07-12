@@ -14,7 +14,7 @@ mod basic;
 mod operations;
 
 use crate::AsMessage;
-use crate::traffic::mini_apps::{MiniApp, TrafficCredit};
+use crate::traffic::mini_apps::{MiniApp, Stencil, TrafficCredit};
 use crate::traffic::collectives::MessageBarrier;
 use crate::traffic::collectives::MPICollective;
 use crate::traffic::sequences::MessageTaskSequence;
@@ -268,8 +268,9 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"Messages" => Box::new(TrafficMessages::new(arg)),
 			"MessageTaskSequence" => Box::new(MessageTaskSequence::new(arg)),
 			"MessageBarrier" => Box::new(MessageBarrier::new(arg)),
+			"Stencil" => Box::new(Stencil::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
-			"Wavefront" | "Stencil" => MiniApp::new(cv_name.clone(), arg),
+			"Wavefront" => MiniApp::new(cv_name.clone(), arg),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}

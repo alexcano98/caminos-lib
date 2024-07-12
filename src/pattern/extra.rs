@@ -580,6 +580,24 @@ impl DebugPattern{
     }
 }
 
+/**
+Neighbours pattern that selects the neighbours of a node in a space.
+```ignore
+
+NearestNeighbours{ //Iter the neighbours of a node in each dimension. No wrap-around
+    sides: [3,3],
+}
+
+ManhattanNeighbours{ //Iter the neighbours inside a manhattan distance. No wrap-around
+    sides: [3,3],
+    distance: 1,
+}
+
+KingNeighbours{ //Iter the neighbours inside a chessboard distance. No wrap-around
+    sides: [3,3],
+    distance: 1,
+}
+**/
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct EncapsulatedPattern {}
@@ -587,14 +605,38 @@ pub struct EncapsulatedPattern {}
 impl EncapsulatedPattern {
     pub(crate) fn new(pattern: String, arg:PatternBuilderArgument) -> Box<dyn Pattern> {
         let pattern_cv = match pattern.as_str(){
-            "Stencil" =>{
-                let mut task_space = None;
-                match_object_panic!(arg.cv,"Stencil",value,
-					"task_space" => task_space = Some(value.as_array().expect("bad value for task_space").iter()
-						.map(|v|v.as_usize().expect("bad value in task_space")).collect()),
+            "NearestNeighbours" =>{
+                let mut sides = None;
+                match_object_panic!(arg.cv,"NearestNeighbours",value,
+					"sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+						.map(|v|v.as_usize().expect("bad value in sides")).collect()),
 				);
-                let task_space = task_space.expect("There were no task_space in configuration of Stencil.");
-                Some(get_stencil_pattern(task_space))
+                let sides = sides.expect("There were no sides in configuration of Stencil.");
+                Some(get_nearest_neighbours_pattern(sides))
+            },
+            "ManhattanNeighbours" =>{
+                let mut distance = None;
+                let mut sides = None;
+                match_object_panic!(arg.cv,"ManhattanNeighbours",value,
+                    "sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+                        .map(|v|v.as_usize().expect("bad value in sides")).collect()),
+                    "distance" => distance = Some(value.as_usize().expect("bad value for distance")),
+                );
+                let distance = distance.expect("There were no distance in configuration of ManhattanNeighbours.");
+                let sides = sides.expect("There were no sides in configuration of ManhattanNeighbours.");
+                Some(get_manhattan_neighbours_pattern(&sides, distance))
+            },
+            "KingNeighbours" =>{
+                let mut distance = None;
+                let mut sides = None;
+                match_object_panic!(arg.cv,"KingNeighbours",value,
+                    "sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+                        .map(|v|v.as_usize().expect("bad value in sides")).collect()),
+                    "distance" => distance = Some(value.as_usize().expect("bad value for distance")),
+                );
+                let distance = distance.expect("There were no distance in configuration of KingNeighbours.");
+                let sides = sides.expect("There were no sides in configuration of KingNeighbours.");
+                Some(get_king_neighbours_pattern(&sides, distance))
             },
             _ => panic!("Pattern {} not found.",pattern),
         };
@@ -602,39 +644,127 @@ impl EncapsulatedPattern {
     }
 }
 
-pub(crate) fn get_stencil_pattern(task_space: Vec<usize>) -> ConfigurationValue
+pub fn get_nearest_neighbours_pattern(sides: Vec<usize>) -> ConfigurationValue
 {
-    let space_cv = ConfigurationValue::Array(task_space.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
+    get_manhattan_neighbours_pattern(&sides, 1)
+}
 
-    let mut transforms = vec![];
-    for i in 0..task_space.len()
+pub fn get_neighbours_pattern(sides: Vec<usize>, transforms: Vec<Vec<i32>>) -> ConfigurationValue
+{
+    let space_cv = ConfigurationValue::Array(sides.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
+
+    let mut transforms_cv = vec![];
+    for i in transforms
     {
-        let mut transform_suc = vec![0;task_space.len()]; //next element in dimension
-        transform_suc[i] = 1;
-        let transform_suc_cv = ConfigurationValue::Array(transform_suc.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
-
-        let mut transform_pred = vec![0;task_space.len()]; //previous element in dimension
-        transform_pred[i] = (task_space[i] -1).rem_euclid(task_space[i]);
-        let transform_pred_cv = ConfigurationValue::Array(transform_pred.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
-
-        transforms.push(
-            ConfigurationValue::Object("CartesianTransform".to_string(), vec![
+        transforms_cv.push(
+            ConfigurationValue::Object("AddVector".to_string(), vec![
                 ("sides".to_string(), space_cv.clone()),
-                ("shift".to_string(), transform_suc_cv),
-            ]),
-        );
-
-        transforms.push(
-            ConfigurationValue::Object("CartesianTransform".to_string(), vec![
-                ("sides".to_string(), space_cv.clone()),
-                ("shift".to_string(), transform_pred_cv),
+                ("shift".to_string(), ConfigurationValue::Array(i.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<ConfigurationValue>>())),
+                ("modulo".to_string(), ConfigurationValue::False),
             ]),
         );
     }
 
-    ConfigurationValue::Object( "RoundRobin".to_string(), vec![
-        ("patterns".to_string(), ConfigurationValue::Array(transforms)),
+    ConfigurationValue::Object( "DestinationSets".to_string(), vec![
+        ("patterns".to_string(), ConfigurationValue::Array(transforms_cv)),
+        ("exclude_self_references".to_string(), ConfigurationValue::True),
     ])
+}
+
+pub fn get_king_neighbours_pattern(sides: &Vec<usize>, chessboard_distance: usize) -> ConfigurationValue
+{
+    let transforms = get_vectors_in_king_distance(sides, chessboard_distance);
+    get_neighbours_pattern(sides.clone(), transforms)
+}
+
+/// sides are the sides of the space, chessboard_distance is the distance to be considered
+pub fn get_vectors_in_king_distance(sides: &[usize], chessboard_distance: usize) -> Vec<Vec<i32>>
+{
+    let vectors = get_vectors_in_king_distance_aux(sides, chessboard_distance);
+    let mut vectors:Vec<Vec<i32>> = vectors.into_iter().filter(|e| !e.iter().all(|&i| i == 0)).collect(); //remove all 0s
+    vectors.sort();
+    vectors
+}
+
+pub fn get_vectors_in_king_distance_aux(sides: &[usize], chessboard_distance: usize) -> Vec<Vec<i32>>
+{
+    let total_dist = chessboard_distance as i32;
+    if chessboard_distance == 0
+    {
+        vec![vec![0;sides.len()]]
+    }else if sides.len() == 1
+    {
+        (-total_dist..=total_dist).map(|i| vec![i] ).collect()
+    } else {
+        let mut vectors = vec![];
+        let vec = get_vectors_in_king_distance_aux(&sides[1..], chessboard_distance);
+
+        let vec_1 = extend_vectors(vec.clone(), 0);
+        vectors.extend(vec_1);
+
+        for dist in 1..=total_dist
+        {
+            let vec_1 = extend_vectors(vec.clone(), dist);
+            vectors.extend(vec_1);
+
+            let vec_2 = extend_vectors(vec.clone(), -dist);
+            vectors.extend(vec_2);
+        }
+        vectors
+    }
+}
+
+pub fn get_manhattan_neighbours_pattern(sides: &Vec<usize>, manhattan_distance: usize) -> ConfigurationValue
+{
+    let transforms = get_vectors_in_manhattan_distance(sides, manhattan_distance);
+    get_neighbours_pattern(sides.clone(), transforms)
+}
+
+/// sides are the sides of the space, manhattan_distance is the distance to be considered
+pub fn get_vectors_in_manhattan_distance(sides: &Vec<usize>, manhattan_distance: usize) -> Vec<Vec<i32>>
+{
+    let vectors = get_vectors_in_manhattan_distance_aux(sides, manhattan_distance);
+    let mut vectors:Vec<Vec<i32>> = vectors.into_iter().filter(|e| !e.iter().all(|&i| i == 0)).collect(); //remove all 0s
+    vectors.sort();
+    vectors
+}
+
+
+/// sides are the sides of the space, manhattan_distance is the distance to be considered
+pub fn get_vectors_in_manhattan_distance_aux(sides: &[usize], manhattan_distance: usize) -> Vec<Vec<i32>>
+{
+    let total_dist = manhattan_distance as i32;
+    if manhattan_distance == 0
+    {
+        vec![vec![0;sides.len()]]
+    } else if sides.len() == 1{
+        (-total_dist..=total_dist).map(|i| vec![i] ).collect()
+    } else {
+        let mut vectors = vec![];
+        for dist in 0..=total_dist
+        {
+            let vec = get_vectors_in_manhattan_distance_aux(&sides[1..], (total_dist - dist) as usize);
+            let vec_1 = extend_vectors(vec.clone(), dist);
+            vectors.extend(vec_1);
+            if dist != 0{
+                let vec_2 = extend_vectors(vec.clone(), -dist);
+                vectors.extend(vec_2);
+            }
+        }
+        vectors
+    }
+}
+
+
+pub fn extend_vectors(vectors: Vec<Vec<i32>>, value: i32) -> Vec<Vec<i32>>
+{
+    let mut new_vectors = vec![];
+    for mut vector in vectors
+    {
+        vector.push(value);
+        new_vectors.push(vector);
+    }
+    new_vectors
 }
 
 
@@ -776,5 +906,223 @@ impl MiDebugPattern {
             source_size,
             target_size,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pattern::extra::{get_vectors_in_king_distance, get_vectors_in_manhattan_distance};
+
+    #[test]
+    fn test_manhattan_neighbours_distance_1() {
+
+        let sides = vec![3];
+        let manhattan_distance = 1;
+        let vectors = get_vectors_in_manhattan_distance(&sides, manhattan_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 2);
+        let expected = vec![
+            vec![-1],
+            vec![1],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+
+
+        let sides = vec![3,3];
+        let vectors = get_vectors_in_manhattan_distance(&sides, manhattan_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 4);
+        let expected = vec![
+            vec![-1,0],
+            vec![0,-1],
+            vec![0,1],
+            vec![1,0],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+
+
+        let sides = vec![3,3,3];
+        let vectors = get_vectors_in_manhattan_distance(&sides, manhattan_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 6);
+        let expected = vec![
+            vec![-1, 0, 0],
+            vec![ 0,-1, 0],
+            vec![ 0, 0,-1],
+            vec![ 0, 0, 1],
+            vec![ 0, 1, 0],
+            vec![ 1, 0, 0],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+    }
+
+    #[test]
+    fn test_manhattan_neighbours_distance_3() {
+
+        let sides = vec![8];
+        let manhattan_distance = 3;
+        let vectors = get_vectors_in_manhattan_distance(&sides, manhattan_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 6);
+        let expected = vec![
+            vec![-3],
+            vec![-2],
+            vec![-1],
+            vec![1],
+            vec![2],
+            vec![3],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+
+
+        let sides = vec![8,8];
+        let vectors = get_vectors_in_manhattan_distance(&sides, manhattan_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 24);
+        let expected = vec![
+            vec![-3,0],
+            vec![-2,-1],
+            vec![-2,0],
+            vec![-2,1],
+
+            vec![-1,-2],
+            vec![-1,-1],
+            vec![-1,0],
+            vec![-1,1],
+            vec![-1,2],
+
+
+            vec![0,-3],
+            vec![0,-2],
+            vec![0,-1],
+            vec![0,1],
+            vec![0,2],
+            vec![0,3],
+
+            vec![1,-2],
+            vec![1,-1],
+            vec![1,0],
+            vec![1,1],
+            vec![1,2],
+
+            vec![2,-1],
+            vec![2,0],
+            vec![2,1],
+
+            vec![3,0],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+    }
+
+    #[test]
+    fn test_king_neighbours_distance_1() {
+
+        let sides = vec![3];
+        let chessboard_distance = 1;
+        let vectors = get_vectors_in_king_distance(&sides, chessboard_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 2);
+        let expected = vec![
+            vec![-1],
+            vec![1],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+
+        let sides = vec![3,3];
+        let vectors = get_vectors_in_king_distance(&sides, chessboard_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 8);
+        let expected = vec![
+            vec![-1,-1],
+            vec![-1,0],
+            vec![-1,1],
+
+            vec![0,-1],
+            vec![0,1],
+
+            vec![1,-1],
+            vec![1,0],
+            vec![1,1],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+
+        let sides = vec![3,3,3];
+        let vectors = get_vectors_in_king_distance(&sides, chessboard_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 26);
+        let expected = vec![
+            vec![-1,-1,-1],
+            vec![-1,-1, 0],
+            vec![-1,-1, 1],
+            vec![-1, 0,-1],
+            vec![-1, 0, 0],
+            vec![-1, 0, 1],
+            vec![-1, 1,-1],
+            vec![-1, 1, 0],
+            vec![-1, 1, 1],
+
+
+            vec![0,-1,-1],
+            vec![0,-1, 0],
+            vec![0,-1, 1],
+
+            vec![0, 0,-1],
+            vec![0, 0, 1],
+
+            vec![0,1,-1],
+            vec![0,1,0],
+            vec![0,1,1],
+
+            vec![1,-1,-1],
+            vec![1,-1, 0],
+            vec![1,-1, 1],
+            vec![1, 0,-1],
+            vec![1, 0, 0],
+            vec![1, 0, 1],
+            vec![1, 1,-1],
+            vec![1, 1, 0],
+            vec![1, 1, 1],
+
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+    }
+
+    #[test]
+    fn test_king_neighbours_distance_2() {
+        let sides = vec![8];
+        let chessboard_distance = 2;
+        let vectors = get_vectors_in_king_distance(&sides, chessboard_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 4);
+        let expected = vec![
+            vec![-2],
+            vec![-1],
+            vec![1],
+            vec![2],
+        ];
+        for (index, vector) in vectors.iter().enumerate() {
+            assert_eq!(vector, &expected[index]);
+        }
+
+        let sides = vec![8,8];
+        let vectors = get_vectors_in_king_distance(&sides, chessboard_distance);
+        println!("{:?}", vectors);
+        assert_eq!(vectors.len(), 24);
     }
 }
