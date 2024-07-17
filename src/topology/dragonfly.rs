@@ -1280,13 +1280,9 @@ impl PAR
 
 
 /**
-* Experimental routing for Dragonfly which allow direct routes instead of only Minimal
-* Direct routes use the same resources as minimal routes, but they are not minimal paths over the graph
-* Used in Dragonflies with trunking
-* ```ignore
-* DragonflyDirect{
-* }
-* TODO: Add doc and refactor the code
+	Routing for Dragonfly, which allows direct routes instead of only Minimal.
+	Direct routes use the same resources (VC) as minimal routes, but they are not minimal paths over the graph.
+	Used in Dragonflies with trunking.
 **/
 #[derive(Debug)]
 pub struct DragonflyDirect
@@ -1295,14 +1291,10 @@ pub struct DragonflyDirect
 	class_weight:Vec<usize>,
 	///The distance matrix computed, including weights.
 	distance_matrix: Matrix<usize>,
-	///The distance matrix computed, including weights.
-	local_matrix: Matrix<usize>,
-	///Group matrix
-	group_matrix: Matrix<usize>,
 	///Max weight distance
 	total_max_weight_distance:usize,
-	///Max weight distance
-	max_hops_per_class:Vec<usize>,
+	///Global connection matrix
+	group_matrix: Matrix<usize>,
 }
 
 impl Routing for DragonflyDirect
@@ -1315,13 +1307,10 @@ impl Routing for DragonflyDirect
 			let target_server = target_server.expect("target server was not given.");
 			for i in 0..topology.ports(current_router)
 			{
-				//println!("{} -> {:?}",i,topology.neighbour(current_router,i));
 				if let (Location::ServerPort(server),_link_class)=topology.neighbour(current_router,i)
 				{
 					if server==target_server
 					{
-						//return (0..num_virtual_channels).map(|vc|(i,vc)).collect();
-						//return (0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)).collect();
 						return Ok(RoutingNextCandidates{candidates:(0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)).collect(),idempotent:true});
 					}
 				}
@@ -1331,25 +1320,18 @@ impl Routing for DragonflyDirect
 		let num_ports=topology.ports(current_router);
 		let mut r=Vec::with_capacity(num_ports*num_virtual_channels);
 		let selections = routing_info.selections.as_ref().unwrap();
-		let current_weight = selections.iter().zip(self.class_weight.iter()).map(|(&s,&w)|s as usize * w).sum::<usize>();
 		for i in 0..num_ports
 		{
-			//println!("{} -> {:?}",i,topology.neighbour(current_router,i));
 			if let (Location::RouterPort{router_index,router_port:_},link_class)=topology.neighbour(current_router,i)
 			{
-				if link_class == 0 && selections[0] != 0 && selections[1] == 0
+				if link_class == 0 && selections[0] != 0 && selections[1] == 0 //AVOID DEADLOCK
 				{
 					continue
 				}
 				let link_weight = self.class_weight[link_class];
-				//if distance>*self.distance_matrix.get(router_index,target_router)
 				let new_distance = *self.distance_matrix.get(router_index, target_router);
 				if new_distance + link_weight == distance
-					|| (current_weight + link_weight + new_distance <= self.total_max_weight_distance
-						&& selections[link_class] +1 <= self.max_hops_per_class[link_class] as i32
-						&& distance > self.class_weight[1] && selections[0] == 0
-						&& *self.group_matrix.get(router_index, target_router) == 100usize
-				) //This is adapted to DF
+					|| (selections[0] == 0 && selections[1] == 0 && distance != self.class_weight[0] && distance != self.class_weight[1] && *self.group_matrix.get(router_index,target_router) == self.class_weight[1] &&(link_weight+new_distance) <= self.total_max_weight_distance) //This is adapted to DF
 				{
 					r.extend((0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)));
 				}
@@ -1359,36 +1341,22 @@ impl Routing for DragonflyDirect
 	}
 	fn initialize(&mut self, topology:&dyn Topology, _rng: &mut StdRng)
 	{
-		let distance_matrix=topology.compute_distance_matrix(Some(&self.class_weight));
 		self.distance_matrix = topology.compute_distance_matrix(Some(&self.class_weight));
-		self.local_matrix = Matrix::constant(0, distance_matrix.get_rows(), distance_matrix.get_columns());
-		self.group_matrix = Matrix::constant(0,distance_matrix.get_rows(),distance_matrix.get_columns());
-		for i in 0..distance_matrix.get_rows()
+		self.group_matrix = Matrix::constant(0, self.distance_matrix.get_rows(), self.distance_matrix.get_columns());
+		for i in 0..self.distance_matrix.get_rows()
 		{
-			for j in 0..distance_matrix.get_columns()
+			for j in 0..self.distance_matrix.get_columns()
 			{
-				let d = *distance_matrix.get(i,j);
-				if d == self.class_weight[0]
-				{
-					*self.local_matrix.get_mut(i,j) = d;
-
-				}
-			}
-		}
-		for i in 0..distance_matrix.get_rows()
-		{
-			for j in 0..distance_matrix.get_columns()
-			{
-				let d = *distance_matrix.get(i,j);
+				let d = *self.distance_matrix.get(i, j);
 				if d == self.class_weight[1]
 				{
 					*self.group_matrix.get_mut(i, j) = d;
 					for j_2 in 0..self.distance_matrix.get_columns()
 					{
-						let d_2 = *distance_matrix.get(j,j_2);
+						let d_2 = *self.distance_matrix.get(j, j_2);
 						if d_2 == self.class_weight[0]
 						{
-							*self.group_matrix.get_mut(i,j_2) = d;
+							*self.group_matrix.get_mut(i, j_2) = d;
 						}
 					}
 				}
@@ -1419,26 +1387,24 @@ impl DragonflyDirect
 {
 	pub fn new(_arg: RoutingBuilderArgument) -> DragonflyDirect
 	{
-		let class_weight=vec![1, 100];
-		let total_max_weight_distance= 120;
-		let max_hops_per_class =vec![2, 1];
+		let class_weight= vec![1usize, 100];
+		let total_max_weight_distance= 102;
+
 		// match_object_panic!(arg.cv,"DragonflyDirect",value,
 		// 	"class_weight" => class_weight = Some(value.as_array()
 		// 		.expect("bad value for class_weight").iter()
 		// 		.map(|v|v.as_f64().expect("bad value in class_weight") as usize).collect()),
-		// 	"total_max_weight_distance" => total_max_weight_distance = value.as_f64().expect("bad value for total_max_weight_distance") as usize,
-		// 	"max_hops_per_class" => max_hops_per_class = value.as_array()
-		// 		.expect("bad value for local_max_weight_distance").iter()
-		// 		.map(|v|v.as_f64().expect("bad value in local_max_weight_distance") as usize).collect(),
+		// 	"total_max_weight_distance" => total_max_weight_distance = Some(value.as_f64().expect("bad value for total_max_weight_distance") as usize ),
 		// );
+		//
 		// let class_weight=class_weight.expect("There were no class_weight");
+		// let total_max_weight_distance=total_max_weight_distance.expect("There were no total_max_weight_distance");
+
 		DragonflyDirect {
 			class_weight,
 			distance_matrix:Matrix::constant(0, 0, 0),
-			local_matrix:Matrix::constant(0, 0, 0),
 			group_matrix:Matrix::constant(0,0,0),
 			total_max_weight_distance,
-			max_hops_per_class,
 		}
 	}
 }
