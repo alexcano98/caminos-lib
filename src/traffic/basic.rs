@@ -410,12 +410,12 @@ impl Traffic for TrafficMessages
     {
         if self.num_messages > self.total_sent && (self.messages_per_task.is_none() || self.messages_per_task.as_ref().unwrap()[task] > 0){
             self.traffic.task_state(task, cycle)
-        } else {
+        }else{
             if let Some(expected_messages_to_consume) = self.expected_messages_to_consume {
                 return if self.total_consumed_per_task[task] < expected_messages_to_consume {
-                    Some(Finished)
-                } else {
                     Some(FinishedGenerating)
+                } else {
+                    Some(Finished)
                 }
             }
             Some(FinishedGenerating)

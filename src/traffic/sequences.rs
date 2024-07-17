@@ -88,19 +88,19 @@ impl Traffic for Sequence
     }
     fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
-        use crate::traffic::TaskTrafficState::*;
-        if self.current_traffic>=self.traffics.len()
-        {
-            Some(Finished)
-        } else {
-            let state = self.traffics[self.current_traffic].task_state(task,cycle).expect("TODO! the none case");
-            if let Finished=state{
-                Some(UnspecifiedWait)
-            } else {
-                Some(state)
-            }
-            //In the last traffic we could try to check for FinishedGenerating
-        }
+        self.traffics[self.current_traffic].task_state(task,cycle)
+        // if self.current_traffic>=self.traffics.len()
+        // {
+        //     Some(Finished)
+        // } else {
+        //     let state = self.traffics[self.current_traffic].task_state(task,cycle).expect("TODO! the none case");
+        //     if let Finished=state{
+        //         Some(UnspecifiedWait)
+        //     } else {
+        //         Some(state)
+        //     }
+        //     //In the last traffic we could try to check for FinishedGenerating
+        // }
     }
 
     fn number_tasks(&self) -> usize {

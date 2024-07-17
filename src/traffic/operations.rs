@@ -173,7 +173,7 @@ impl Traffic for TrafficMap
         let task_app = self.from_machine_to_app[task];
         if let Some(app) = task_app
         {
-            self.application.task_state(app, cycle).into()
+            self.application.task_state(app, cycle)
         }
         else
         {

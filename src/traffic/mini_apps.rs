@@ -16,7 +16,7 @@ use crate::pattern::{new_pattern, PatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::basic::{build_message_cv, BuildMessageCVArgs};
-use crate::traffic::TaskTrafficState::{Finished, Generating, UnspecifiedWait};
+use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, Generating, UnspecifiedWait};
 use crate::pattern::extra::{get_candidates_selection,get_cartesian_transform};
 
 
@@ -482,7 +482,7 @@ impl Traffic for Stencil
 			Some(Generating)
 		} else {
 			if self.messages_to_recieve.borrow()[task] > 0 {
-				Some(UnspecifiedWait)
+				Some(FinishedGenerating)
 			} else {
 				Some(Finished)
 			}
