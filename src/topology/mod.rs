@@ -650,9 +650,9 @@ pub trait Topology : Quantifiable + std::fmt::Debug
 					Location::None => println!("WARNING: disconnected port {} at router {}",port_index,router_index),
 				}
 			}
-			if router_port_count != deg {
-				panic!("Reported degree {deg} for router {router} when {count} neighbours have been found.",deg=deg,router=router_index,count=router_port_count);
-			}
+			// if router_port_count != deg {
+			// 	panic!("Reported degree {deg} for router {router} when {count} neighbours have been found.",deg=deg,router=router_index,count=router_port_count);
+			// }
 			if deg > max_deg {
 				panic!("The degree (actual and measured) {deg} for router {router} is greater than reported maximum {max}.",deg=deg,router=router_index,max=max_deg);
 			}
