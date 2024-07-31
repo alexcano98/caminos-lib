@@ -271,13 +271,13 @@ MapHop
 }
 ```
 
-### VOQ
+### VDQ
 
 Employ a different VC (or policy) to each destination.
 
 Example configuration:
 ```ignore
-VOQ{
+VDQ{ // Virtual Destination Queues
 	/// Optionally set a number of VCs to use in this policy. By default it uses a VC per destination node.
 	/// Packets to destination `dest` will use VC number `(dest % num_classes) + start_virtual_channel`.
 	//num_classes: 4,
@@ -327,7 +327,7 @@ pub fn new_virtual_channel_policy(arg:VCPolicyBuilderArgument) -> Box<dyn Virtua
 			// "VCFunction" => Box::new(VCFunction::new(arg)),
 			"MapMessageSize" => Box::new(MapMessageSize::new(arg)),
 			"Chain" => Box::new(Chain::new(arg)),
-			"VOQ" => Box::new(VOQ::new(arg)),
+			"VDQ" => Box::new(VDQ::new(arg)),
 			"CycleIntoNetwork" => Box::new(CycleIntoNetwork::new(arg)),
 			"NextLinkLabel" => Box::new(NextLinkLabel::new(arg)),
 			"CurrentLinkLabel" => Box::new(CurrentLinkLabel::new(arg)),
@@ -2653,11 +2653,11 @@ impl Chain
 
 
 /**
-Employ a different VC (or policy) to each destination.
+Virtual Destination Queues (VDQ) Employ a different VC (or policy) to each destination.
 
 Example configuration:
 ```ignore
-VOQ{
+VDQ{
 	/// Optionally set a number of VCs to use in this policy. By default it uses a VC per destination node.
 	/// Packets to destination `dest` will use VC number `(dest % num_classes) + start_virtual_channel`.
 	//num_classes: 4,
@@ -2671,7 +2671,7 @@ VOQ{
 ```
 **/
 #[derive(Debug)]
-pub struct VOQ
+pub struct VDQ
 {
 	/// Optionally set a number of VCs to use in this policy. By default it uses a VC per destination node.
 	/// Packets to destination `dest` will use VC number `(dest % num_classes) + start_virtual_channel`.
@@ -2685,11 +2685,11 @@ pub struct VOQ
 	policies_override: Vec<Box<dyn VirtualChannelPolicy>>,
 }
 
-impl VirtualChannelPolicy for VOQ
+impl VirtualChannelPolicy for VDQ
 {
 	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, topology:&dyn Topology, rng: &mut StdRng) -> Vec<CandidateEgress>
 	{
-		//let port_average_neighbour_queue_length=port_average_neighbour_queue_length.as_ref().expect("port_average_neighbour_queue_length have not been computed for policy VOQ");
+		//let port_average_neighbour_queue_length=port_average_neighbour_queue_length.as_ref().expect("port_average_neighbour_queue_length have not been computed for policy VDQ");
 		if router.get_index().expect("we need routers with index") == info.target_router_index
 		{
 			//do nothing
@@ -2730,22 +2730,22 @@ impl VirtualChannelPolicy for VOQ
 	}
 }
 
-impl VOQ
+impl VDQ
 {
-	pub fn new(arg:VCPolicyBuilderArgument) -> VOQ
+	pub fn new(arg:VCPolicyBuilderArgument) -> VDQ
 	{
 		let mut num_classes = None;
 		let mut switch_level = false;
 		let mut start_virtual_channel = 0;
 		let mut policies_override=vec![];
-		match_object_panic!(arg.cv,"VOQ",value,
+		match_object_panic!(arg.cv,"VDQ",value,
 			"num_classes" => num_classes = Some(value.as_usize().expect("bad value for num_classes")),
 			"switch_level" => switch_level = value.as_bool().expect("bad value for switch_level"),
 			"start_virtual_channel" => start_virtual_channel = value.as_usize().expect("bad value for start_virtual_channel"),
 			"policies_override" => policies_override=value.as_array().expect("bad value for policies_override").iter()
 				.map(|v|new_virtual_channel_policy(VCPolicyBuilderArgument{cv:v,..arg})).collect(),
 		);
-		VOQ{
+		VDQ{
 			num_classes,
 			switch_level,
 			start_virtual_channel,
