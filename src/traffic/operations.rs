@@ -797,3 +797,132 @@ impl Shifted
         }
     }
 }
+
+/**
+Traffic which replicate a block of traffic all over the network.
+The block traffic is defined by the `block_traffic` and the `replicas` parameter indicates how many blocks to place consecutively.
+```ignore
+Replica{
+    total_tasks: 1000,
+    block_tasks: 100,
+    block_traffic: HomogeneousTraffic{...},
+    replicas: 10,
+}
+```
+ **/
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct Replica
+{
+    ///The total number of tasks in the network.
+    total_tasks: usize,
+    ///The number of tasks in each block.
+    block_tasks: usize,
+    ///The traffic that is being replicated.
+    block_traffic: Vec<Box<dyn Traffic>>,
+    ///The number of blocks to replicate.
+    replicas: usize,
+    ///Set of generated messages.
+    generated_messages: BTreeMap<*const Message,Rc<Message>>,
+}
+
+impl Traffic for Replica
+{
+
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    {
+        let block=origin/self.block_tasks;
+        let local=origin%self.block_tasks;
+        let inner_message=self.block_traffic[block].generate_message(local,cycle,topology,rng)?;
+        let outer_message=Rc::new(Message{
+            origin,
+            destination:inner_message.destination+block*self.block_tasks,
+            size:inner_message.size,
+            creation_cycle: cycle,
+            payload: inner_message.payload.clone(),
+            id_traffic: None,
+        });
+        //self.generated_messages.insert(outer_message.as_ref() as *const Message,inner_message);
+        Ok(outer_message)
+    }
+    fn probability_per_cycle(&self,task:usize) -> f32
+    {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        self.block_traffic[block].probability_per_cycle(local)
+    }
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        let mut inner_message = ReferredPayload::from(message);
+        inner_message.destination -= block*self.block_tasks;
+        if !self.block_traffic[block].consume(local, &inner_message, cycle, topology, rng)
+        {
+            panic!("Replica traffic consumed a message but its child did not.");
+        }
+        true
+    }
+    fn is_finished(&self) -> bool
+    {
+        self.block_traffic.iter().all(|t|t.is_finished ())
+    }
+
+    fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        self.block_traffic[block].should_generate(local, cycle, rng)
+    }
+
+    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        self.block_traffic[block].task_state(local, cycle)
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.total_tasks
+    }
+
+    fn get_statistics(&self) -> Option<TrafficStatistics> {
+        None
+    }
+}
+
+impl Replica
+{
+    pub fn new(mut arg:TrafficBuilderArgument) -> Replica
+    {
+        let mut total_tasks=None;
+        let mut block_tasks=None;
+        let mut block_traffic_cv=None;
+        let mut replicas=None;
+        match_object_panic!(arg.cv,"Replica",value,
+            "block_traffic" => block_traffic_cv=Some(value),
+            "total_tasks" => total_tasks=Some(value.as_f64().expect("bad value for total_tasks") as usize),
+            "block_tasks" => block_tasks=Some(value.as_f64().expect("bad value for block_tasks") as usize),
+            "replicas" => replicas=Some(value.as_f64().expect("bad value for replicas") as usize),
+        );
+        let total_tasks=total_tasks.expect("There were no total_tasks");
+        let block_tasks=block_tasks.expect("There were no block_tasks");
+        let replicas=replicas.expect("There were no replicas");
+        let block_traffic_cv=block_traffic_cv.expect("There were no block_traffic");
+        let mut block_traffic=vec![];
+        for _ in 0..replicas
+        {
+            block_traffic.push(new_traffic(TrafficBuilderArgument{cv:block_traffic_cv,rng:&mut arg.rng,..arg}));
+        }
+        if total_tasks != block_tasks * replicas
+        {
+            panic!("The total number of tasks must be the product of the block size and the number of replicas.");
+        }
+        Replica{
+            total_tasks,
+            block_tasks,
+            block_traffic,
+            replicas,
+            generated_messages: BTreeMap::new(),
+        }
+    }
+}

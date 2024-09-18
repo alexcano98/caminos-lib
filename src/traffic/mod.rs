@@ -34,7 +34,7 @@ use crate::event::Time;
 use crate::measures::TrafficStatistics;
 use crate::quantify::Quantifiable;
 use crate::traffic::basic::{Burst, Homogeneous, PeriodicBurst, Reactive, Sleep, SubRangeTraffic, TrafficMessages};
-use crate::traffic::operations::{BoundedDifference, ProductTraffic, Shifted, Sum, TrafficMap};
+use crate::traffic::operations::{BoundedDifference, ProductTraffic, Replica, Shifted, Sum, TrafficMap};
 
 ///Possible errors when trying to generate a message with a `Traffic`.
 #[derive(Debug)]
@@ -269,6 +269,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"MessageTaskSequence" => Box::new(MessageTaskSequence::new(arg)),
 			"TaskSequence" => Box::new(TaskSequence::new(arg)),
 			"MessageBarrier" => Box::new(MessageBarrier::new(arg)),
+			"Replica" => Box::new(Replica::new(arg)),
 			"Stencil" => Box::new(Stencil::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
 			"Wavefront" => MiniApp::new(cv_name.clone(), arg),
