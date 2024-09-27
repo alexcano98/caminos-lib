@@ -457,11 +457,17 @@ impl MessageTaskSequence
         let traffics_args = traffics_args.expect("There were no traffics");
         let TrafficBuilderArgument { plugs, topology, rng, .. } = arg;
         let traffics: Vec<_> = traffics_args.iter().map(|v| new_traffic(TrafficBuilderArgument { cv: v, plugs, topology, rng: &mut *rng })).collect();
-        let messages_to_send_per_traffic = messages_to_send_per_traffic.expect("There were no messages_to_send_per_traffic");
+        let messages_to_send_per_traffic: Vec<usize> = messages_to_send_per_traffic.expect("There were no messages_to_send_per_traffic");
         let messages_to_consume_per_traffic = messages_to_consume_per_traffic;
         for traffic in traffics.iter()
         {
             assert_eq!(traffic.number_tasks(), tasks, "In MessageTaskSequence all sub-traffics must involve the same number of tasks.");
+        }
+        if messages_to_send_per_traffic.len() != traffics.len()
+        {
+            //print the error and panic
+            println!("The length of messages_to_send_per_traffic {} is not the same as the length of traffics {}", messages_to_send_per_traffic.len(), traffics.len());
+            panic!("The length of messages_to_send_per_traffic is not the same as the length of traffics")
         }
         let traffic_len = traffics.len();
         MessageTaskSequence {
