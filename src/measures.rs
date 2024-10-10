@@ -722,6 +722,8 @@ impl Statistics
 			}).collect();
 			let cycle_per_hop = extra.cycle_per_hop.iter().map(|x|ConfigurationValue::Number(*x as f64)).collect();
 			let context_content = vec![
+				(String::from("source"), ConfigurationValue::Number(packet.message.origin as f64)),
+				(String::from("destination"), ConfigurationValue::Number(packet.message.origin as f64)),
 				(String::from("hops"), ConfigurationValue::Number(hops as f64)),
 				(String::from("delay"), ConfigurationValue::Number(network_delay as f64)),
 				(String::from("cycle_into_network"), ConfigurationValue::Number(*packet.cycle_into_network.borrow() as f64)),
