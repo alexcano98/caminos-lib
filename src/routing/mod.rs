@@ -17,6 +17,7 @@ pub mod channel_operations;
 pub mod updown;
 pub mod polarized;
 
+use crate::topology::cartesian::GeneralDOR;
 use crate::topology::dragonfly::DragonflyDirect;
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -448,6 +449,7 @@ pub fn new_routing(arg: RoutingBuilderArgument) -> Box<dyn Routing>
 			"DragonflyDirect" => Box::new(DragonflyDirect::new(arg)),
 			"SubTopologyRouting" => Box::new(SubTopologyRouting::new(arg)),
 			"RegionRouting" => Box::new(RegionRouting::new(arg)),
+			"GeneralDOR" => Box::new(GeneralDOR::new(arg)),
 			_ => panic!("Unknown Routing {}",cv_name),
 		}
 	}
