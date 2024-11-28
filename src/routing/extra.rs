@@ -823,28 +823,34 @@ impl Routing for SubTopologyRouting
 			}
 			unreachable!();
 		}
+		let source_router=if let Some(ref visited)=routing_info.visited_routers
+		{
+			visited[0]
+		}
+		else
+		{
+			panic!("Unknown source router");
+		};
+		let a=topology.distance(source_router,current_router);
+		let b=topology.distance(current_router,target_router);
+		let weight:i32 = b as i32 - a as i32;
 
 		let logical_current = self.physical_to_logical[current_router];
 		let logical_target = self.physical_to_logical[target_router];
 		let logical_candidates = self.logical_routing.next(&routing_info.meta.as_ref().unwrap()[0].borrow(), self.logical_topology.as_ref(), logical_current, logical_target, None, num_virtual_channels, rng)?;
 		let mut candidates = vec![];
-		let barrier_hops = routing_info.selections.as_ref().unwrap()[0] as usize;
+		//let barrier_hops = routing_info.selections.as_ref().unwrap()[0] as usize;
 
 		for CandidateEgress { port, virtual_channel, label: _, annotation, .. } in logical_candidates.candidates
 		{
 			let Location::RouterPort { router_index: next_physical_router, .. } = self.logical_topology.neighbour(logical_current, port).0 else { panic!("There should be a port") };
 			let physical_port = topology.neighbour_router_iter(current_router).find(|item| item.neighbour_router == next_physical_router).expect("port not found").port_index;
-			//let physical_label = label;
 
-			let label = if topology.distance(next_physical_router, target_router) < topology.distance(current_router, target_router)
-			{
-				0
-			} else if topology.distance(next_physical_router, target_router) == topology.distance(current_router, target_router) //missrouting over the escape channel
-			{
-				1
-			} else {
-				panic!("Should not happen")
-			};
+			let new_a=topology.distance(source_router,next_physical_router);
+			let new_b=topology.distance(next_physical_router,target_router);
+
+			let new_weight:i32 = new_b as i32 - new_a as i32;
+			let label = new_weight-weight;
 			candidates.push(CandidateEgress { port: physical_port, virtual_channel, label, estimated_remaining_hops: None, router_allows: None, annotation });
 		}
 
@@ -853,35 +859,57 @@ impl Routing for SubTopologyRouting
 			for neighbour in topology.neighbour_router_iter(current_router).into_iter()
 			{
 				let physical_neighbour = neighbour.neighbour_router;
-				let logical_neighbour = self.physical_to_logical[physical_neighbour];
+				// let logical_neighbour = self.physical_to_logical[physical_neighbour];
 
 				if *self.logical_topology_connections.get(current_router, physical_neighbour) != 0 { //Remove logical connections from the opportunistic hops
 					continue
 				}
 
-				//Dont comment above ===================
-				if topology.distance(physical_neighbour, target_router) < topology.distance(current_router, target_router) // Min route over the graph
-				{
-					let label = 0;
-					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
+				let new_a=topology.distance(source_router,physical_neighbour);
+				let new_b=topology.distance(physical_neighbour,target_router);
+				let new_weight:i32 = new_b as i32 - new_a as i32;
 
-				}else if topology.distance(physical_neighbour, target_router) == topology.distance(current_router, target_router) // Stays the same over the graph
+				if routing_info.hops >= topology.diameter() && new_b >= b // avoid livelocks
 				{
-					if self.equal[0] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) < self.logical_topology.distance(logical_current, logical_target) //Reduces escape distance
-					{
-						let label = self.equal_labels[0];
-						candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-
-					}else if self.equal[1] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) == self.logical_topology.distance(logical_current, logical_target) && routing_info.hops < barrier_hops //last condition for complete graphs
-					{
-						let label = self.equal_labels[1];
-						candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-					}else if self.equal[2] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) > self.logical_topology.distance(logical_current, logical_target) && routing_info.hops < barrier_hops //last condition for complete graphs
-					{
-						let label = self.equal_labels[2];
-						candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-					}
+					continue;
 				}
+
+				if new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b} )
+				{
+					let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
+					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
+				}
+
+				//Dont comment above ===================
+				// if topology.distance(physical_neighbour, target_router) < topology.distance(current_router, target_router) // Min route over the graph
+				// {
+				// 	let label = 0;
+				// 	candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
+				//
+				// }else if topology.distance(physical_neighbour, target_router) == topology.distance(current_router, target_router) // Stays the same over the graph
+				// {
+				// 	if self.equal[0] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) < self.logical_topology.distance(logical_current, logical_target) //Reduces escape distance
+				// 	{
+				// 		let label = self.equal_labels[0];
+				// 		candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
+				//
+				// 	}else if self.equal[1] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) == self.logical_topology.distance(logical_current, logical_target) && routing_info.hops < barrier_hops //last condition for complete graphs
+				// 	{
+				// 		let label = self.equal_labels[1];
+				// 		candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
+				// 	}else if self.equal[2] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) > self.logical_topology.distance(logical_current, logical_target) && routing_info.hops < barrier_hops //last condition for complete graphs
+				// 	{
+				// 		let label = self.equal_labels[2];
+				// 		candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
+				// 	}
+				// }
+			}
+		}
+		if let Some(min_label) = candidates.iter().map(|ref e|e.label).min()
+		{
+			for ref mut e in candidates.iter_mut()
+			{
+				e.label-=min_label;
 			}
 		}
 		Ok(RoutingNextCandidates { candidates, idempotent: logical_candidates.idempotent })
@@ -890,6 +918,7 @@ impl Routing for SubTopologyRouting
 	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
 		let logical_current = self.physical_to_logical[current_router];
 		let logical_target = self.physical_to_logical[target_router];
+		routing_info.borrow_mut().visited_routers=Some(vec![current_router]);
 
 		let mut bri = routing_info.borrow_mut();
 		bri.meta = Some(vec![ RefCell::new(RoutingInfo::new())]);
@@ -900,13 +929,19 @@ impl Routing for SubTopologyRouting
 	}
 
 	fn update_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, current_port: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
+
+		let mut routing_info = routing_info.borrow_mut();
+		if let Some(ref mut visited)=routing_info.visited_routers
+		{
+			visited.push(current_router);
+		}
+
 		let logical_current = self.physical_to_logical[current_router];
 		let logical_target = self.physical_to_logical[target_router];
 		let (previous_physical_router_loc, _link_class) = topology.neighbour(current_router, current_port);
 
 		// println!("current_router={}, current_port={}, previous_physical_router_loc={:?}", current_router, current_port, previous_physical_router_loc);
 		//TODO: Reduce the complexity of this operation. It can be O(1) instead of O(degree) but a new method is needed in the trait.
-		let mut routing_info = routing_info.borrow_mut();
 		if let Location::RouterPort{router_index: previous_physical_router,..} = previous_physical_router_loc {
 			let prev_logical_router = self.physical_to_logical[previous_physical_router];
 			if let Some(a) = self.logical_topology.neighbour_router_iter(logical_current)
