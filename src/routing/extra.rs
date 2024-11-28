@@ -801,8 +801,6 @@ pub struct SubTopologyRouting
 	logical_topology_connections: Matrix<usize>,
 	logical_routing: Box<dyn Routing>,
 	opportunistic_hops: bool,
-	equal: Vec<usize>,
-	equal_labels: Vec<i32>,
 }
 
 impl Routing for SubTopologyRouting
@@ -948,7 +946,9 @@ impl Routing for SubTopologyRouting
 				.find(|item| item.neighbour_router == prev_logical_router)
 			{
 				let logical_port  = a.port_index;
-				self.logical_routing.update_routing_info(&(routing_info.meta.as_ref().unwrap()[0]), self.logical_topology.as_ref(), logical_current, logical_port, logical_target, None, rng);
+				let sub_routing_info = &routing_info.meta.as_ref().unwrap()[0];
+				sub_routing_info.borrow_mut().hops += 1;
+				self.logical_routing.update_routing_info(sub_routing_info, self.logical_topology.as_ref(), logical_current, logical_port, logical_target, None, rng);
 			}else{
 				let routing_info_sub = RefCell::new(RoutingInfo::new());
 				routing_info.meta = Some(vec![routing_info_sub]);
@@ -1002,8 +1002,6 @@ impl SubTopologyRouting
 		let mut map = None;
 		let mut logical_routing = None;
 		let mut opportunistic_hops = false;
-		let mut equal = vec![0, 0, 0];
-		let mut equal_labels = vec![0, 0, 0];
 		//new rng for the subtopology
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
@@ -1011,8 +1009,6 @@ impl SubTopologyRouting
 			"map" => map = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
-			"equal" => equal = value.as_array().expect("bad value for equal").iter().map(|v|v.as_usize().expect("bad value for equal")).collect(),
-			"equal_labels" => equal_labels = value.as_array().expect("bad value for equal_labels").iter().map(|v|v.as_i32().expect("bad value for equal_labels")).collect(),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
 		let map = map.expect("missing physical_to_logical");
@@ -1029,8 +1025,6 @@ impl SubTopologyRouting
 			logical_topology_connections: Matrix::constant(0,0,0),
 			logical_routing,
 			opportunistic_hops,
-			equal,
-			equal_labels,
 		}
 	}
 }
@@ -1213,24 +1207,8 @@ impl Routing for RegionRouting
 			let logical_port = self.region_logical_topology[pattern].neighbour_router_iter(current_logical).find(|item| item.neighbour_router == previous_logical_router).expect("port not found").port_index;
 
 			let routing_bri = &(bri.meta.as_ref().unwrap()[pattern + 1]);
+			routing_bri.borrow_mut().hops += 1;
 			self.routings[pattern].update_routing_info(routing_bri, self.region_logical_topology[pattern].as_ref(), current_logical, logical_port, target_logical, target_server, rng);
-			// if  current_router != target_router {
-			// 	//if the next in the default routing is not giving more candidates for this pattern in the current router, update the default routing
-			// 	let bri_default = bri.meta.as_ref().unwrap()[0].borrow();
-			// 	let next = self.default_routing.next(bri_default.deref(), topology, current_router, target_router, target_server, 1, rng).unwrap();
-			// 	for CandidateEgress { port, .. } in next.candidates
-			// 	{
-			// 		let Location::RouterPort { router_index: next_router, router_port: _ } = topology.neighbour(current_router, port).0 else { panic!("There should be a port") };
-			// 		if self.selection_patterns[pattern].get_destination(current_router, topology, rng) == self.selection_patterns[pattern].get_destination(next_router, topology, rng)
-			// 		{
-			// 			return;
-			// 		}
-			// 		let cloned_bri= &bri.meta.as_ref().unwrap()[0];
-			// 		self.default_routing.update_routing_info(cloned_bri, topology, current_router, current_port, target_router, target_server, rng);
-			// 	}
-			//
-			// }
-
 		}
 		else
 		{
@@ -1262,8 +1240,8 @@ impl Routing for RegionRouting
 
 
 		self.default_routing.initialize(topology, rng);
-		for routing in self.routings.iter_mut() {
-			routing.initialize(topology, rng);
+		for (i, routing) in self.routings.iter_mut().enumerate() {
+			routing.initialize(self.region_logical_topology[i].as_ref(), rng);
 		}
 	}
 }

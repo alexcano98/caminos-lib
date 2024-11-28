@@ -1,8 +1,6 @@
 
 use crate::pattern::probabilistic::UniformPattern;
 use std::cell::RefCell;
-use std::collections::HashSet;
-use std::ops::Deref;
 use ::rand::{Rng, rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::config_parser::ConfigurationValue;
@@ -11,7 +9,7 @@ use super::prelude::*;
 //use crate::routing::{RoutingInfo,Routing,CandidateEgress,RoutingBuilderArgument,RoutingNextCandidates};
 use crate::routing::prelude::*;
 use crate::matrix::Matrix;
-use crate::{match_object_panic, routing};
+use crate::{match_object_panic};
 use crate::routing::RoutingAnnotation;
 use crate::pattern::*; //For Valiant
 
@@ -1133,7 +1131,7 @@ impl Routing for GeneralDOR
 		Ok(RoutingNextCandidates{candidates: final_candidates, idempotent: false})
 	}
 
-	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, target_server: Option<usize>, rng: &mut StdRng) {
+	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
 		let cartesian_data = topology.cartesian_data().expect("DOR requires a Cartesian topology");
 		let up_current = cartesian_data.unpack(current_router);
 		let up_target = cartesian_data.unpack(target_router);
@@ -1172,6 +1170,7 @@ impl Routing for GeneralDOR
 		let logical_port = self.region_logical_topology[link_class].neighbour_router_iter(current_logical).find(|item| item.neighbour_router == previous_logical_router).expect("port not found").port_index;
 
 		let routing_bri = &(bri.meta.as_ref().unwrap()[link_class]);
+		routing_bri.borrow_mut().hops+=1; // important!!
 		self.routings[link_class].update_routing_info(routing_bri, self.region_logical_topology[link_class].as_ref(), current_logical, logical_port, target_logical, target_server, rng);
 
 	}
