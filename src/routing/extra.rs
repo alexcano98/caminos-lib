@@ -801,6 +801,7 @@ pub struct SubTopologyRouting
 	logical_topology_connections: Matrix<usize>,
 	logical_routing: Box<dyn Routing>,
 	opportunistic_hops: bool,
+	livelock_avoidance: bool,
 }
 
 impl Routing for SubTopologyRouting
@@ -867,7 +868,7 @@ impl Routing for SubTopologyRouting
 				let new_b=topology.distance(physical_neighbour,target_router);
 				let new_weight:i32 = new_b as i32 - new_a as i32;
 
-				if routing_info.hops >= topology.diameter() && new_b >= b // avoid livelocks
+				if self.livelock_avoidance && routing_info.hops >= topology.diameter() && new_b >= b // avoid livelocks
 				{
 					continue;
 				}
@@ -1002,12 +1003,14 @@ impl SubTopologyRouting
 		let mut map = None;
 		let mut logical_routing = None;
 		let mut opportunistic_hops = false;
+		let mut livelock_avoidance = false;
 		//new rng for the subtopology
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
 			"logical_topology" => logical_topology = Some(new_topology(TopologyBuilderArgument{cv:value, rng, plugs: arg.plugs})),
 			"map" => map = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
+			"livelock_avoidance" => livelock_avoidance = value.as_bool().expect("bad value for livelock_avoidance"),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
@@ -1025,6 +1028,7 @@ impl SubTopologyRouting
 			logical_topology_connections: Matrix::constant(0,0,0),
 			logical_routing,
 			opportunistic_hops,
+			livelock_avoidance,
 		}
 	}
 }
