@@ -1070,14 +1070,14 @@ impl Pattern for AddVector
     fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
     {
         let up_origin=self.sides.unpack(origin);
-        let up_destination:Vec<i32> = up_origin.iter().zip(self.vector.iter()).map(|(&coord,&v)|coord as i32 + v).collect();
+        // let up_destination:Vec<i32> = up_origin.iter().zip(self.vector.iter()).map(|(&coord,&v)|coord as i32 + v).collect();
 
-        let mut new_up_destination = vec![0usize;up_destination.len()];
+        let mut new_up_destination = vec![0usize;up_origin.len()];
         for (index,&side) in up_origin.iter().enumerate()
         {
             if self.modulo
             {
-                new_up_destination[index] = side.rem_euclid(self.sides.sides[index]);
+                new_up_destination[index] = (side + self.vector[index] as usize).rem_euclid(self.sides.sides[index]);
             }
             else if side as i32 + self.vector[index] < 0 || side as i32 + self.vector[index] >= self.sides.sides[index] as i32
             {
