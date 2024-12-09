@@ -1299,3 +1299,248 @@ impl RegionRouting
 		}
 	}
 }
+
+
+/**
+RINR for complete graphs. UpDown star routing
+# Example
+```ignore
+	RINR{
+		balanced:false,
+	}
+**/
+#[derive(Debug)]
+pub struct RINR
+{
+	intermediates: Vec<Vec<Vec<usize>>>,
+	random_intermediate: bool,
+	balanced: bool,
+}
+impl Routing for RINR
+{
+	fn next(&self, routing_info: &RoutingInfo, topology: &dyn Topology, current_router: usize, target_router: usize, target_server: Option<usize>, num_virtual_channels: usize, _rng: &mut StdRng) -> Result<RoutingNextCandidates, Error> {
+		if current_router == target_router
+		{
+			let target_server = target_server.expect("target server was not given.");
+			for i in 0..topology.ports(current_router)
+			{
+				if let (Location::ServerPort(server), _link_class) = topology.neighbour(current_router, i)
+				{
+					if server == target_server
+					{
+						return Ok(RoutingNextCandidates { candidates: (0..num_virtual_channels).map(|vc| CandidateEgress::new(i, vc)).collect(), idempotent: true })
+					}
+				}
+			}
+			unreachable!();
+		}
+		let mut candidates = vec![];
+		match routing_info.selections.as_ref()
+		{
+			Some(selections) =>
+			{
+				let middle = selections[0] as usize;
+				//Go to middle
+				for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
+				{
+					if neighbour_router == middle
+					{
+						candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress::new(port_index,vc)));
+						break;
+					}
+				}
+			}
+			None =>
+			{
+				if !self.random_intermediate && routing_info.hops == 0 && !self.intermediates[current_router][target_router].is_empty(){
+					for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
+					{
+
+						if self.intermediates[current_router][target_router].contains(&neighbour_router)
+						{
+							candidates.extend((0..num_virtual_channels).map(|vc| CandidateEgress::new(port_index, vc)));
+						}
+					}
+				}else{
+					//Go to destination
+					for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
+					{
+
+						if neighbour_router == target_router
+						{
+							candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress::new(port_index,vc)));
+							break;
+						}
+					}
+				}
+			}
+		}
+		Ok(RoutingNextCandidates{candidates,idempotent:true})
+	}
+
+	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, _topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
+		if self.random_intermediate {
+			//select a random intermediate router to go to
+			let intermediates = &self.intermediates[current_router][target_router];
+			let intermediate = intermediates.choose(rng);
+			let mut bri = routing_info.borrow_mut();
+
+			bri.selections = if let Some(intermediate) = intermediate
+			{
+				Some(vec![*intermediate as i32])
+			} else {
+				None
+			};
+		}
+	}
+
+	fn update_routing_info(&self, routing_info: &RefCell<RoutingInfo>, _topology: &dyn Topology, current_router: usize, _current_port: usize, _target_router: usize, _target_server: Option<usize>, _rng: &mut StdRng) {
+
+		if self.random_intermediate {
+			let mut bri = routing_info.borrow_mut();
+			let middle = bri.selections.as_ref().map(|s| s[0] as usize);
+			match middle
+			{
+				Some(middle) =>
+					{
+						if middle == current_router
+						{
+							bri.selections = None; //To destination
+						} else {
+							//panic and show info
+							panic!("Middle router is not the current router");
+						}
+					}
+				None => {}
+			}
+		}
+	}
+
+	fn initialize(&mut self, topology: &dyn Topology, _rng: &mut StdRng) {
+		let n = topology.num_routers();
+		let mut weight_matrix = Matrix::constant(0i32, n, n);
+		let mut intermediates = vec![vec![vec![]; n]; n];
+		let mut order = 0;
+		for i in 0..n
+		{
+			for j in 0..(n-1-i)
+			{
+				*weight_matrix.get_mut(i, i+j+1) = order;
+				order += 1;
+			}
+		}
+		// println!("matrix={:?}",weight_matrix);
+
+		for i in (0..=(n-1)).rev()
+		{
+			// println!("i={},order={}",i,order);
+			for j in 0..i
+			{
+				*weight_matrix.get_mut(i, i-j-1) = order;
+				order += 1;
+			}
+		}
+		// println!("matrix={:?}",weight_matrix);
+
+		for i in 0..n{
+			*weight_matrix.get_mut(i, i) = i32::MAX;
+		}
+		// println!("matrix={:?}",weight_matrix);
+
+
+		for i in 0..n
+		{
+			for j in 0..n
+			{
+				if i == j { continue; }
+				for k in 0..n
+				{
+					if k==i || k==j { continue; }
+					if weight_matrix.get(i, k) < weight_matrix.get(k, j){
+						intermediates[i][j].push(k);
+					}
+				}
+			}
+		}
+
+
+		if self.balanced{
+			let mut i = 0;
+			while i < (n-1)/2 +1
+			{
+				for x in 0..n
+				{
+					if x == i || x == n-i-1 { continue; }
+					if let Some(index) = intermediates[i][x].iter().position(|&r| r == n-i-1)
+					{
+						intermediates[i][x].remove(index);
+					}else {
+						println!("first: i={},x={},n-i-1={}",i,x,n-i-1);
+						panic!("No intermediate found");
+					}
+					intermediates[x][n-i-1].push(i);
+				}
+				for x in 0..n
+				{
+					if x == i || x == n-i-1 { continue; }
+					if let Some(index) = intermediates[x][i].iter().position(|&r| r == n-i-1)
+					{
+						intermediates[x][i].remove(index);
+					}else {
+						println!("second: i={},x={},n-i-1={}",i,x,n-i-1);
+						panic!("No intermediate found");
+					}
+					intermediates[n-i-1][x].push(i);
+				}
+				i += 1;
+			}
+		}
+
+		self.intermediates = intermediates;
+		//Print max, avg and min intermediates.
+		let mut max = 0;
+		let mut min = n;
+		let mut sum = 0;
+		for i in 0..n
+		{
+			for j in 0..n
+			{
+				if i == j { continue; }
+				let len = self.intermediates[i][j].len();
+				max = max.max(len);
+				min = min.min(len);
+				sum += len;
+			}
+		}
+		//print matrix of how many intermediates per pair of routers
+		println!("Intermediates per pair of switches:");
+		for i in 0..n
+		{
+			for j in 0..n
+			{
+				print!("{},",self.intermediates[i][j].len());
+			}
+			println!();
+		}
+		println!("Data avg:");
+		println!("Max intermediates: {}, Min intermediates: {}, Avg intermediates: {}", max, min, sum as f64 / (n*n -n) as f64);
+	}
+}
+
+impl RINR
+{
+	pub fn new(arg: RoutingBuilderArgument) -> RINR
+	{
+		let mut balanced = false;
+		let mut random_intermediate = true;
+		match_object_panic!(arg.cv,"RINR",value,
+			"balanced" => balanced = value.as_bool().expect("bad value for balanced"),
+			"random_intermediate" => random_intermediate = value.as_bool().expect("bad value for random_intermediate"),
+		);
+		RINR {
+			intermediates: vec![],
+			random_intermediate,
+			balanced,
+		}
+	}
+}
