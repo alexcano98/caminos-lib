@@ -191,29 +191,60 @@ MPI collectives implementations based on TrafficCredit
 AllGather{
     tasks: 64,
     data_size: 1000, //The total data size to all-gather. Each task starts with a data slice of size data_size/tasks.
-    algorithm: "Hypercube",
-    neighbours_order: [32, 16, 8, 4, 2, 1], //Optional, the order to iter hypercube neighbours
+    algorithm: Hypercube{
+        neighbours_order: [32, 16, 8, 4, 2, 1], //Optional, the order to iter hypercube neighbours
+    },
+}
+AllGather{
+    tasks: 64,
+    data_size: 1000, //The total data size to all-gather. Each task starts with a data slice of size data_size/tasks.
+    algorithm: Ring,
 }
 
 ScatterReduce{
     tasks: 64,
     data_size: 1000, //The total data size to scatter-reduce. Each task ends with a data slice reduced of size data_size/tasks.
-    algorithm: "Hypercube",
+    algorithm: Hypercube, //natural order iterating
 }
 
 AllReduce{
     tasks: 64,
     data_size: 1000, //The total data size to all-reduce.
-    algorithm: "Optimal",
-    all_gather_neighbours_order: [32, 16, 8, 4, 2, 1], //Optional, the order to iter hypercube neighbours in the all-gather
+    algorithm: Hypercube, //natural order iterating
 }
 
 All2All{
     tasks: 64,
     data_size: 1000, //The total data size to all2all. Each task sends a data slice of size data_size/tasks to all the other tasks.
+    rounds: 2, //Optional, the number of rounds to send all the data.
 }
 ```
  **/
+
+#[derive(Debug)]
+pub enum MPICollectiveAlgorithm
+{
+    Hypercube(Option<ConfigurationValue>), //order in which to iterate the Hypercube neighbours
+    Ring,
+    // Optimal(Option<ConfigurationValue>),
+}
+
+fn parse_algorithm_from_cv(configuration_value: &ConfigurationValue) -> MPICollectiveAlgorithm
+{
+    let mut algorithm = None;
+    match_object_panic!(configuration_value,"algorithm",value,
+        "Hypercube" => {
+            let mut neighbours_order = None;
+            match_object_panic!(value,"Hypercube",value,
+                "neighbours_order" => neighbours_order = Some(value.clone()), //Some(value.as_array().expect("bad value for neighbours_order").iter().map(|v| v.as_usize().expect("bad value for neighbours_order")).collect())
+            );
+            algorithm = Some(MPICollectiveAlgorithm::Hypercube(neighbours_order));
+        },
+        "Ring" => algorithm = Some(MPICollectiveAlgorithm::Ring),
+    );
+    algorithm.expect("There should be a valid algorithm")
+}
+
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct MPICollective {}
@@ -226,62 +257,61 @@ impl MPICollective
             "ScatterReduce" =>{
                 let mut tasks = None;
                 let mut data_size = None;
-                let mut algorithm = "Hypercube";
+                let mut algorithm = MPICollectiveAlgorithm::Hypercube(None);
                 match_object_panic!(arg.cv,"ScatterReduce",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-					"algorithm" => algorithm = value.as_str().expect("bad value for algorithm"),
+					"algorithm" => algorithm = parse_algorithm_from_cv(value),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
 				);
+
                 match algorithm {
-                    "Hypercube" => Some(get_scatter_reduce_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    "Ring" => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    _ => panic!("Unknown algorithm: {}", algorithm),
+                    MPICollectiveAlgorithm::Hypercube(_) => Some(get_scatter_reduce_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    // _ => panic!("Unknown algorithm: {:?}", algorithm),
                 }
             },
             "AllGather" =>{
                 let mut tasks = None;
                 let mut data_size = None;
-                let mut algorithm = "Hypercube";
-                let mut neighbours_order = None;
+                let mut algorithm =  MPICollectiveAlgorithm::Hypercube(None);
                 match_object_panic!(arg.cv,"AllGather",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-					"algorithm" => algorithm = value.as_str().expect("bad value for algorithm"),
+					"algorithm" => algorithm = parse_algorithm_from_cv(value),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
-					"neighbours_order" => neighbours_order = Some(value),
 				);
                 match algorithm {
-                    "Hypercube" => Some(get_all_gather_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order)),
-                    "Ring" => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    _ => panic!("Unknown algorithm: {}", algorithm),
+                    MPICollectiveAlgorithm::Hypercube(neighbours_order) => Some(get_all_gather_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order.as_ref())),
+                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    // _ => panic!("Unknown algorithm: {:?}", algorithm),
                 }
             },
             "AllReduce" =>{
                 let mut tasks = None;
                 let mut data_size = None;
-                let mut algorithm = "Optimal";
-                let mut neighbours_order = None;
+                let mut algorithm = MPICollectiveAlgorithm::Hypercube(None);
                 match_object_panic!(arg.cv,"AllReduce",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-					"algorithm" => algorithm = value.as_str().expect("bad value for algorithm"),
+					"algorithm" => algorithm = parse_algorithm_from_cv(value),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
-					"all_gather_neighbours_order" => neighbours_order = Some(value),
 				);
 
                 match algorithm {
-                    "Optimal" => Some(get_all_reduce_optimal(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order)),
-                    "Ring" => Some(get_all_reduce_ring(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    _ => panic!("Unknown algorithm: {}", algorithm),
+                    MPICollectiveAlgorithm::Hypercube(neighbours_order) => Some(get_all_reduce_optimal(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order.as_ref())),
+                    MPICollectiveAlgorithm::Ring => Some(get_all_reduce_ring(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    // _ => panic!("Unknown algorithm: {}", algorithm),
                 }
             },
             "All2All" =>{
                 let mut tasks = None;
                 let mut data_size = None;
+                let mut rounds = 1;
                 match_object_panic!(arg.cv,"All2All",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
+                    "rounds" => rounds = value.as_usize().expect("bad value for rounds") as usize,
 				);
 
-                Some(get_all2all(tasks.expect("There were no tasks"), data_size.expect("There were no data_size")))
+                Some(get_all2all(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), rounds))
             },
 
             _ => panic!("Unknown traffic type: {}", traffic),
@@ -460,10 +490,10 @@ fn get_all_reduce_ring(tasks: usize, data_size: usize) -> ConfigurationValue
     get_traffic_message_task_sequence(traffic_message_task_sequence_args)
 }
 
-fn get_all2all(tasks: usize, data_size: usize) -> ConfigurationValue
+fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> ConfigurationValue
 {
     let messages = tasks -1;
-    let message_size = data_size/tasks;
+    let message_size = (data_size/tasks)/rounds;
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
@@ -480,26 +510,28 @@ fn get_all2all(tasks: usize, data_size: usize) -> ConfigurationValue
         ("pattern".to_string(), pattern_cartesian_transform),
     ]);
 
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let mut traffic_rounds = vec![];
+    for _ in 0..rounds
+    {
+        let traffic_credit_args = BuildTrafficCreditCVArgs{
+            tasks,
+            credits_to_activate: 1,
+            credits_per_received_message: 0,
+            messages_per_transition: messages,
+            message_size,
+            pattern: element_composition.clone(),
+            initial_credits: candidates_selection.clone(),
+            message_size_pattern: None,
+        };
+
+       traffic_rounds.push(get_traffic_credit(traffic_credit_args));
+
+    }
+    let task_message_args = BuilderMessageTaskSequenceCVArgs {
         tasks,
-        credits_to_activate: 1,
-        credits_per_received_message: 0,
-        messages_per_transition: messages,
-        message_size,
-        pattern: element_composition,
-        initial_credits: candidates_selection,
-        message_size_pattern: None,
+        traffics: traffic_rounds,
+        messages_to_send_per_traffic: vec![messages; rounds],
+        messages_to_consume_per_traffic: None,
     };
-
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
-
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
-        tasks,
-        messages_per_task: Some(messages),
-        num_messages: tasks * messages,
-        expected_messages_to_consume_per_task: Some(messages),
-    };
-
-    build_message_cv(traffic_message_cv_builder)
+    get_traffic_message_task_sequence(task_message_args)
 }
