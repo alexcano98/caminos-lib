@@ -450,7 +450,7 @@ pub fn new_routing(arg: RoutingBuilderArgument) -> Box<dyn Routing>
 			"SubTopologyRouting" => Box::new(SubTopologyRouting::new(arg)),
 			"RegionRouting" => Box::new(RegionRouting::new(arg)),
 			"GeneralDOR" => Box::new(GeneralDOR::new(arg)),
-			"RINR" => Box::new(RINR::new(arg)),
+			"CGLabel" => Box::new(CGLabel::new(arg)),
 			_ => panic!("Unknown Routing {}",cv_name),
 		}
 	}
