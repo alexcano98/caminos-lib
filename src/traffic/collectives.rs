@@ -231,18 +231,26 @@ pub enum MPICollectiveAlgorithm
 
 fn parse_algorithm_from_cv(configuration_value: &ConfigurationValue) -> MPICollectiveAlgorithm
 {
-    let mut algorithm = None;
-    match_object_panic!(configuration_value,"algorithm",value,
-        "Hypercube" => {
-            let mut neighbours_order = None;
-            match_object_panic!(value,"Hypercube",value,
+    if let ConfigurationValue::Object(ref cv, _) = configuration_value
+    {
+        let mut algorithm = None;
+        match cv.as_str() {
+            "Hypercube" => {
+                let mut neighbours_order = None;
+                match_object_panic!(configuration_value,"Hypercube",value,
                 "neighbours_order" => neighbours_order = Some(value.clone()), //Some(value.as_array().expect("bad value for neighbours_order").iter().map(|v| v.as_usize().expect("bad value for neighbours_order")).collect())
             );
-            algorithm = Some(MPICollectiveAlgorithm::Hypercube(neighbours_order));
-        },
-        "Ring" => algorithm = Some(MPICollectiveAlgorithm::Ring),
-    );
-    algorithm.expect("There should be a valid algorithm")
+                algorithm = Some(MPICollectiveAlgorithm::Hypercube(neighbours_order));
+            },
+            "Ring" => algorithm = Some(MPICollectiveAlgorithm::Ring),
+            _ => {}
+        }
+        algorithm.expect("There should be a valid algorithm")
+
+    } else {
+
+        panic!("The algorithm should be an object");
+    }
 }
 
 #[derive(Quantifiable)]
