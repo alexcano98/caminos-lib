@@ -842,8 +842,16 @@ impl Routing for SubTopologyRouting
 
 		for CandidateEgress { port, virtual_channel, label: _, annotation, .. } in logical_candidates.candidates
 		{
-			let Location::RouterPort { router_index: next_physical_router, .. } = self.logical_topology.neighbour(logical_current, port).0 else { panic!("There should be a port") };
-			let physical_port = topology.neighbour_router_iter(current_router).find(|item| item.neighbour_router == next_physical_router).expect("port not found").port_index;
+			let Location::RouterPort { router_index: next_logical_router, .. } = self.logical_topology.neighbour(logical_current, port).0 else { panic!("There should be a port") };
+			let next_physical_router = self.logical_to_physical[next_logical_router];
+			let physical_port =
+				if let Some(n_neighbour) = topology.neighbour_router_iter(current_router).find(|item| item.neighbour_router == next_physical_router){
+					n_neighbour.port_index
+				}else {
+					//print details: current router, next physical router, target router, logicals etc.
+					println!("Current router: {}, Next physical router: {}, Target router: {}, Logical current: {}, Logical target: {}", current_router, next_physical_router, target_router, logical_current, logical_target);
+					panic!("There should be a port")
+				};
 
 			let new_a=topology.distance(source_router,next_physical_router);
 			let new_b=topology.distance(next_physical_router,target_router);
@@ -1703,70 +1711,244 @@ impl Routing for CGLabel
 		// }
 
 		self.intermediates = intermediates;
-
-
-		//print matrix of how many intermediates per pair of routers
-		println!("Intermediates per pair of switches:");
-		for i in 0..n
-		{
-			for j in 0..n
-			{
-				print!("{},",self.intermediates[i][j].len());
-			}
-			println!();
-		}
-
-		//for each router +1, +2, +3, +4 and +5 show the top selected intermediates for all pairs source-destination
-		for j in 1..6
-		{
-			let mut routers = vec![0; n];
-			for i in 0..n
-			{
-				let dest = (i+j) % n;
-				for k in self.intermediates[i][dest].iter()
-				{
-					routers[*k] += 1;
-				}
-			}
-			//Now print the top 5 intermediates for this value of j
-			let mut routers = routers.iter().enumerate().collect::<Vec<_>>();
-			routers.sort_by(|a,b| b.1.cmp(a.1));
-			println!("Top intermediates for j={}",j);
-			println!("routers={:?}",routers);
-			println!("=====================");
-		}
-
-		//Print max, avg and min intermediates.
-		let mut max = 0;
-		let mut min = n;
-		let mut sum = 0;
+		println!();
+		println!("=============Init algorithm stats=====================");
+		println!("Total network link use");
+		//print link utilization, how much each link is used. That is calculated becase the intermediates
+		//between a,b, make the links a->x and x->b to be used.
+		let mut link_utilization = vec![vec![0; n];n];
 		for i in 0..n
 		{
 			for j in 0..n
 			{
 				if i == j { continue; }
-				let len = self.intermediates[i][j].len();
-				max = max.max(len);
-				min = min.min(len);
-				sum += len;
+				for k in self.intermediates[i][j].iter()
+				{
+					link_utilization[i][*k] += 1;
+					link_utilization[*k][j] += 1;
+				}
 			}
 		}
-		println!("Intermediates per pair:");
-		println!("Max intermediates: {}, Min intermediates: {}, Avg intermediates: {}", max, min, sum as f64 / (n*n -n) as f64);
+		//print the mean, mode, median, and the percentiles: 0, 5, 25, 50, 75, 95, 100
+		let mut link_utilization_flat = link_utilization.iter().flatten().map(|i|*i).collect::<Vec<_>>();
+		link_utilization_flat.sort();
+		//discard the diagonal elements (first n elements)
+		link_utilization_flat = link_utilization_flat.split_off(n);
+		let unutilized_links = link_utilization_flat.iter().filter(|&x| *x == 0).count() as f64 / (n*(n-1)) as f64;
+		let overutilized_links = link_utilization_flat.iter().filter(|&x| *x > n  as i32 ).count() as f64 / (n*(n-1)) as f64;
 
-		//print how many intermediates per router
-		let mut max = 0;
-		let mut min = n*n;
-		let mut sum = 0;
+		let mean = link_utilization_flat.iter().sum::<i32>() as f64 / link_utilization_flat.len() as f64;
+		let mode = link_utilization_flat.iter().max_by_key(|&x| link_utilization_flat.iter().filter(|&y| *y == *x).count()).unwrap();
+		let median = link_utilization_flat[link_utilization_flat.len()/2];
+		let percentiles = vec![0, 5, 25, 50, 75, 95, 100];
+		let mut percentiles_values = vec![];
+		for &p in percentiles.iter()
+		{
+			let index = ( (link_utilization_flat.len() -1) * p) / 100;
+			percentiles_values.push(link_utilization_flat[index]);
+		}
+		println!("Link utilization: Mean: {}, Mode: {}, Median: {}, Percentiles: {:?}, Utilized links: {}, Overutilized links {}", mean, mode, median, percentiles_values, unutilized_links, overutilized_links);
+		//Also count how many three paths there are (a three paths is a -> x -> b), and how many three paths are the max: n*(n-1)*(n-2).
+		let mut three_paths = 0;
 		for i in 0..n
 		{
-			let len = self.intermediates[i].iter().map(|v|v.len()).sum();
-			max = max.max(len);
-			min = min.min(len);
-			sum += len;
+			for j in 0..n
+			{
+				if i == j { continue; }
+				three_paths += self.intermediates[i][j].len();
+			}
 		}
-		println!("Intermediates per router:");
-		println!("Max intermediates: {}, Min intermediates: {}, Avg intermediates: {}", max/(n-1), min/(n-1), sum as f64 / (n*(n-1)) as f64);
+		//print also the quotient and 2/3 of the max three paths
+		println!("Allowed 3-hop paths: {}, relative: {}, maximum (all): {} ",three_paths,three_paths as f64 / (n*(n-1)*(n-2)) as f64, n*(n-1)*(n-2));
+
+		//values to get the average of all permutations
+		let mut mean_sum = 0.0;
+		let mut mode_sum = 0.0;
+		let mut median_sum = 0.0;
+		let mut percentiles_sum = vec![0.0; percentiles.len()];
+		let mut three_paths_sum = 0.0;
+		let mut unutilized_links_sum = 0.0;
+		let mut overutilized_links_sum = 0.0;
+		//now with minimal paths counted
+		let mut minimal_mean_sum = 0.0;
+		let mut minimal_mode_sum = 0.0;
+		let mut minimal_median_sum = 0.0;
+		let mut minimal_percentiles_sum = vec![0.0; percentiles.len()];
+		let mut minimal_three_paths_sum = 0.0;
+		let mut minimal_unutilized_links_sum = 0.0;
+		let mut minimal_overutilized_links_sum = 0.0;
+
+		let n_perms =1000;
+		//get four random permutations between the n switches and print the link utilization and how many paths are used
+		let print_perms = false;
+		println!("Link use per permutation");
+		for _ in 0..n_perms
+		{
+			if print_perms {
+				println!("======== Random permutation ========");
+			}
+			let mut rng = StdRng::from_entropy();
+			let mut switches = (0..n).collect::<Vec<_>>();
+			switches.shuffle(&mut rng);
+			//while the permutation has self loops, shuffle again
+			while switches.iter().enumerate().any(|(i, &x)| x == i)
+			{
+				switches.shuffle(&mut rng);
+			}
+			let mut link_utilization = vec![vec![0; n];n];
+			for i in 0..n
+			{
+				let dest = switches[i];
+				for k in self.intermediates[i][dest].iter()
+				{
+					link_utilization[i][*k] += 1;
+					link_utilization[*k][dest] += 1;
+				}
+			}
+
+			let mut link_utilization_flat = link_utilization.iter().flatten().map(|i|*i).collect::<Vec<_>>();
+			link_utilization_flat.sort();
+			link_utilization_flat = link_utilization_flat.split_off(n);
+			let mean = link_utilization_flat.iter().sum::<i32>() as f64 / link_utilization_flat.len() as f64;
+			let mode = link_utilization_flat.iter().max_by_key(|&x| link_utilization_flat.iter().filter(|&y| *y == *x).count()).unwrap();
+			let median = link_utilization_flat[link_utilization_flat.len()/2];
+			let percentiles = vec![0, 5, 25, 50, 75, 95, 100];
+			let mut percentiles_values = vec![];
+			for &p in percentiles.iter()
+			{
+				let index = ( (link_utilization_flat.len() -1) * p) / 100;
+				percentiles_values.push(link_utilization_flat[index]);
+			}
+			//How many links with more than 1 use
+			let more_than_one = link_utilization_flat.iter().filter(|&x| *x > 1).count();
+			if print_perms {
+				println!("All paths used: {}", link_utilization_flat.iter().sum::<i32>());
+				println!("Link utilization: Mean: {}, Mode: {}, Median: {}, Percentiles: {:?}, More than one: {}", mean, mode, median, percentiles_values, more_than_one);
+			}
+			mean_sum += mean as f64;
+			mode_sum += *mode as f64;
+			median_sum += median as f64;
+			for (i, &p) in percentiles_values.iter().enumerate()
+			{
+				percentiles_sum[i] += p as f64;
+			}
+			three_paths_sum += link_utilization_flat.iter().sum::<i32>() as f64;
+			unutilized_links_sum += link_utilization_flat.iter().filter(|&x| *x == 0).count() as f64;
+			overutilized_links_sum += link_utilization_flat.iter().filter(|&x| *x > 1).count() as f64;
+
+			//now add minimal paths and print again:
+			for i in 0..n
+			{
+				let dest = switches[i];
+				link_utilization[i][dest] += 1;
+			}
+			let mut link_utilization_flat = link_utilization.iter().flatten().map(|i|*i).collect::<Vec<_>>();
+			link_utilization_flat.sort();
+			link_utilization_flat = link_utilization_flat.split_off(n);
+			let mean = link_utilization_flat.iter().sum::<i32>() as f64 / link_utilization_flat.len() as f64;
+			let mode = link_utilization_flat.iter().max_by_key(|&x| link_utilization_flat.iter().filter(|&y| *y == *x).count()).unwrap();
+			let median = link_utilization_flat[link_utilization_flat.len()/2];
+			let percentiles = vec![0, 5, 25, 50, 75, 95, 100];
+			let mut percentiles_values = vec![];
+			for &p in percentiles.iter()
+			{
+				let index = ( (link_utilization_flat.len() -1) * p) / 100;
+				percentiles_values.push(link_utilization_flat[index]);
+			}
+			let more_than_one = link_utilization_flat.iter().filter(|&x| *x > 1).count();
+			if print_perms {
+				println!("Data with MIN paths added");
+				println!("All paths used: {}", link_utilization_flat.iter().sum::<i32>());
+				println!("Link utilization: Mean: {}, Mode: {}, Median: {}, Percentiles: {:?}, More than one: {}", mean, mode, median, percentiles_values, more_than_one);
+			}
+			minimal_mean_sum += mean as f64;
+			minimal_mode_sum += *mode as f64;
+			minimal_median_sum += median as f64;
+
+			for (i, &p) in percentiles_values.iter().enumerate()
+			{
+				minimal_percentiles_sum[i] += p as f64;
+			}
+			minimal_three_paths_sum += link_utilization_flat.iter().sum::<i32>() as f64;
+			minimal_unutilized_links_sum += link_utilization_flat.iter().filter(|&x| *x == 0).count() as f64;
+			minimal_overutilized_links_sum += link_utilization_flat.iter().filter(|&x| *x > 1).count() as f64;
+
+			if print_perms {
+				println!("=============End RandomPermutation======================");
+			}
+		}
+		println!("All permutations data, average of {} permutations", n_perms);
+		println!("Mean: {}, Mode: {}, Median: {}, Percentiles: {:?}, Unutilized links: {}, Overutilized links {}", mean_sum/n_perms as f64, mode_sum/n_perms as f64, median_sum/n_perms as f64, percentiles_sum.iter().map(|p|p/n_perms as f64).collect::<Vec<f64>>(), (unutilized_links_sum/n_perms as f64)/ (n*(n-1)) as f64, (overutilized_links_sum/n_perms as f64)/ (n*(n-1)) as f64);
+		println!("Three paths: {}, relative: {}, maximum (all): {} ",three_paths_sum/n_perms as f64,three_paths_sum/n_perms as f64 / (n*(n-1)*(n-2)) as f64, n*(n-1)*(n-2));
+
+		println!("With minimal paths included");
+		println!("Mean: {}, Mode: {}, Median: {}, Percentiles: {:?}, Unutilized links {}, Overutilized links {}", minimal_mean_sum/n_perms as f64, minimal_mode_sum/n_perms as f64, minimal_median_sum/n_perms as f64, minimal_percentiles_sum.iter().map(|p|p/n_perms as f64).collect::<Vec<f64>>(), (minimal_unutilized_links_sum/n_perms as f64)/ (n*(n-1)) as f64, (minimal_overutilized_links_sum/n_perms as f64)/ (n*(n-1)) as f64);
+		println!("Three paths: {}, relative: {}, maximum (all): {} ",minimal_three_paths_sum/n_perms as f64,minimal_three_paths_sum/n_perms as f64 / (n*(n-1)*(n-2)) as f64, n*(n-1)*(n-2));
+
+		println!("=============End algorithm stats======================");
+		println!();
+		// //print matrix of how many intermediates per pair of routers
+		// println!("Intermediates per pair of switches:");
+		// for i in 0..n
+		// {
+		// 	for j in 0..n
+		// 	{
+		// 		print!("{},",self.intermediates[i][j].len());
+		// 	}
+		// 	println!();
+		// }
+		//
+		// //for each router +1, +2, +3, +4 and +5 show the top selected intermediates for all pairs source-destination
+		// for j in 1..6
+		// {
+		// 	let mut routers = vec![0; n];
+		// 	for i in 0..n
+		// 	{
+		// 		let dest = (i+j) % n;
+		// 		for k in self.intermediates[i][dest].iter()
+		// 		{
+		// 			routers[*k] += 1;
+		// 		}
+		// 	}
+		// 	//Now print the top 5 intermediates for this value of j
+		// 	let mut routers = routers.iter().enumerate().collect::<Vec<_>>();
+		// 	routers.sort_by(|a,b| b.1.cmp(a.1));
+		// 	println!("Top intermediates for j={}",j);
+		// 	println!("routers={:?}",routers);
+		// 	println!("=====================");
+		// }
+		//
+		// //Print max, avg and min intermediates.
+		// let mut max = 0;
+		// let mut min = n;
+		// let mut sum = 0;
+		// for i in 0..n
+		// {
+		// 	for j in 0..n
+		// 	{
+		// 		if i == j { continue; }
+		// 		let len = self.intermediates[i][j].len();
+		// 		max = max.max(len);
+		// 		min = min.min(len);
+		// 		sum += len;
+		// 	}
+		// }
+		// println!("Intermediates per pair:");
+		// println!("Max intermediates: {}, Min intermediates: {}, Avg intermediates: {}", max, min, sum as f64 / (n*n -n) as f64);
+		//
+		// //print how many intermediates per router
+		// let mut max = 0;
+		// let mut min = n*n;
+		// let mut sum = 0;
+		// for i in 0..n
+		// {
+		// 	let len = self.intermediates[i].iter().map(|v|v.len()).sum();
+		// 	max = max.max(len);
+		// 	min = min.min(len);
+		// 	sum += len;
+		// }
+		// println!("Intermediates per router:");
+		// println!("Max intermediates: {}, Min intermediates: {}, Avg intermediates: {}", max/(n-1), min/(n-1), sum as f64 / (n*(n-1)) as f64);
 
 	}
 }
