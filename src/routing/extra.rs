@@ -802,6 +802,7 @@ pub struct SubTopologyRouting
 	logical_routing: Box<dyn Routing>,
 	opportunistic_hops: bool,
 	livelock_avoidance: bool,
+	intermediate_selection_policy: IntermediateSelectionPolicy,
 }
 
 impl Routing for SubTopologyRouting
@@ -838,7 +839,6 @@ impl Routing for SubTopologyRouting
 		let logical_target = self.physical_to_logical[target_router];
 		let logical_candidates = self.logical_routing.next(&routing_info.meta.as_ref().unwrap()[0].borrow(), self.logical_topology.as_ref(), logical_current, logical_target, None, num_virtual_channels, rng)?;
 		let mut candidates = vec![];
-		//let barrier_hops = routing_info.selections.as_ref().unwrap()[0] as usize;
 
 		for CandidateEgress { port, virtual_channel, label: _, annotation, .. } in logical_candidates.candidates
 		{
@@ -863,56 +863,75 @@ impl Routing for SubTopologyRouting
 
 		if self.opportunistic_hops
 		{
-			for neighbour in topology.neighbour_router_iter(current_router).into_iter()
-			{
-				let physical_neighbour = neighbour.neighbour_router;
-				// let logical_neighbour = self.physical_to_logical[physical_neighbour];
+			match &self.intermediate_selection_policy{
 
-				if *self.logical_topology_connections.get(current_router, physical_neighbour) != 0 { //Remove logical connections from the opportunistic hops
-					continue
+				IntermediateSelectionPolicy::Adaptive =>{
+					for neighbour in topology.neighbour_router_iter(current_router).into_iter()
+					{
+						let physical_neighbour = neighbour.neighbour_router;
+						// let logical_neighbour = self.physical_to_logical[physical_neighbour];
+
+						if *self.logical_topology_connections.get(current_router, physical_neighbour) != 0 { //Remove logical connections from the opportunistic hops
+							continue
+						}
+
+						let new_a=topology.distance(source_router,physical_neighbour);
+						let new_b=topology.distance(physical_neighbour,target_router);
+						let new_weight:i32 = new_b as i32 - new_a as i32;
+
+						if self.livelock_avoidance && routing_info.hops >= topology.diameter() && new_b >= b // avoid livelocks
+						{
+							continue;
+						}
+
+						if new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b} )
+						{
+							let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
+							candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
+						}
+					}
+				},
+
+				IntermediateSelectionPolicy::Pattern(_, _, _) => { //NOT WORKING IF ITS NOT IN A COMPLETE GRAPH. THE MIN ROUTE SHOULDN'T BE LIKE THAT.
+
+					for neighbour in topology.neighbour_router_iter(current_router).into_iter()
+					{
+						let physical_neighbour = neighbour.neighbour_router;
+						if *self.logical_topology_connections.get(current_router, physical_neighbour) != 0 { //Remove logical connections from the opportunistic hops
+							continue
+						}
+						let new_a=topology.distance(source_router,physical_neighbour);
+						let new_b=topology.distance(physical_neighbour,target_router);
+						let new_weight:i32 = new_b as i32 - new_a as i32;
+
+						if self.livelock_avoidance && routing_info.hops >= topology.diameter() && new_b >= b // avoid livelocks
+						{
+							continue;
+						}
+
+						if new_weight<weight && new_b < b //only for minimal routes
+						{
+							let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
+							candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
+
+						}else if let Some(intermediate) = routing_info.selections.as_ref().map(|v|v[0] as usize) { //the allowed non-minimal route
+
+							if physical_neighbour == intermediate {
+								let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
+								candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
+							}
+						}
+
+					}
+
+
+				},
+				_ => {
+					panic!("Intermediate selection policy not implemented for SubTopologyRouting");
 				}
-
-				let new_a=topology.distance(source_router,physical_neighbour);
-				let new_b=topology.distance(physical_neighbour,target_router);
-				let new_weight:i32 = new_b as i32 - new_a as i32;
-
-				if self.livelock_avoidance && routing_info.hops >= topology.diameter() && new_b >= b // avoid livelocks
-				{
-					continue;
-				}
-
-				if new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b} )
-				{
-					let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
-					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
-				}
-
-				//Dont comment above ===================
-				// if topology.distance(physical_neighbour, target_router) < topology.distance(current_router, target_router) // Min route over the graph
-				// {
-				// 	let label = 0;
-				// 	candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-				//
-				// }else if topology.distance(physical_neighbour, target_router) == topology.distance(current_router, target_router) // Stays the same over the graph
-				// {
-				// 	if self.equal[0] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) < self.logical_topology.distance(logical_current, logical_target) //Reduces escape distance
-				// 	{
-				// 		let label = self.equal_labels[0];
-				// 		candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-				//
-				// 	}else if self.equal[1] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) == self.logical_topology.distance(logical_current, logical_target) && routing_info.hops < barrier_hops //last condition for complete graphs
-				// 	{
-				// 		let label = self.equal_labels[1];
-				// 		candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-				// 	}else if self.equal[2] != 0 && self.logical_topology.distance(logical_neighbour, logical_target) > self.logical_topology.distance(logical_current, logical_target) && routing_info.hops < barrier_hops //last condition for complete graphs
-				// 	{
-				// 		let label = self.equal_labels[2];
-				// 		candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, estimated_remaining_hops: None, router_allows: None, annotation: None}));
-				// 	}
-				// }
 			}
 		}
-		if let Some(min_label) = candidates.iter().map(|ref e|e.label).min()
+		if let Some(min_label) = candidates.iter().map(|ref e|e.label).min() //IMPORTANT INVERSION OF THE LABELS.
 		{
 			for ref mut e in candidates.iter_mut()
 			{
@@ -929,8 +948,23 @@ impl Routing for SubTopologyRouting
 
 		let mut bri = routing_info.borrow_mut();
 		bri.meta = Some(vec![ RefCell::new(RoutingInfo::new())]);
-		let distance = topology.distance(current_router, target_router) as i32;
-		bri.selections = Some(vec![distance]); //can that be the number of bad missrouting hops avaliable ?
+
+		match &self.intermediate_selection_policy{
+			IntermediateSelectionPolicy::Adaptive => {},
+			IntermediateSelectionPolicy::Pattern(pattern, _, allow_dest) => {
+				//panic because its not implemented
+				let mut intermediate = pattern.get_destination(current_router, topology, rng);
+				while !allow_dest && intermediate == target_router {
+					intermediate = pattern.get_destination(current_router, topology, rng);
+				}
+				bri.selections = Some(vec![intermediate as i32]);
+			},
+			_ => {
+				panic!("Intermediate selection policy not implemented for SubTopologyRouting");
+			}
+		}
+
+
 		let bri_sub = &bri.meta.as_ref().unwrap()[0];
 		self.logical_routing.initialize_routing_info(bri_sub, self.logical_topology.as_ref(), logical_current, logical_target, None, rng);
 	}
@@ -947,8 +981,8 @@ impl Routing for SubTopologyRouting
 		let logical_target = self.physical_to_logical[target_router];
 		let (previous_physical_router_loc, _link_class) = topology.neighbour(current_router, current_port);
 
-		// println!("current_router={}, current_port={}, previous_physical_router_loc={:?}", current_router, current_port, previous_physical_router_loc);
 		//TODO: Reduce the complexity of this operation. It can be O(1) instead of O(degree) but a new method is needed in the trait.
+		let mut logical_hop = false;
 		if let Location::RouterPort{router_index: previous_physical_router,..} = previous_physical_router_loc {
 			let prev_logical_router = self.physical_to_logical[previous_physical_router];
 			if let Some(a) = self.logical_topology.neighbour_router_iter(logical_current)
@@ -958,6 +992,7 @@ impl Routing for SubTopologyRouting
 				let sub_routing_info = &routing_info.meta.as_ref().unwrap()[0];
 				sub_routing_info.borrow_mut().hops += 1;
 				self.logical_routing.update_routing_info(sub_routing_info, self.logical_topology.as_ref(), logical_current, logical_port, logical_target, None, rng);
+				logical_hop = true;
 			}else{
 				let routing_info_sub = RefCell::new(RoutingInfo::new());
 				routing_info.meta = Some(vec![routing_info_sub]);
@@ -966,6 +1001,22 @@ impl Routing for SubTopologyRouting
 		}else {
 			panic!("!!")
 		}
+
+		match &self.intermediate_selection_policy{
+			IntermediateSelectionPolicy::Adaptive => {},
+			IntermediateSelectionPolicy::Pattern(_, _, _) => {
+				if let Some(intermediate) = routing_info.selections.as_ref().map(|v|v[0] as usize) {
+					if current_router == intermediate || logical_hop {
+						routing_info.selections = None;
+					}
+				}
+			},
+			_ => {
+				panic!("Intermediate selection policy not implemented for SubTopologyRouting");
+			}
+		}
+
+
 	}
 
 	fn initialize(&mut self, topology: &dyn Topology, rng: &mut StdRng) {
@@ -996,6 +1047,10 @@ impl Routing for SubTopologyRouting
 		// println!("logical_topology_connections={:?}",self.logical_topology_connections);
 
 		self.logical_routing.initialize(self.logical_topology.as_ref(), rng);
+
+		if let IntermediateSelectionPolicy::Pattern(ref mut pattern, _, _) = self.intermediate_selection_policy {
+			pattern.initialize(topology.num_routers(), topology.num_routers(), topology, rng);
+		}
 	}
 
 	fn statistics(&self, _cycle: Time) -> Option<ConfigurationValue> {
@@ -1012,6 +1067,7 @@ impl SubTopologyRouting
 		let mut logical_routing = None;
 		let mut opportunistic_hops = false;
 		let mut livelock_avoidance = false;
+		let mut intermediate_selection_policy = IntermediateSelectionPolicy::Adaptive;
 		//new rng for the subtopology
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
@@ -1020,6 +1076,7 @@ impl SubTopologyRouting
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"livelock_avoidance" => livelock_avoidance = value.as_bool().expect("bad value for livelock_avoidance"),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
+			"intermediate_selection_policy" => intermediate_selection_policy = match_intermediate_selection_policy(value),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
 		let map = map.expect("missing physical_to_logical");
@@ -1037,6 +1094,7 @@ impl SubTopologyRouting
 			logical_routing,
 			opportunistic_hops,
 			livelock_avoidance,
+			intermediate_selection_policy
 		}
 	}
 }
@@ -1345,13 +1403,14 @@ fn match_balance_algorithm(object: &ConfigurationValue) -> BalanceAlgorithm
 
 }
 
-
+//Scheme to select intermediates switches for non-minimal routing
 #[derive(Debug)]
 pub enum IntermediateSelectionPolicy
 {
 	Adaptive,
 	Random(usize),
 	RRandom(usize),
+	Pattern(Box<dyn Pattern>, bool, bool),
 }
 
 //match enum IntermediateSelectionPolicy and the inner values from ConfigurationValue object
@@ -1376,6 +1435,18 @@ fn match_intermediate_selection_policy(object: &ConfigurationValue) -> Intermedi
 					"selections" => selections = value.as_usize().expect("bad value for selections"),
 				);
 				IntermediateSelectionPolicy::RRandom(selections)
+			},
+			"Pattern" => {
+				let mut pattern = None;
+				let mut allow_origin = false;
+				let mut allow_destination = false;
+				match_object_panic!(object, "Pattern", value,
+					"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv: value, plugs: &Plugs::default()})),
+					"allow_origin" => allow_origin = value.as_bool().expect("bad value for allow_origin"),
+					"allow_destination" => allow_destination = value.as_bool().expect("bad value for allow_destination"),
+				);
+				let pattern = pattern.expect("missing pattern");
+				IntermediateSelectionPolicy::Pattern(pattern,allow_origin,allow_destination)
 			},
 			_ => {
 				panic!("Unknown intermediate selection policy");
@@ -1513,6 +1584,10 @@ impl Routing for CGLabel
 					}
 				}
 			},
+			_ => {
+				//print the pattern and that it's not implemented
+				panic!("Pattern intermediate scheme it's not implemented");
+			}
 		}
 		Ok(RoutingNextCandidates{candidates,idempotent:true})
 	}
