@@ -1,3 +1,4 @@
+use std::default::Default;
 use std::cell::RefCell;
 use std::cmp::max;
 use crate::pattern::extra::{get_hotspot_destination, get_switch_pattern};
@@ -16,14 +17,17 @@ use crate::pattern::{new_pattern, PatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::basic::{build_message_cv, BuildMessageCVArgs};
+use crate::traffic::{build_traffic_sum_cv, build_traffic_map_cv, BuildTrafficMapCVArgs, BuildTrafficSumCVArgs};
+use crate::traffic::collectives::{get_all2all};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, Generating, UnspecifiedWait};
 use crate::pattern::extra::{get_candidates_selection,get_cartesian_transform};
-
+use crate::pattern::{get_cartesian_transform_from_builder, get_linear_transform, BuildCartesianTransformCV, BuildLinearTransformCV, get_composition_pattern_cv, BuildCompositionCV};
+use crate::topology::cartesian::CartesianData;
 
 /**
-Traffic which allow tasks to generate messages when they have enough credits.
+Traffic which allows tasks to generate messages when they have enough credits.
 After generating the messages, the credits are consumed.
-A task gain credits when it consumes messages, and an initial amount of credits per task can be set.
+A task gains credits when it consumes messages, and an initial number of credits per task can be set.
 ```ignore
 TrafficCredit{
 	pattern: RandomPermutation, //specify the pattern of the communication
@@ -32,7 +36,7 @@ TrafficCredit{
 	messages_per_transition: 1, //specify the number of messages each task can sent when consuming credits
 	credits_per_received_message: 1, //specify the number of credits to gain when a message is received
 	message_size: 16, //specify the size of each sent message
-	message_size_pattern: Hotspots{destinatinos:[128]} //Variable message size to add depending on the task
+	message_size_pattern: Hotspots{destinations:[128]} //Variable message size to add depending on the task
 	initial_credits: Hotspots{destinations: [1]}, //specify the initial amount of credits per task
 }
 ```
@@ -265,11 +269,11 @@ pub fn get_traffic_credit(args: BuildTrafficCreditCVArgs) -> ConfigurationValue
 }
 
 /**
-Mini-Kernels which imitate the behavior of real applications.
+Mini-Kernels which imitate the behaviour of real applications.
 
 ## Wavefront
-The wavefront traffic is applied over a n-dimensional space.
-Starts at the corner of the space (0,0,...,0) and ends at the opposite corner (n-1, n-1,..., n-1).
+The wavefront traffic is applied over an n-dimensional space.
+Starts in the corner of the space (0,0,...,0) and ends in the opposite corner (n-1, n-1, ..., n-1).
 
 ```ignore
 	Wavefront{
@@ -277,6 +281,18 @@ Starts at the corner of the space (0,0,...,0) and ends at the opposite corner (n
 		data_size: 16,
 	}
 ```
+
+## LinearAll2All
+The LinearAll2All traffic generates all2all in each row, column, etc., depending on the task space.
+It is like an FFT.
+
+```ignore
+	LinearAll2All{
+		task_space: [10,10],
+		message_size: 16,
+	}
+```
+This could simulate a FFT3D, where each task contains a portion of data.
 **/
 
 #[derive(Quantifiable)]
@@ -303,11 +319,83 @@ impl MiniApp {
 
                 get_wavefront(task_space, data_size)
             },
+			"LinearAll2All" => { // All2All in the task space. Its like an FFT
+				let mut task_space = None;
+				let mut message_size = None;
+				match_object_panic!(arg.cv, "LinearAll2All", value,
+					"task_space" => task_space = Some(value.as_array().expect("Bad task_space value").iter().map(|v| v.as_f64().expect("Bad task_space value") as usize).collect()),
+					"message_size" => message_size = Some(value.as_f64().expect("Bad message_size value") as usize),
+				);
+
+				let task_space = task_space.expect("task_space is required");
+				let message_size = message_size.expect("message_size is required");
+
+				get_all2all_linear(task_space, message_size)
+			}
             _ => panic!("Unknown traffic type: {}", traffic),
         };
         new_traffic(TrafficBuilderArgument{cv: &traffic_cv, ..arg})
     }
 
+}
+
+fn get_all2all_linear(task_space: Vec<usize>, message_size: usize) -> ConfigurationValue {
+	let mut traffics_for_sequence = vec![];
+	let total_tasks:usize = task_space.iter().product();
+	// let cartesian_data = CartesianData::new(&task_space);
+	for k in 0..task_space.len() {
+		let mut all2all_dim = vec![];
+		let mut specific_all2alls_side = task_space.clone();
+		specific_all2alls_side.remove(k);
+		let specific_all2alls = specific_all2alls_side.iter().product();
+		let specific_all2alls_cartesian_data = CartesianData::new(&specific_all2alls_side);
+		for i in 0..specific_all2alls {
+			let all2all = get_all2all(task_space[k], message_size * task_space[k], 1);
+			let cartesian_data_graphs = specific_all2alls_cartesian_data.unpack(i);
+			let mut shift_vector = cartesian_data_graphs.clone();
+			shift_vector.insert(k, 0);
+			let mut matrix = vec![ vec![0i32; 1]; task_space.len()];
+			matrix[k][0] = 1;
+			let linear_transform_args = BuildLinearTransformCV {
+				source_size: vec![task_space[k]],
+				target_size: task_space.clone(),
+				matrix,
+			};
+			let linear_transform = get_linear_transform(linear_transform_args);
+			let cartesian_transform_args = BuildCartesianTransformCV{
+				sides: task_space.clone(),
+				shift: Some(shift_vector),
+				..Default::default()
+			};
+			let cartesian_transform = get_cartesian_transform_from_builder(cartesian_transform_args);
+
+			let composition_pattern_args = BuildCompositionCV{
+				patterns: vec![linear_transform, cartesian_transform],
+				..Default::default()
+			};
+
+			let map = get_composition_pattern_cv(composition_pattern_args);
+
+			let traffic_map_args = BuildTrafficMapCVArgs {
+				tasks: total_tasks,
+				application: all2all,
+				map
+			};
+			let traffic_map = build_traffic_map_cv(traffic_map_args);
+			all2all_dim.push(traffic_map);
+		}
+
+		let traffic_sum_args = BuildTrafficSumCVArgs {
+			tasks: task_space.iter().product(),
+			list: all2all_dim,
+			..Default::default()
+		};
+		let t_sum = build_traffic_sum_cv(traffic_sum_args);
+		traffics_for_sequence.push(t_sum);
+	}
+	ConfigurationValue::Object("Sequence".to_string(), vec![
+		("traffics".to_string(), ConfigurationValue::Array(traffics_for_sequence)),
+	])
 }
 
 fn get_wavefront(task_space: Vec<usize>, data_size:usize) -> ConfigurationValue{
@@ -551,5 +639,22 @@ impl Stencil
 			next_id: 0,
 			generated_messages: BTreeSet::new(),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::traffic::mini_apps::{get_all2all_linear, get_wavefront};
+
+	#[test]
+	fn test_wavefront() {
+		let wavefront_cv = get_wavefront(vec![3,3], 16);
+		println!("{}", wavefront_cv.format_terminal());
+	}
+
+	#[test]
+	fn test_all2all_linear() {
+		let all2all_linear_cv = get_all2all_linear(vec![3,3], 16);
+		println!("{}", all2all_linear_cv.format_terminal());
 	}
 }

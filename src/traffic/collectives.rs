@@ -498,9 +498,12 @@ fn get_all_reduce_ring(tasks: usize, data_size: usize) -> ConfigurationValue
     get_traffic_message_task_sequence(traffic_message_task_sequence_args)
 }
 
-fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> ConfigurationValue
+pub fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> ConfigurationValue
 {
     let messages = tasks -1;
+    if rounds == 0 {
+        panic!("The number of rounds must be greater than 0");
+    }
     let message_size = (data_size/tasks)/rounds;
 
     let candidates_selection = get_candidates_selection(

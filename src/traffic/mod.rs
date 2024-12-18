@@ -272,7 +272,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"Replica" => Box::new(Replica::new(arg)),
 			"Stencil" => Box::new(Stencil::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
-			"Wavefront" => MiniApp::new(cv_name.clone(), arg),
+			"Wavefront" | "LinearAll2All" => MiniApp::new(cv_name.clone(), arg),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}
@@ -281,3 +281,55 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 		panic!("Trying to create a traffic from a non-Object");
 	}
 }
+
+pub struct BuildTrafficMapCVArgs{
+	pub(crate) tasks: usize,
+	pub(crate) application: ConfigurationValue,
+	pub(crate) map: ConfigurationValue,
+}
+
+pub fn build_traffic_map_cv(args: BuildTrafficMapCVArgs) -> ConfigurationValue {
+	ConfigurationValue::Object(
+		"TrafficMap".to_string(),
+		vec![
+			("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
+			("application".to_string(), args.application),
+			("map".to_string(), args.map),
+		]
+	)
+}
+
+#[derive(Debug, Default)]
+pub struct BuildTrafficSumCVArgs{
+	pub(crate) tasks: usize,
+	pub(crate) list: Vec<ConfigurationValue>,
+	pub(crate) statistics_temporal_step: Option<Time>,
+	pub(crate) box_size: Option<usize>,
+	pub(crate) finish_when: Vec<usize>,
+	pub(crate) server_task_isolation: Option<bool>,
+}
+
+pub(crate) fn build_traffic_sum_cv(args: BuildTrafficSumCVArgs) -> ConfigurationValue {
+	let mut vector= vec![
+		("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
+		("list".to_string(), ConfigurationValue::Array(args.list)),
+	];
+	if let Some(temporal_step) = args.statistics_temporal_step{
+		vector.push(("statistics_temporal_step".to_string(), ConfigurationValue::Number(temporal_step as f64)));
+	}
+	if let Some(box_size) = args.box_size{
+		vector.push(("box_size".to_string(), ConfigurationValue::Number(box_size as f64)));
+	}
+	if !args.finish_when.is_empty(){
+		vector.push(("finish_when".to_string(), ConfigurationValue::Array(args.finish_when.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())));
+	}
+	if let Some(server_task_isolation) = args.server_task_isolation{
+		let bool = if server_task_isolation { ConfigurationValue::True } else { ConfigurationValue::False };
+		vector.push(("server_task_isolation".to_string(), bool));
+	}
+	ConfigurationValue::Object(
+		"TrafficSum".to_string(),
+		vector
+	)
+}
+
