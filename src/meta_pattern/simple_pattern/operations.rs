@@ -1,3 +1,5 @@
+use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::MetaPattern;
 use std::cell::{RefCell};
 use ::rand::{rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
@@ -5,10 +7,10 @@ use crate::config_parser::ConfigurationValue;
 use crate::topology::{Topology};
 use crate::{match_object_panic};
 use rand::{RngCore, SeedableRng};
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
 
 
-///A pattern given by blocks. The elements are divided by blocks of size `block_size`. The `global_pattern` is used to describe the communication among different blocks and the `block_pattern` to describe the communication inside a block.
+///A meta_pattern given by blocks. The elements are divided by blocks of size `block_size`. The `global_pattern` is used to describe the communication among different blocks and the `block_pattern` to describe the communication inside a block.
 ///Seen as a graph, this is the Kronecker product of the block graph with the global graph.
 ///Thus the origin a position `i` in the block `j` will select the destination at position `b(i)` in the block `g(j)`, where `b(i)` is the destination via the `block_pattern` and `g(j)` is the destination via the `global_pattern`.
 #[derive(Quantifiable)]
@@ -16,23 +18,25 @@ use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
 pub struct ProductPattern
 {
     block_size: usize,
-    block_pattern: Box<dyn Pattern>,
-    global_pattern: Box<dyn Pattern>,
+    block_pattern: Box<dyn SimplePattern>,
+    global_pattern: Box<dyn SimplePattern>,
 }
 
-impl Pattern for ProductPattern
+impl MetaPattern<usize, usize>for ProductPattern
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if source_size!=target_size
         {
             unimplemented!("Different sizes are not yet implemented for ProductPattern");
         }
-        self.block_pattern.initialize(self.block_size,self.block_size,topology,rng);
+        let topology = topology.expect("ProductPattern requires a topology");
+
+        self.block_pattern.initialize(self.block_size,self.block_size,Some(topology),rng);
         let global_size=source_size/self.block_size;
-        self.global_pattern.initialize(global_size,global_size,topology,rng);
+        self.global_pattern.initialize(global_size,global_size,Some(topology),rng);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let local=origin % self.block_size;
         let global=origin / self.block_size;
@@ -44,14 +48,14 @@ impl Pattern for ProductPattern
 
 impl ProductPattern
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> ProductPattern
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> ProductPattern
     {
         let mut block_size=None;
         let mut block_pattern=None;
         let mut global_pattern=None;
         match_object_panic!(arg.cv,"Product",value,
-			"block_pattern" => block_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
-			"global_pattern" => global_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"block_pattern" => block_pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"global_pattern" => global_pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"block_size" => block_size=Some(value.as_f64().expect("bad value for block_size") as usize),
 		);
         let block_size=block_size.expect("There were no block_size");
@@ -66,7 +70,7 @@ impl ProductPattern
 }
 
 /**
-The pattern resulting of composing a list of patterns.
+The meta_pattern resulting of composing a list of patterns.
 `destination=patterns[len-1]( patterns[len-2] ( ... (patterns[1] ( patterns[0]( origin ) )) ) )`.
 The intermediate sizes along the composition can be stated by `middle_sizes`, otherwise they are set equal to the `target_size` of the whole.
 Thus in a composition of two patterns in which the midddle size is `x`and not equal to `target_size`, it should be set `middle_sizes=[x]`.
@@ -75,13 +79,13 @@ Thus in a composition of two patterns in which the midddle size is `x`and not eq
 #[derive(Debug)]
 pub struct Composition
 {
-    patterns: Vec<Box<dyn Pattern>>,
+    patterns: Vec<Box<dyn SimplePattern>>,
     middle_sizes: Vec<usize>,
 }
 
-impl Pattern for Composition
+impl MetaPattern<usize, usize>for Composition
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         for (index,pattern) in self.patterns.iter_mut().enumerate()
         {
@@ -90,7 +94,7 @@ impl Pattern for Composition
             pattern.initialize(current_source,current_target,topology,rng);
         }
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let mut destination=origin;
         for pattern in self.patterns.iter()
@@ -103,13 +107,13 @@ impl Pattern for Composition
 
 impl Composition
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Composition
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Composition
     {
         let mut patterns=None;
         let mut middle_sizes=None;
         match_object_panic!(arg.cv,"Composition",value,
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
 			"middle_sizes" => middle_sizes = Some(value.as_array().expect("bad value for middle_sizes").iter()
 				.map(|v|v.as_usize().expect("bad value for middle_sizes")).collect()),
 		);
@@ -131,11 +135,11 @@ impl Composition
 Sum{ //A vector of 2's
 	patterns:[
 		CandidatesSelection{
-				pattern: Identity,
+				meta_pattern: Identity,
 				pattern_destination_size: 2048,
 		},
 		CandidatesSelection{
-				pattern: Identity,
+				meta_pattern: Identity,
 				pattern_destination_size: 2048,
 		},
 	],
@@ -146,14 +150,14 @@ Sum{ //A vector of 2's
 #[derive(Debug)]
 pub struct Sum
 {
-    patterns: Vec<Box<dyn Pattern>>,
+    patterns: Vec<Box<dyn SimplePattern>>,
     middle_sizes: Vec<usize>,
     target_size: Option<usize>,
 }
 
-impl Pattern for Sum
+impl MetaPattern<usize, usize>for Sum
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         for (index,pattern) in self.patterns.iter_mut().enumerate()
         {
@@ -163,7 +167,7 @@ impl Pattern for Sum
         }
         self.target_size = Some(target_size);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let target_size = self.target_size.unwrap();
         let mut destination=0;
@@ -182,13 +186,13 @@ impl Pattern for Sum
 
 impl Sum
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Sum
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Sum
     {
         let mut patterns=None;
         let mut middle_sizes=None;
         match_object_panic!(arg.cv,"Sum",value,
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
 			"middle_sizes" => middle_sizes = Some(value.as_array().expect("bad value for middle_sizes").iter()
 				.map(|v|v.as_usize().expect("bad value for middle_sizes")).collect()),
 		);
@@ -203,22 +207,22 @@ impl Sum
 }
 
 
-///The pattern resulting of composing a pattern with itself a number of times..
+///The meta_pattern resulting of composing a meta_pattern with itself a number of times..
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct Pow
 {
-    pattern: Box<dyn Pattern>,
+    pattern: Box<dyn SimplePattern>,
     exponent: usize,
 }
 
-impl Pattern for Pow
+impl MetaPattern<usize, usize>for Pow
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.pattern.initialize(source_size,target_size,topology,rng);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let mut destination=origin;
         for _ in 0..self.exponent
@@ -231,15 +235,15 @@ impl Pattern for Pow
 
 impl Pow
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Pow
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Pow
     {
         let mut pattern=None;
         let mut exponent=None;
         match_object_panic!(arg.cv,"Pow",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"exponent" => exponent=Some(value.as_f64().expect("bad value for exponent") as usize),
 		);
-        let pattern=pattern.expect("There were no pattern");
+        let pattern=pattern.expect("There were no meta_pattern");
         let exponent=exponent.expect("There were no exponent");
         Pow{
             pattern,
@@ -261,14 +265,14 @@ RoundRobin{ // Alternate between three random permutations
 pub struct RoundRobin
 {
     ///The patterns in the pool to be selected.
-    patterns: Vec<Box<dyn Pattern>>,
-    /// Vec pattern origin
+    patterns: Vec<Box<dyn SimplePattern>>,
+    /// Vec meta_pattern origin
     index: RefCell<Vec<usize>>,
 }
 
-impl Pattern for RoundRobin
+impl MetaPattern<usize, usize>for RoundRobin
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if self.patterns.is_empty()
         {
@@ -280,7 +284,7 @@ impl Pattern for RoundRobin
         }
         self.index.replace(vec![0;source_size]);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let mut indexes = self.index.borrow_mut();
         let pattern_index = indexes[origin];
@@ -291,12 +295,12 @@ impl Pattern for RoundRobin
 
 impl RoundRobin
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RoundRobin
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RoundRobin
     {
         let mut patterns=None;
         match_object_panic!(arg.cv,"RoundRobin",value,
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
 		);
         let patterns=patterns.expect("There were no patterns");
         RoundRobin{
@@ -323,7 +327,7 @@ DestinationSets{
 pub struct DestinationSets
 {
     ///Patterns to get the set of destinations
-    patterns: Vec<Box<dyn Pattern>>,
+    patterns: Vec<Box<dyn SimplePattern>>,
     ///Set of destinations.
     destination_set: Vec<Vec<usize>>,
     ///Exclude self references
@@ -332,9 +336,9 @@ pub struct DestinationSets
     index: RefCell<Vec<usize>>,
 }
 
-impl Pattern for DestinationSets
+impl MetaPattern<usize, usize>for DestinationSets
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.destination_set = vec![vec![]; source_size];
         self.index.replace(vec![0;source_size]);
@@ -351,7 +355,7 @@ impl Pattern for DestinationSets
             }
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         let mut indexes = self.index.borrow_mut();
         let pattern_index = indexes[origin];
@@ -363,16 +367,16 @@ impl Pattern for DestinationSets
 
 impl DestinationSets
 {
-    pub fn new(arg:PatternBuilderArgument) -> DestinationSets
+    pub fn new(arg:MetaPatternBuilderArgument) -> DestinationSets
     {
         let mut patterns=None;
         let mut exclude_self_references = false;
         match_object_panic!(arg.cv,"DestinationSets",value,
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
             "exclude_self_references" => exclude_self_references = value.as_bool().expect("bad value for exclude_self_references"),
 		);
-        let patterns:Vec<Box<dyn Pattern>>=patterns.expect("There were no patterns");
+        let patterns:Vec<Box<dyn SimplePattern>>=patterns.expect("There were no patterns");
 
         DestinationSets{
             patterns,
@@ -385,7 +389,7 @@ impl DestinationSets
 
 /**
 ```
-	Uses the inverse of the pattern specified.
+	Uses the inverse of the meta_pattern specified.
 ```
  **/
 #[derive(Quantifiable)]
@@ -393,16 +397,16 @@ impl DestinationSets
 pub struct Inverse
 {
     ///Pattern to apply.
-    pattern: Box<dyn Pattern>,
+    pattern: Box<dyn SimplePattern>,
     ///Destination
     inverse_values: Vec<Option<usize>>,
     ///default destination
     default_destination: Option<usize>,
 }
 
-impl Pattern for Inverse
+impl MetaPattern<usize, usize>for Inverse
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         // if source_size!= target_size
         // {
@@ -421,7 +425,7 @@ impl Pattern for Inverse
         }
         self.inverse_values = source;
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         if origin >= self.inverse_values.len()
         {
@@ -440,15 +444,15 @@ impl Pattern for Inverse
 
 impl Inverse
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Inverse
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Inverse
     {
         let mut pattern = None;
         let mut default_destination = None;
         match_object_panic!(arg.cv,"Inverse",value,
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"default_destination" => default_destination = Some(value.as_usize().expect("bad value for default_destination")),
 		);
-        let pattern = pattern.expect("There were no pattern in configuration of Inverse.");
+        let pattern = pattern.expect("There were no meta_pattern in configuration of Inverse.");
         Inverse{
             pattern,
             inverse_values: vec![],
@@ -459,7 +463,7 @@ impl Inverse
 
 /**
 
-Select a region of tasks to execute a pattern. The size of the application using the pattern is 64.
+Select a region of tasks to execute a meta_pattern. The size of the application using the meta_pattern is 64.
 ```ignore
 	SubApp{
 		subtasks: 8,
@@ -480,15 +484,15 @@ Select a region of tasks to execute a pattern. The size of the application using
 pub struct SubApp
 {
     subtasks: usize,
-    selection_pattern: Box<dyn Pattern>,
-    subapp_pattern: Box<dyn Pattern>,
-    others_pattern: Box<dyn Pattern>,
+    selection_pattern: Box<dyn SimplePattern>,
+    subapp_pattern: Box<dyn SimplePattern>,
+    others_pattern: Box<dyn SimplePattern>,
     selected_vec: Vec<usize>,
 }
 
-impl Pattern for SubApp
+impl MetaPattern<usize, usize>for SubApp
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
 
         if self.subtasks > source_size
@@ -508,7 +512,7 @@ impl Pattern for SubApp
         self.selected_vec = source;
 
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         if self.selected_vec.len() <= origin
         {
@@ -529,7 +533,7 @@ impl Pattern for SubApp
 
 impl SubApp
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> SubApp
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> SubApp
     {
         let mut subtasks = None;
         let mut selection_pattern = None;
@@ -537,9 +541,9 @@ impl SubApp
         let mut others_pattern = None;
         match_object_panic!(arg.cv,"SubApp",value,
 			"subtasks" => subtasks = Some(value.as_usize().expect("bad value for total_subsize")),
-			"selection_pattern" => selection_pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
-			"subapp_pattern" => subapp_pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //traffic of the application
-			"others_pattern" => others_pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //traffic of the machine
+			"selection_pattern" => selection_pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
+			"subapp_pattern" => subapp_pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})), //traffic of the application
+			"others_pattern" => others_pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})), //traffic of the machine
 		);
 
         let subtasks = subtasks.expect("There were no tasks in configuration of SubApp.");
@@ -560,10 +564,10 @@ impl SubApp
 
 
 /**
-Boolean function which puts a 1 if the pattern contains the server, and 0 otherwise.
+Boolean function which puts a 1 if the meta_pattern contains the server, and 0 otherwise.
 ```ignore
 CandidatesSelection{
-	pattern: Hotspots{selected_destinations: [0]}, //1 if the server is 0, 0 otherwise
+	meta_pattern: Hotspots{selected_destinations: [0]}, //1 if the server is 0, 0 otherwise
 	pattern_destination_size: 1,
 }
 ```
@@ -575,14 +579,14 @@ pub struct CandidatesSelection
     ///Pattern to apply.
     selected: Option<Vec<usize>>,
     ///Pattern to apply.
-    pattern: Box<dyn Pattern>,
+    pattern: Box<dyn SimplePattern>,
     ///Pattern destination size.
     pattern_destination_size: usize,
 }
 
-impl Pattern for CandidatesSelection
+impl MetaPattern<usize, usize>for CandidatesSelection
 {
-    fn initialize(&mut self, source_size:usize, _target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         // if target_size != 2
         // {
@@ -596,7 +600,7 @@ impl Pattern for CandidatesSelection
         }
         self.selected = Some(selection);
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         if origin >= self.selected.as_ref().unwrap().len()
         {
@@ -608,15 +612,15 @@ impl Pattern for CandidatesSelection
 
 impl CandidatesSelection
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> CandidatesSelection
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> CandidatesSelection
     {
         let mut pattern = None;
         let mut pattern_destination_size = None;
         match_object_panic!(arg.cv,"CandidatesSelection",value,
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"pattern_destination_size" => pattern_destination_size = Some(value.as_usize().expect("bad value for pattern_destination_size")),
 		);
-        let pattern = pattern.expect("There were no pattern in configuration of CandidatesSelection.");
+        let pattern = pattern.expect("There were no meta_pattern in configuration of CandidatesSelection.");
         let pattern_destination_size = pattern_destination_size.expect("There were no pattern_destination_size in configuration of CandidatesSelection.");
         CandidatesSelection{
             selected: None,
@@ -626,14 +630,14 @@ impl CandidatesSelection
     }
 }
 
-/// Partition the nodes in independent regions, each with its own pattern. Source and target sizes must be equal.
+/// Partition the nodes in independent regions, each with its own meta_pattern. Source and target sizes must be equal.
 /// ```ignore
 /// IndependentRegions{
 /// 	// An array with the patterns for each region.
 /// 	patterns: [Uniform, Hotspots{destinations:[0]}],
 /// 	// An array with the size of each region. They must add up to the total size.
 /// 	sizes: [100, 50],
-/// 	// Alternatively, use relative_sizes. the pattern will be initialized with sizes proportional to these.
+/// 	// Alternatively, use relative_sizes. the meta_pattern will be initialized with sizes proportional to these.
 /// 	// You must use exactly one of either `sizes` or `relative_sizes`.
 /// 	// relative_sizes: [88, 11],
 /// }
@@ -645,8 +649,8 @@ pub struct IndependentRegions
     /// The actual size of each region. An empty vector if not given nor initialized.
     /// If not empty it must sum up to the total size and have as many elements as the `patterns` field.
     sizes: Vec<usize>,
-    /// The pattern to be employed in each region.
-    patterns: Vec<Box<dyn Pattern>>,
+    /// The meta_pattern to be employed in each region.
+    patterns: Vec<Box<dyn SimplePattern>>,
     /// If not empty, it is used to build the actual `sizes`.
     relative_sizes: Vec<f64>,
 }
@@ -670,9 +674,9 @@ pub fn proportional_vec_with_sum(weights:&Vec<f64>, target_sum:usize) -> Vec<usi
     result
 }
 
-impl Pattern for IndependentRegions
+impl MetaPattern<usize, usize>for IndependentRegions
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         assert_eq!(source_size, target_size, "source_size and target_size must be equal in IndependentRegions.");
         if !self.relative_sizes.is_empty()
@@ -693,7 +697,7 @@ impl Pattern for IndependentRegions
             self.patterns[region_index].initialize(size,size,topology,rng);
         }
     }
-    fn get_destination(&self, mut origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, mut origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let mut region_index = 0;
         let mut region_offset = 0;
@@ -710,14 +714,14 @@ impl Pattern for IndependentRegions
 
 impl IndependentRegions
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> IndependentRegions
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> IndependentRegions
     {
         let mut patterns : Option<Vec<_>> = None;
         let mut sizes = None;
         let mut relative_sizes = None;
         match_object_panic!(arg.cv,"IndependentRegions",value,
 			"patterns" => patterns = Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|v|new_pattern(PatternBuilderArgument{cv:v,..arg})).collect()),
+				.map(|v|new_pattern(MetaPatternBuilderArgument{cv:v,..arg})).collect()),
 			"sizes" => sizes = Some(value.as_array()
 				.expect("bad value for sizes").iter()
 				.map(|v|v.as_f64().expect("bad value in sizes") as usize).collect()),
@@ -740,9 +744,9 @@ impl IndependentRegions
 }
 
 /**
-Use a `indexing` pattern to select among several possible patterns from the input to the output.
-The `indexing` is initialized as a pattern from the input size to the number of `patterns`.
-This is a Switch pattern, not a [Router] of packets.
+Use a `indexing` meta_pattern to select among several possible patterns from the input to the output.
+The `indexing` is initialized as a meta_pattern from the input size to the number of `patterns`.
+This is a Switch meta_pattern, not a [Router] of packets.
 
 This example keeps the even fixed and send odd input randomly. These odd input select even or odd indistinctly.
 ```ignore
@@ -825,13 +829,13 @@ Switch{
  **/
 #[derive(Debug,Quantifiable)]
 pub struct Switch {
-    indexing: Box<dyn Pattern>,
-    patterns: Vec<Box<dyn Pattern>>,
+    indexing: Box<dyn SimplePattern>,
+    patterns: Vec<Box<dyn SimplePattern>>,
     seed: Option<f64>,
 }
 
-impl Pattern for Switch {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+impl MetaPattern<usize, usize>for Switch {
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.indexing.initialize(source_size,self.patterns.len(),topology,rng);
 
@@ -849,7 +853,7 @@ impl Pattern for Switch {
             }
         }
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let index = self.indexing.get_destination(origin,topology,rng);
         self.patterns[index].get_destination(origin,topology,rng)
@@ -857,7 +861,7 @@ impl Pattern for Switch {
 }
 
 impl Switch {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Switch
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Switch
     {
         let mut indexing = None;
         let mut patterns= None;//:Option<Vec<Box<dyn Pattern>>> = None;
@@ -865,7 +869,7 @@ impl Switch {
         let mut seed = None;
 
         match_object_panic!(arg.cv,"Switch",value,
-			"indexing" => indexing = Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"indexing" => indexing = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"patterns" => patterns=Some( value.as_array().expect("bad value for patterns") ),
 			"expand" => expand = Some(value.as_array().expect("bad value for expand").iter()
 				.map(|v|v.as_usize().expect("bad value in expand")).collect()),
@@ -877,12 +881,12 @@ impl Switch {
             let mut new_patterns = vec![];
             for (index, pattern) in patterns.into_iter().enumerate() {
                 for _ in 0..expand[index] {
-                    new_patterns.push(new_pattern(PatternBuilderArgument{cv:pattern,..arg}));
+                    new_patterns.push(new_pattern(MetaPatternBuilderArgument{cv:pattern,..arg}));
                 }
             }
             new_patterns
         } else {
-            patterns.iter().map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()
+            patterns.iter().map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()
         };
         Switch{
             indexing,

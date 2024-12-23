@@ -1,5 +1,5 @@
 use crate::AsMessage;
-use crate::pattern::{new_pattern, PatternBuilderArgument};
+use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
 use std::collections::{BTreeSet};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -9,7 +9,7 @@ use crate::{match_object_panic, Message, Time};
 use crate::config_parser::ConfigurationValue;
 use crate::measures::TrafficStatistics;
 use crate::packet::ReferredPayload;
-use crate::pattern::Pattern;
+use crate::meta_pattern::simple_pattern::SimplePattern;
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, UnspecifiedWait, WaitingCycle};
@@ -504,7 +504,7 @@ pub fn get_traffic_message_task_sequence(args: BuilderMessageTaskSequenceCVArgs)
 }
 
 
-/// Like the `Burst` pattern, but generating messages from different patterns and with different message sizes.
+/// Like the `Burst` SimplePattern, but generating messages from different patterns and with different message sizes.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct MultimodalBurst
@@ -512,12 +512,12 @@ pub struct MultimodalBurst
 	///Number of tasks applying this traffic.
 	tasks: usize,
 	/// For each kind of message `provenance` we have
-	/// `(pattern,total_messages,message_size,step_size)`
+	/// `(SimplePattern,total_messages,message_size,step_size)`
 	/// a Pattern deciding the destination of the message
 	/// a usize with the total number of messages of this kind that each task must generate
 	/// a usize with the size of each message size.
 	/// a usize with the number of messages to send of this kind before switching to the next one.
-	provenance: Vec< (Box<dyn Pattern>,usize,usize,usize) >,
+	provenance: Vec< (Box<dyn SimplePattern>, usize, usize, usize) >,
 	///For each task and kind we track `pending[task][kind]=(total_remaining,step_remaining)`.
 	///where `total_remaining` is the total number of messages of this kind that this task has yet to send.
 	///and `step_remaining` is the number of messages that the task will send before switch to the next kind.
@@ -562,7 +562,7 @@ impl Traffic for MultimodalBurst
 		}
 		// Build the message
 		let (ref pattern,_total_messages,message_size,_step_size) = self.provenance[provenance_index];
-		let destination=pattern.get_destination(origin,topology,rng);
+		let destination=pattern.get_destination(origin,Some(topology),rng);
 		if origin==destination
 		{
 			return Err(TrafficError::SelfMessage);
@@ -649,13 +649,13 @@ impl MultimodalBurst
 					let mut message_size=None;
 					let mut step_size=None;
 					match_object_panic!(pcv,"Provenance",pvalue,
-						"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
+						"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
 						"messages_per_task" | "messages_per_server" | "total_messages" =>
 							messages_per_task=Some(pvalue.as_f64().expect("bad value for messages_per_task") as usize),
 						"message_size" => message_size=Some(pvalue.as_f64().expect("bad value for message_size") as usize),
 						"step_size" => step_size=Some(pvalue.as_f64().expect("bad value for step_size") as usize),
 					);
-					let pattern=pattern.expect("There were no pattern");
+					let pattern=pattern.expect("There were no SimplePattern");
 					let messages_per_task=messages_per_task.expect("There were no messages_per_task");
 					let message_size=message_size.expect("There were no message_size");
 					let step_size=step_size.expect("There were no step_size");
@@ -668,7 +668,7 @@ impl MultimodalBurst
 		let mut provenance=provenance.expect("There were no provenance");
 		for (pattern,_total_messages,_message_size,_step_size) in provenance.iter_mut()
 		{
-			pattern.initialize(tasks, tasks, arg.topology, arg.rng);
+			pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
 		}
 		let each_pending = provenance.iter().map(|(_pattern,total_messages,_message_size,step_size)|(*total_messages,*step_size)).collect();
 		MultimodalBurst{

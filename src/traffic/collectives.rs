@@ -1,19 +1,17 @@
-use crate::pattern::extra::get_cartesian_transform;
-use crate::pattern::extra::get_candidates_selection;
+use crate::meta_pattern::simple_pattern::extra::get_candidates_selection;
 use crate::AsMessage;
 use std::rc::Rc;
 use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use crate::config_parser::ConfigurationValue;
 use crate::{match_object_panic, Message, Time};
+use crate::meta_pattern::one_to_many_pattern::neighbours::{inmediate_neighbours_cv_builder, InmediateNeighboursCVBuilder};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
-use crate::traffic::basic::{build_message_cv, BuildMessageCVArgs};
-use crate::traffic::mini_apps::{BuildTrafficCreditCVArgs, get_traffic_credit};
+use crate::traffic::basic::{build_send_message_to_vector_cv, SendMessageToVectorCVBuilder};
+use crate::traffic::extra::{get_message_size_modifier, get_traffic_manager, BuildMessageSizeModifierCVArgs, BuildTrafficManagerCVArgs};
 use crate::traffic::sequences::{BuilderMessageTaskSequenceCVArgs, get_traffic_message_task_sequence};
 use crate::traffic::TaskTrafficState::{UnspecifiedWait, WaitingData};
-
-
 
 /**
 Introduces a barrier when all the tasks has sent a number of messages.
@@ -238,7 +236,7 @@ fn parse_algorithm_from_cv(configuration_value: &ConfigurationValue) -> MPIColle
             "Hypercube" => {
                 let mut neighbours_order = None;
                 match_object_panic!(configuration_value,"Hypercube",value,
-                "neighbours_order" => neighbours_order = Some(value.clone()), //Some(value.as_array().expect("bad value for neighbours_order").iter().map(|v| v.as_usize().expect("bad value for neighbours_order")).collect())
+                "neighbours_order" => neighbours_order = Some(value.clone()),
             );
                 algorithm = Some(MPICollectiveAlgorithm::Hypercube(neighbours_order));
             },
@@ -274,7 +272,7 @@ impl MPICollective
 
                 match algorithm {
                     MPICollectiveAlgorithm::Hypercube(_) => Some(get_scatter_reduce_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), 1)),
                     // _ => panic!("Unknown algorithm: {:?}", algorithm),
                 }
             },
@@ -289,7 +287,7 @@ impl MPICollective
 				);
                 match algorithm {
                     MPICollectiveAlgorithm::Hypercube(neighbours_order) => Some(get_all_gather_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order.as_ref())),
-                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), 1)),
                     // _ => panic!("Unknown algorithm: {:?}", algorithm),
                 }
             },
@@ -330,43 +328,41 @@ impl MPICollective
 }
 
 //Scater-reduce or all-gather in a ring
-fn ring_iteration(tasks: usize, data_size: usize) -> ConfigurationValue {
+fn ring_iteration(tasks: usize, data_size: usize, iterations: usize) -> ConfigurationValue {
 
     let message_size = data_size/tasks;
 
-    let candidates_selection = get_candidates_selection(
+    let neighbours_vector = vec![vec![1]];
+    let immediate_neighbours_builder = InmediateNeighboursCVBuilder{
+        sides: vec![tasks],
+        vector_neighbours: neighbours_vector,
+        modular: true,
+    };
+    let immediate_neighbours = inmediate_neighbours_cv_builder(immediate_neighbours_builder);
+
+    let message_to_vector_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: immediate_neighbours,
+        message_size,
+        rounds: (tasks -1) * iterations,
+    };
+    let message_to_vector = build_send_message_to_vector_cv(message_to_vector_builder);
+
+    let initial_credits = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_cartesian_transform = get_cartesian_transform(
-    vec![tasks],
-        Some(vec![1]),
-        None,
-    );
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
-        credits_per_received_message: 1,
         messages_per_transition: 1,
-        message_size,
-        pattern: pattern_cartesian_transform,
-        initial_credits: candidates_selection,
-        message_size_pattern: None,
+        credits_per_received_message: 1,
+        traffic: message_to_vector,
+        initial_credits,
     };
+    let traffic_manager = get_traffic_manager(traffic_manager_builder);
 
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
-
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
-        tasks,
-        messages_per_task: Some(tasks -1),
-        num_messages: tasks * (tasks - 1),
-        expected_messages_to_consume_per_task: Some(tasks),
-    };
-
-    build_message_cv(traffic_message_cv_builder)
+    traffic_manager
 }
 
 
@@ -378,44 +374,46 @@ fn get_scatter_reduce_hypercube(tasks: usize, data_size: usize) -> Configuration
     {
         panic!("The number of tasks must be a power of 2");
     }
-    //Now list dividing the data size by to in each iteration till number of messages
-    let messages_size = ConfigurationValue::Array((1..=messages).map(|i| ConfigurationValue::Number((data_size / 2usize.pow(i as u32)) as f64)).collect::<Vec<_>>());
-    let inmediate_sequence_pattern = ConfigurationValue::Object("InmediateSequencePattern".to_string(), vec![
-        ("sequence".to_string(), messages_size),
-    ]);
+
+    let hypercube_neighbours = ConfigurationValue::Object("HypercubeNeighbours".to_string(), vec![]);
+
+    let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: hypercube_neighbours,
+        message_size: 0, //IDK if this is correct
+        rounds: 1, //only send one time to the neighbours
+    };
+    let send_message_to_vector_cv = build_send_message_to_vector_cv(send_message_to_vector_cv_builder);
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_distance_halving = ConfigurationValue::Object("RecursiveDistanceHalving".to_string(), vec![]);
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
-        credits_per_received_message: 1,
         messages_per_transition: 1,
-        message_size: 0,
-        pattern: pattern_distance_halving,
+        credits_per_received_message: 1,
+        traffic: send_message_to_vector_cv,
         initial_credits: candidates_selection,
-        message_size_pattern: Some(inmediate_sequence_pattern),
     };
+    let traffic_manager = get_traffic_manager(traffic_manager_builder);
 
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
 
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
+    //Now list dividing the data size by to in each iteration till number of messages
+    let messages_sizes = (1..=messages).map(|i| data_size / 2usize.pow(i as u32) ).collect::<Vec<_>>();
+
+    let message_size_mod = BuildMessageSizeModifierCVArgs{
         tasks,
-        messages_per_task: Some(messages),
-        num_messages: messages * tasks,
-        expected_messages_to_consume_per_task: Some(messages),
+        traffic: traffic_manager,
+        message_sizes: messages_sizes,
     };
 
-    build_message_cv(traffic_message_cv_builder)
+    get_message_size_modifier(message_size_mod)
+
 }
 
-fn get_all_gather_hypercube(tasks: usize, data_size: usize, neighbours_order: Option<&ConfigurationValue>) -> ConfigurationValue
+fn get_all_gather_hypercube(tasks: usize, data_size: usize, _neighbours_order: Option<&ConfigurationValue>) -> ConfigurationValue
 {
     //log2 the number of tasks and panic if its not a power of 2
     let messages = (tasks as f64).log2().round() as usize;
@@ -423,48 +421,42 @@ fn get_all_gather_hypercube(tasks: usize, data_size: usize, neighbours_order: Op
     {
         panic!("The number of tasks must be a power of 2");
     }
-    //Now list dividing the data size by to in each iteration till number of messages
-    let messages_size = ConfigurationValue::Array((1..=messages).map(|i| ConfigurationValue::Number((data_size / 2usize.pow(i as u32)) as f64)).rev().collect::<Vec<_>>()); //reverse the order, starting from the smallest message to the maximum
-    let inmediate_sequence_pattern = ConfigurationValue::Object("InmediateSequencePattern".to_string(), vec![
-        ("sequence".to_string(), messages_size),
-    ]);
 
+    let hypercube_neighbours = ConfigurationValue::Object("HypercubeNeighbours".to_string(), vec![]);
+
+    let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: hypercube_neighbours,
+        message_size: 0, //IDK if this is correct
+        rounds: 1,
+    };
+    let send_message_to_vector_cv = build_send_message_to_vector_cv(send_message_to_vector_cv_builder);
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_distance_halving = if let Some(neighbours_order) = neighbours_order {
-        ConfigurationValue::Object("RecursiveDistanceHalving".to_string(), vec![
-            ("neighbours_order".to_string(), neighbours_order.clone())
-        ])
-    } else {
-        ConfigurationValue::Object("RecursiveDistanceHalving".to_string(), vec![])
-    };
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
-        credits_per_received_message: 1,
         messages_per_transition: 1,
-        message_size: 0,
-        pattern: pattern_distance_halving,
+        credits_per_received_message: 1,
+        traffic: send_message_to_vector_cv,
         initial_credits: candidates_selection,
-        message_size_pattern: Some(inmediate_sequence_pattern),
     };
+    let traffic_manager = get_traffic_manager(traffic_manager_builder);
 
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
 
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
+    //Now list dividing the data size by to in each iteration till number of messages
+    let messages_sizes = (1..=messages).map(|i| data_size / 2usize.pow(i as u32) ).rev().collect::<Vec<_>>();
+
+    let message_size_mod = BuildMessageSizeModifierCVArgs{
         tasks,
-        messages_per_task: Some(messages),
-        num_messages: messages * tasks,
-        expected_messages_to_consume_per_task: Some(messages),
+        traffic: traffic_manager,
+        message_sizes: messages_sizes,
     };
 
-    build_message_cv(traffic_message_cv_builder)
+    get_message_size_modifier(message_size_mod)
 }
 
 fn get_all_reduce_optimal(tasks: usize, data_size: usize, neighbours_order: Option<&ConfigurationValue>) -> ConfigurationValue
@@ -484,62 +476,61 @@ fn get_all_reduce_optimal(tasks: usize, data_size: usize, neighbours_order: Opti
 
 fn get_all_reduce_ring(tasks: usize, data_size: usize) -> ConfigurationValue
 {
-    let scatter_reduce_ring = ring_iteration(tasks, data_size);
-    let all_gather_ring = ring_iteration(tasks, data_size);
-    let messages_per_task = tasks - 1;
-
-    let traffic_message_task_sequence_args = BuilderMessageTaskSequenceCVArgs{
-        tasks,
-        traffics: vec![scatter_reduce_ring, all_gather_ring],
-        messages_to_send_per_traffic: vec![messages_per_task, messages_per_task],
-        messages_to_consume_per_traffic: Some(vec![messages_per_task, messages_per_task]),
-    };
-
-    get_traffic_message_task_sequence(traffic_message_task_sequence_args)
+    ring_iteration(tasks, data_size, 2)
 }
 
-fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> ConfigurationValue
+pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> ConfigurationValue
 {
-    let messages = tasks -1;
+    let total_messages = (tasks -1) * rounds;
     let message_size = (data_size/tasks)/rounds;
+
+    let hypercube_neighbours = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);
+    let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: hypercube_neighbours,
+        message_size,
+        rounds,
+    };
+    let send_message_to_vector_cv = build_send_message_to_vector_cv(send_message_to_vector_cv_builder);
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_cartesian_transform = get_cartesian_transform(
-        vec![tasks],
-        Some(vec![1]),
-        None,
-    );
-
-    let element_composition = ConfigurationValue::Object("ElementComposition".to_string(), vec![
-        ("pattern".to_string(), pattern_cartesian_transform),
-    ]);
-
-    let mut traffic_rounds = vec![];
-    for _ in 0..rounds
-    {
-        let traffic_credit_args = BuildTrafficCreditCVArgs{
-            tasks,
-            credits_to_activate: 1,
-            credits_per_received_message: 0,
-            messages_per_transition: messages,
-            message_size,
-            pattern: element_composition.clone(),
-            initial_credits: candidates_selection.clone(),
-            message_size_pattern: None,
-        };
-
-       traffic_rounds.push(get_traffic_credit(traffic_credit_args));
-
-    }
-    let task_message_args = BuilderMessageTaskSequenceCVArgs {
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
-        traffics: traffic_rounds,
-        messages_to_send_per_traffic: vec![messages; rounds],
-        messages_to_consume_per_traffic: None,
+        credits_to_activate: 1,
+        messages_per_transition: total_messages,
+        credits_per_received_message: 0,
+        traffic: send_message_to_vector_cv,
+        initial_credits: candidates_selection,
     };
-    get_traffic_message_task_sequence(task_message_args)
+    get_traffic_manager(traffic_manager_builder)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::traffic::collectives::{get_all2all, get_all_reduce_optimal, get_all_reduce_ring};
+
+    #[test]
+    fn test_allreduce_optimal() {
+        let cv = get_all_reduce_optimal(64, 128, None);
+        println!("All reduce optimal");
+        println!("{}", cv.format_terminal());
+    }
+
+    #[test]
+    fn test_allreduce_ring() {
+        let cv = get_all_reduce_ring(64, 128);
+        println!("All reduce ring");
+        println!("{}", cv.format_terminal());
+    }
+
+    #[test]
+    fn test_all2all() {
+        let cv = get_all2all(64, 128, 2);
+        println!("All2All");
+        println!("{}", cv.format_terminal());
+    }
+}
+

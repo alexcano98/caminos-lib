@@ -1,5 +1,6 @@
 
-use crate::pattern::probabilistic::UniformPattern;
+use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::simple_pattern::probabilistic::UniformPattern;
 use std::cell::RefCell;
 use ::rand::{Rng, rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
@@ -11,7 +12,7 @@ use crate::routing::prelude::*;
 use crate::matrix::Matrix;
 use crate::{match_object_panic};
 use crate::routing::RoutingAnnotation;
-use crate::pattern::*; //For Valiant
+use crate::meta_pattern::*; //For Valiant
 
 //extern crate itertools;
 use itertools::Itertools;
@@ -2584,8 +2585,8 @@ pub struct Valiant4Hamming
 {
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
-	//pattern to select intermideate nodes
-	pattern:Box<dyn Pattern>,
+	//meta_pattern to select intermideate nodes
+	pattern:Box<dyn SimplePattern>,
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
 	remove_target_dimensions_aligment: Vec<Vec<usize>>,
@@ -2700,7 +2701,7 @@ impl Routing for Valiant4Hamming
 		let src_coord = cartesian_data.unpack(current_router);
 		let trg_coord = cartesian_data.unpack(target_router);
 
-		//let middle_server = self.pattern.get_destination(source_server,topology, rng);
+		//let middle_server = self.meta_pattern.get_destination(source_server,topology, rng);
 		//let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 		let mut middle_router;
 		// =match middle_location
@@ -2715,7 +2716,7 @@ impl Routing for Valiant4Hamming
 		while not_valid_middle
 		{
 			not_valid_middle = false;
-			let middle_server = self.pattern.get_destination(source_server,topology, rng);
+			let middle_server = self.pattern.get_destination(source_server,Some(topology), rng);
 			let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 			middle_router=match middle_location
 			{
@@ -2835,7 +2836,7 @@ impl Routing for Valiant4Hamming
 	{
 		self.first.initialize(topology,rng);
 		self.second.initialize(topology,rng);
-		self.pattern.initialize(topology.num_servers(), topology.num_servers(), topology, rng);
+		self.pattern.initialize(topology.num_servers(), topology.num_servers(), Some(topology), rng);
 	}
 	fn performed_request(&self, requested:&CandidateEgress, routing_info:&RefCell<RoutingInfo>, topology:&dyn Topology, current_router:usize, target_router:usize, target_server:Option<usize>, num_virtual_channels:usize, rng:&mut StdRng)
 	{
@@ -2867,7 +2868,7 @@ impl Valiant4Hamming
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //pattern to intermideate node
+		let mut pattern: Box<dyn SimplePattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
 		let mut first_reserved_virtual_channels=vec![];
 		let mut second_reserved_virtual_channels=vec![];
 		let mut remove_target_dimensions_aligment = vec![];
@@ -2877,7 +2878,7 @@ impl Valiant4Hamming
 		match_object_panic!(arg.cv,"Valiant4Hamming",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-		    "pattern" => pattern= Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("pattern not valid for Valiant4Hamming"),
+		    "meta_pattern" => pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("meta_pattern not valid for Valiant4Hamming"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 				as_array().expect("bad value for first_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in first_reserved_virtual_channels") as usize).collect(),
@@ -2929,7 +2930,7 @@ pub struct AdaptiveValiantClos
 	second: Box<dyn Routing>,
 	///Whether to avoid selecting routers without attached servers. This helps to apply it to indirect networks.
 	// selection_exclude_indirect_routers: bool,
-	//pattern to select intermideate nodes
+	//meta_pattern to select intermideate nodes
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
 }

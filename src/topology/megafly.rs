@@ -1,14 +1,14 @@
 
 
-use crate::PatternBuilderArgument;
-use crate::pattern::new_optional_pattern;
+use crate::meta_pattern::MetaPatternBuilderArgument;
+use crate::meta_pattern::simple_pattern::new_optional_pattern;
 use quantifiable_derive::Quantifiable;//the derive macro
 use super::prelude::*;
 use crate::matrix::Matrix;
 use super::dragonfly::{Arrangement,ArrangementPoint,ArrangementSize,Palmtree,new_arrangement};
 use crate::config_parser::ConfigurationValue;
 use crate::match_object_panic;
-use crate::pattern::Pattern;
+use crate::meta_pattern::simple_pattern::SimplePattern;
 use crate::routing::{CandidateEgress, Error, Routing, RoutingBuilderArgument, RoutingInfo, RoutingNextCandidates};
 use crate::topology::NeighbourRouterIteratorItem;
 
@@ -73,7 +73,7 @@ impl Topology for Megafly
 	fn neighbour(&self, router_index:usize, port: usize) -> (Location,usize)
 	{
 		// link class 0 : local link. Following complete bipartite connectivity inside the group.
-		// link class 1 : global link. Connects from a spine to other groups. Follows some pattern to be determined.
+		// link class 1 : global link. Connects from a spine to other groups. Follows some meta_pattern to be determined.
 		// link class 2 : server to leaf switch.
 		// switches are numbered by levels. First all leaf switches and then all spine switches.
 		// Among each level, switches are numbered first by their group then by their position in the group.
@@ -289,10 +289,10 @@ pub struct MegaflyAD
 	first_allowed_virtual_channels: Vec<usize>,
 	second_allowed_virtual_channels: Vec<usize>,
 	minimal_to_deroute: Vec<usize>,
-	source_group_pattern:  Vec<Vec<Option<Box<dyn Pattern>>>>,
-	intermediate_group_pattern:  Vec<Vec<Option<Box<dyn Pattern>>>>,
-	destination_group_pattern:  Vec<Vec<Option<Box<dyn Pattern>>>>,
-	global_pattern_per_hop: Vec<Vec<Option<Box<dyn Pattern>>>>,
+	source_group_pattern:  Vec<Vec<Option<Box<dyn SimplePattern>>>>,
+	intermediate_group_pattern:  Vec<Vec<Option<Box<dyn SimplePattern>>>>,
+	destination_group_pattern:  Vec<Vec<Option<Box<dyn SimplePattern>>>>,
+	global_pattern_per_hop: Vec<Vec<Option<Box<dyn SimplePattern>>>>,
 	consume_same_channel: bool,
 	set_global_minimal_channel: bool,
 }
@@ -368,16 +368,16 @@ impl Routing for MegaflyAD
 							}
 
 							// if pos_target_group {
-							// 		if let Some(ref pattern) = self.source_group_pattern[0][0]
+							// 		if let Some(ref meta_pattern) = self.source_group_pattern[0][0]
 							// 		{
-							// 			let port = if let Some(ref pattern) = self.source_group_pattern[0][1]
+							// 			let port = if let Some(ref meta_pattern) = self.source_group_pattern[0][1]
 							// 			{
-							// 				pattern.get_destination(port_index, topology, _rng)
+							// 				meta_pattern.get_destination(port_index, topology, _rng)
 							// 			} else {
 							// 				port_index
 							// 			};
 							//
-							// 			let destination = pattern.get_destination(index_pair, topology, _rng);
+							// 			let destination = meta_pattern.get_destination(index_pair, topology, _rng);
 							// 			if destination != port {
 							// 				continue;
 							// 			}
@@ -387,16 +387,16 @@ impl Routing for MegaflyAD
 
 							// if minimal == 1
 							// {
-							// 	if let Some(ref pattern) = self.local_pattern_per_hop[0][0]
+							// 	if let Some(ref meta_pattern) = self.local_pattern_per_hop[0][0]
 							// 	{
-							// 		let port = if let Some(ref pattern) = self.local_pattern_per_hop[0][1]
+							// 		let port = if let Some(ref meta_pattern) = self.local_pattern_per_hop[0][1]
 							// 		{
-							// 			pattern.get_destination(port_index, topology, _rng)
+							// 			meta_pattern.get_destination(port_index, topology, _rng)
 							// 		} else {
 							// 			port_index
 							// 		};
 							//
-							// 		let destination = pattern.get_destination(index_pair, topology, _rng);
+							// 		let destination = meta_pattern.get_destination(index_pair, topology, _rng);
 							// 		if destination != port {
 							// 			continue;
 							// 		}
@@ -417,11 +417,11 @@ impl Routing for MegaflyAD
 
 									if let Some(ref pattern) = self.destination_group_pattern[1][0]
 									{
-										let destination = pattern.get_destination(index_pair ,topology,_rng);
+										let destination = pattern.get_destination(index_pair ,Some(topology),_rng);
 
 										let neighbour_hash = if let Some(ref pattern) = self.destination_group_pattern[1][1]
 										{
-											pattern.get_destination(neighbour_coord[0], topology, _rng)
+											pattern.get_destination(neighbour_coord[0], Some(topology), _rng)
 										} else {
 											neighbour_coord[0]
 										};
@@ -445,11 +445,11 @@ impl Routing for MegaflyAD
 
 								if let Some(ref pattern) = self.intermediate_group_pattern[1][0]
 								{
-									let destination = pattern.get_destination(index_pair ,topology,_rng);
+									let destination = pattern.get_destination(index_pair ,Some(topology),_rng);
 
 									let neighbour_hash = if let Some(ref pattern) = self.intermediate_group_pattern[1][1]
 									{
-										pattern.get_destination(neighbour_coord[0], topology, _rng)
+										pattern.get_destination(neighbour_coord[0], Some(topology), _rng)
 									} else {
 										neighbour_coord[0]
 									};
@@ -506,12 +506,12 @@ impl Routing for MegaflyAD
 									{
 										let port = if let Some(ref pattern) = self.global_pattern_per_hop[0][1]
 										{
-											pattern.get_destination(neighbour_coord[1], topology, _rng)
+											pattern.get_destination(neighbour_coord[1], Some(topology), _rng)
 										} else {
 											neighbour_coord[1]
 										};
 
-										let destination = pattern.get_destination(index_pair, topology, _rng);
+										let destination = pattern.get_destination(index_pair, Some(topology), _rng);
 										if destination != port {
 											continue;
 										}
@@ -629,53 +629,53 @@ impl Routing for MegaflyAD
 		{
 			if let Some(ref mut pattern) = self.source_group_pattern[i][0]
 			{
-				pattern.initialize(topology.num_servers()*topology.num_servers(), topology.num_servers()*topology.num_servers(), topology, _rng);
+				pattern.initialize(topology.num_servers()*topology.num_servers(), topology.num_servers()*topology.num_servers(), Some(topology), _rng);
 			}
 			if let Some(ref mut pattern) = self.source_group_pattern[i][1]
 			{
-				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], topology, _rng);
+				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], Some(topology), _rng);
 			}
 		}
 		for i in 0..self.intermediate_group_pattern.len()
 		{
 			if let Some(ref mut pattern) = self.intermediate_group_pattern[i][0]
 			{
-				pattern.initialize(topology.num_servers()*topology.num_servers()*cartesian_data.sides[1], topology.num_servers()*topology.num_servers()*cartesian_data.sides[1], topology, _rng);
+				pattern.initialize(topology.num_servers()*topology.num_servers()*cartesian_data.sides[1], topology.num_servers()*topology.num_servers()*cartesian_data.sides[1], Some(topology), _rng);
 			}
 			if let Some(ref mut pattern) = self.intermediate_group_pattern[i][1]
 			{
-				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], topology, _rng);
+				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], Some(topology), _rng);
 			}
 		}
 		for i in 0..self.destination_group_pattern.len()
 		{
 			if let Some(ref mut pattern) = self.destination_group_pattern[i][0]
 			{
-				pattern.initialize(topology.num_servers()*topology.num_servers(), topology.num_servers()*topology.num_servers(), topology, _rng);
+				pattern.initialize(topology.num_servers()*topology.num_servers(), topology.num_servers()*topology.num_servers(), Some(topology), _rng);
 			}
 			if let Some(ref mut pattern) = self.destination_group_pattern[i][1]
 			{
-				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], topology, _rng);
+				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], Some(topology), _rng);
 			}
 		}
 		for i in 0..self.global_pattern_per_hop.len()
 		{
 			if let Some(ref mut pattern) = self.global_pattern_per_hop[i][0]
 			{
-				pattern.initialize(topology.num_servers()*topology.num_servers(), topology.num_servers()*topology.num_servers(), topology, _rng);
+				pattern.initialize(topology.num_servers()*topology.num_servers(), topology.num_servers()*topology.num_servers(), Some(topology), _rng);
 			}
 			if let Some(ref mut pattern) = self.global_pattern_per_hop[i][1]
 			{
-				pattern.initialize(cartesian_data.sides[1], cartesian_data.sides[1], topology, _rng);
+				pattern.initialize(cartesian_data.sides[1], cartesian_data.sides[1], Some(topology), _rng);
 			}
 		}
-		// if let Some(ref mut pattern) = self.intermediate_source_minimal_pattern
+		// if let Some(ref mut meta_pattern) = self.intermediate_source_minimal_pattern
 		// {
-		// 	pattern.initialize(topology.num_servers(), topology.num_servers(), topology, _rng);
+		// 	meta_pattern.initialize(topology.num_servers(), topology.num_servers(), topology, _rng);
 		// }
-		// if let Some(ref mut pattern) = self.intermediate_target_minimal_pattern
+		// if let Some(ref mut meta_pattern) = self.intermediate_target_minimal_pattern
 		// {
-		// 	pattern.initialize(topology.num_servers(), topology.num_servers(), topology, _rng);
+		// 	meta_pattern.initialize(topology.num_servers(), topology.num_servers(), topology, _rng);
 		// }
 		// let cartesian_data = topology.cartesian_data().expect("cartesian data not available"); //BEAWARE THAT DF+ IS AN INDIRECT NETWORK
 		// self.intermediate_leaf_switch_pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], topology, _rng);
@@ -694,7 +694,7 @@ impl MegaflyAD
 		// //let mut servers_per_router=None;
 		// let mut first=None;
 		// let mut second=None;
-		// let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //pattern to intermideate node
+		// let mut meta_pattern: Box<Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
 		// // let mut exclude_h_groups=false;
 		let mut first_allowed_virtual_channels =vec![0];
 		let mut second_allowed_virtual_channels =vec![1];
@@ -707,7 +707,7 @@ impl MegaflyAD
 		let mut set_global_minimal_channel = false;
 		// let mut intermediate_source_minimal_pattern=None;
 		// let mut intermediate_target_minimal_pattern=None;
-		// let mut intermediate_leaf_switch_pattern :Box<dyn Pattern> = new_pattern(PatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs});
+		// let mut intermediate_leaf_switch_pattern :Box<Pattern> = new_pattern(MetaPatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs});
 		match_object_panic!(arg.cv,"MegaflyAD",value,
 
 			"first_allowed_virtual_channels" => first_allowed_virtual_channels=value.
@@ -720,29 +720,29 @@ impl MegaflyAD
 				.map(|v|v.as_f64().expect("bad value in minimal_to_deroute") as usize).collect(),
 			// "local_pattern_per_hop" => local_pattern_per_hop=value.as_array().expect("bad value for local_pattern_per_hop").iter()
 			// 	.map(|v|v.as_array().expect("bad value for local_pattern_per_hop").iter()
-			// 	.map(|p|new_optional_pattern(PatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
+			// 	.map(|p|new_optional_pattern(MetaPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
 			// ).collect(),
 			"source_group_pattern" => source_group_pattern=value.as_array().expect("bad value for source_group_pattern").iter()
 				.map(|v|v.as_array().expect("bad value for source_group_pattern").iter()
-				.map(|p|new_optional_pattern(PatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
+				.map(|p|new_optional_pattern(MetaPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
 			).collect(),
 			"intermediate_group_pattern" => intermediate_group_pattern=value.as_array().expect("bad value for intermediate_group_pattern").iter()
 				.map(|v|v.as_array().expect("bad value for intermediate_group_pattern").iter()
-				.map(|p|new_optional_pattern(PatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
+				.map(|p|new_optional_pattern(MetaPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
 			).collect(),
 			"destination_group_pattern" => destination_group_pattern=value.as_array().expect("bad value for destination_group_pattern").iter()
 				.map(|v|v.as_array().expect("bad value for destination_group_pattern").iter()
-				.map(|p|new_optional_pattern(PatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
+				.map(|p|new_optional_pattern(MetaPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
 			).collect(),
 			"global_pattern_per_hop" => global_pattern_per_hop=value.as_array().expect("bad value for global_pattern_per_hop").iter()
 				.map(|v|v.as_array().expect("bad value for global_pattern_per_hop").iter()
-				.map(|p|new_optional_pattern(PatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
+				.map(|p|new_optional_pattern(MetaPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
 			).collect(),
 			"consume_same_channel" => consume_same_channel=value.as_bool().expect("bad value for consume_same_channel"),
 			"set_global_minimal_channel" => set_global_minimal_channel=value.as_bool().expect("bad value for set_global_minimal_channel"),
-			// "intermediate_source_minimal_pattern" => intermediate_source_minimal_pattern=new_optional_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs}),
-			// "intermediate_target_minimal_pattern" => intermediate_target_minimal_pattern=new_optional_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs}),
-			// "intermediate_leaf_switch_pattern" => intermediate_leaf_switch_pattern=new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs}),
+			// "intermediate_source_minimal_pattern" => intermediate_source_minimal_pattern=new_optional_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
+			// "intermediate_target_minimal_pattern" => intermediate_target_minimal_pattern=new_optional_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
+			// "intermediate_leaf_switch_pattern" => intermediate_leaf_switch_pattern=new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
 		);
 
 		MegaflyAD{

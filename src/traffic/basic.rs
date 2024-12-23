@@ -1,6 +1,6 @@
 use crate::AsMessage;
 use crate::new_traffic;
-use crate::pattern::{new_pattern, PatternBuilderArgument};
+use crate::meta_pattern::{new_one_to_many_pattern, new_pattern, MetaPatternBuilderArgument};
 use std::collections::{BTreeSet, VecDeque};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -8,18 +8,18 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use rand::Rng;
 use crate::{match_object_panic, Message, Time};
-use crate::pattern::Pattern;
+use crate::meta_pattern::simple_pattern::SimplePattern;
 use crate::topology::Topology;
 use crate::traffic::{TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, Generating, UnspecifiedWait};
 use crate::ConfigurationValue;
 
 /**
-Traffic in which all messages have same size, follow the same pattern, and there is no change with time.
+Traffic in which all messages have same size, follow the same SimplePattern, and there is no change with time.
 
 ```ignore
 HomogeneousTraffic{
-	pattern:Uniform,
+	SimplePattern:Uniform,
 	tasks:1000,
 	load: 0.9,
 	message_size: 16,
@@ -32,8 +32,8 @@ pub struct Homogeneous
 {
 	///Number of tasks applying this traffic.
 	tasks: usize,
-	///The pattern of the communication.
-	pattern: Box<dyn Pattern>,
+	///The SimplePattern of the communication.
+	pattern: Box<dyn SimplePattern>,
 	///The size of each sent message.
 	message_size: usize,
 	///The load offered to the network. Proportion of the cycles that should be injecting phits.
@@ -53,7 +53,7 @@ impl Traffic for Homogeneous
 			//panic!("origin {} does not belong to the traffic",origin);
 			return Err(TrafficError::OriginOutsideTraffic);
 		}
-		let destination=self.pattern.get_destination(origin,topology,rng);
+		let destination=self.pattern.get_destination(origin,Some(topology),rng);
 		if origin==destination
 		{
 			return Err(TrafficError::SelfMessage);
@@ -128,7 +128,7 @@ impl Homogeneous
 		let mut pattern=None;
 		let mut message_size=None;
 		match_object_panic!(arg.cv,"HomogeneousTraffic",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -136,8 +136,8 @@ impl Homogeneous
 		let tasks=tasks.expect("There were no tasks");
 		let message_size=message_size.expect("There were no message_size");
 		let load=load.expect("There were no load");
-		let mut pattern=pattern.expect("There were no pattern");
-		pattern.initialize(tasks, tasks, arg.topology, arg.rng);
+		let mut pattern=pattern.expect("There were no SimplePattern");
+		pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
 		Homogeneous{
 			tasks,
 			pattern,
@@ -155,7 +155,7 @@ The traffic will be considered complete when all tasks have generated their mess
 
 ```ignore
 Burst{
-	pattern:Uniform,
+	SimplePattern:Uniform,
 	tasks:1000,
 	messages_per_task:200,
 	message_size: 16,
@@ -169,8 +169,8 @@ pub struct Burst
 {
     ///Number of tasks applying this traffic.
     tasks: usize,
-    ///The pattern of the communication.
-    pattern: Box<dyn Pattern>,
+    ///The SimplePattern of the communication.
+    pattern: Box<dyn SimplePattern>,
     ///The size of each sent message.
     message_size: usize,
     ///The number of messages each task has pending to sent.
@@ -195,7 +195,7 @@ impl Traffic for Burst
             return Err(TrafficError::OriginOutsideTraffic);
         }
         self.pending_messages[origin]-=1;
-        let destination=self.pattern.get_destination(origin,topology,rng);
+        let destination=self.pattern.get_destination(origin,Some(topology),rng);
         if origin==destination
         {
             return Err(TrafficError::SelfMessage);
@@ -282,7 +282,7 @@ impl Burst
         let mut message_size=None;
         let mut expected_messages_to_consume = None;
         match_object_panic!(arg.cv,"Burst",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"messages_per_task" | "messages_per_server" => messages_per_task=Some(value.as_f64().expect("bad value for messages_per_task") as usize),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -291,8 +291,8 @@ impl Burst
         let tasks=tasks.expect("There were no tasks");
         let message_size=message_size.expect("There were no message_size");
         let messages_per_task=messages_per_task.expect("There were no messages_per_task");
-        let mut pattern=pattern.expect("There were no pattern");
-        pattern.initialize(tasks, tasks, arg.topology, arg.rng);
+        let mut pattern=pattern.expect("There were no SimplePattern");
+        pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
 
         let pending_messages = vec![messages_per_task;tasks];
 
@@ -322,7 +322,7 @@ pub struct BuildBurstCVArgs{
 pub fn build_burst_cv(args: BuildBurstCVArgs) -> ConfigurationValue {
     let mut cv_list = vec![
         ("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
-        ("pattern".to_string(), args.pattern),
+        ("simple_pattern".to_string(), args.pattern),
         ("messages_per_task".to_string(), ConfigurationValue::Number(args.messages_per_task as f64)),
         ("message_size".to_string(), ConfigurationValue::Number(args.message_size as f64)),
         //("expected_messages_to_consume_per_task".to_string(), ConfigurationValue::Number(args.expected_messages_to_consume_per_task as f64)),
@@ -481,6 +481,7 @@ impl TrafficMessages
     }
 }
 
+#[allow(dead_code)]
 pub struct BuildMessageCVArgs{
     pub tasks: usize,
     pub traffic: ConfigurationValue,
@@ -488,7 +489,7 @@ pub struct BuildMessageCVArgs{
     pub messages_per_task: Option<usize>,
     pub expected_messages_to_consume_per_task: Option<usize>,
 }
-
+#[allow(dead_code)]
 pub fn build_message_cv(args: BuildMessageCVArgs) -> ConfigurationValue {
     let mut cv_list = vec![
         ("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
@@ -594,7 +595,7 @@ All the subtraffics in `traffics` must give the same value for `number_tasks`, w
 
 ```ignore
 PeriodicBurst{
-	pattern:Uniform,
+	SimplePattern:Uniform,
 	period: 2000,
 	offset: 0,
 	finish: 100000,
@@ -612,8 +613,8 @@ pub struct PeriodicBurst
     times_to_generate: VecDeque<Time>,
     ///Number of tasks applying this traffic.
     tasks: usize,
-    ///The pattern of the communication.
-    pattern: Box<dyn Pattern>,
+    ///The SimplePattern of the communication.
+    pattern: Box<dyn SimplePattern>,
     ///The size of each sent message.
     message_size: usize,
     ///Messages to send per period
@@ -636,7 +637,7 @@ impl Traffic for PeriodicBurst
             return Err(TrafficError::OriginOutsideTraffic);
         }
         self.pending_messages[origin]-=1;
-        let destination=self.pattern.get_destination(origin,topology,rng);
+        let destination=self.pattern.get_destination(origin,Some(topology),rng);
         if origin==destination
         {
             return Err(TrafficError::SelfMessage);
@@ -742,7 +743,7 @@ impl PeriodicBurst
         let mut messages_per_task_per_period=None;
         let mut message_size=None;
         match_object_panic!(arg.cv,"PeriodicBurst",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"period" => period = Some(value.as_usize().expect("bad value in period")),
 			"offset" => offset = Some(value.as_usize().expect("bad value in offset")),
 			"finish" => finish=Some(value.as_usize().expect("bad value for finish")),
@@ -750,7 +751,7 @@ impl PeriodicBurst
 			"messages_per_task_per_period" => messages_per_task_per_period=Some(value.as_f64().expect("bad value for messages_per_task_per_period") as usize),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
 		);
-        let mut pattern =pattern.expect("There were no pattern");
+        let mut pattern =pattern.expect("There were no SimplePattern");
         let period=period.expect("There were no period");
         let offset=offset.expect("There were no offset");
         let finish=finish.expect("There were no finish");
@@ -760,7 +761,7 @@ impl PeriodicBurst
 
         let times_to_generate = VecDeque::from((0..((finish-offset)/period +1)).into_iter().map(|i| (i*period + offset) as Time).collect::<Vec<Time>>());
         println!("times_to_generate: {:?}", times_to_generate);
-        pattern.initialize(tasks, tasks, arg.topology, arg.rng);
+        pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
         PeriodicBurst {
             pattern,
             times_to_generate,
@@ -971,5 +972,238 @@ impl Reactive
             reaction_traffic,
             pending_messages:vec![],
         }
+    }
+}
+
+
+#[derive(Debug, Quantifiable)]
+pub struct SendMessageToVector
+{
+    ///Number of tasks applying this traffic.
+    tasks: usize,
+    ///The destinations of each message
+    destinations: Vec<Vec<usize>>,
+    ///The size of each sent message.
+    message_size: usize,
+    ///Set of generated messages.
+    generated_messages: BTreeSet<u128>,
+    ///The id of the next message to generate.
+    next_id: u128,
+}
+
+impl Traffic for SendMessageToVector
+{
+    fn generate_message(&mut self, origin:usize, cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    {
+        let destination = self.destinations[origin].pop();
+        if let Some(destination) = destination {
+            if destination == origin {
+                return Err(TrafficError::SelfMessage);
+            }
+            let id = self.next_id;
+            self.generated_messages.insert(id);
+            self.next_id += 1;
+            Ok(Rc::new(Message{
+                origin,
+                destination,
+                size: self.message_size,
+                creation_cycle: cycle,
+                payload: id.to_le_bytes().into(),
+                id_traffic: None,
+            }))
+        } else {
+           panic!("No more destinations for task {} in SendMessageToVector", origin);
+        }
+    }
+
+    fn should_generate(&mut self, task: usize, _cycle: Time, _rng: &mut StdRng) -> bool {
+        !self.destinations[task].is_empty()
+    }
+
+    fn probability_per_cycle(&self, task:usize) -> f32
+    {
+        if self.destinations[task].is_empty() {
+            0.0
+        } else {
+            1.0
+        }
+    }
+
+    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+    {
+        let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
+        self.generated_messages.remove(&id)
+    }
+
+    fn is_finished(&self) -> bool
+    {
+        self.destinations.iter().all(|d| d.is_empty()) && self.generated_messages.is_empty()
+    }
+
+    fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+    {
+        if self.destinations[task].is_empty() {
+            Some(FinishedGenerating)
+        } else {
+            Some(Generating)
+        }
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.tasks
+    }
+
+}
+
+impl SendMessageToVector
+{
+    pub fn new(mut arg:TrafficBuilderArgument) -> SendMessageToVector
+    {
+        let mut tasks=None;
+        let mut destinations=None; //pattern OneToManyPattern
+        let mut message_size=None;
+        let mut rounds = 1; //number of times that a server sends to its neighbours
+        //becareful if used as stencil
+        let cv = if let ConfigurationValue::Object(string, cosas) = arg.cv {
+            let s =  if string == "Stencil" {
+                "SendMessageToVector"
+            } else {
+                string
+            };
+            ConfigurationValue::Object(s.to_string(), cosas.clone())
+        } else {
+            panic!("SendMessageToVector: The object is not a SendMessageToVector");
+        };
+
+        match_object_panic!(&cv,"SendMessageToVector" ,value,
+            "tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
+            "one_to_many_pattern" => destinations=Some(new_one_to_many_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+            "rounds" => rounds = value.as_usize().expect("bad value for rounds"),
+            "message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
+        );
+
+        let tasks=tasks.expect("There were no tasks");
+        let mut one_to_many_pattern = destinations.expect("There were no destinations");
+        one_to_many_pattern.initialize(tasks, tasks, None, arg.rng);
+        let message_size=message_size.expect("There were no message_size");
+        let mut destinations_matrix = vec![vec![]; tasks];
+        for i in 0..tasks {
+            let dest_vector = one_to_many_pattern.get_destination(i, None, &mut arg.rng).into_iter().rev().collect::<Vec<usize>>(); //reverse for pop
+            for _ in 0..rounds {
+                destinations_matrix[i].extend(dest_vector.clone());
+            }
+        }
+
+        SendMessageToVector {
+            tasks,
+            destinations: destinations_matrix,
+            message_size,
+            generated_messages: BTreeSet::new(),
+            next_id: 0,
+        }
+    }
+}
+
+pub struct SendMessageToVectorCVBuilder {
+    pub tasks: usize,
+    pub one_to_many_pattern: ConfigurationValue,
+    pub message_size: usize,
+    pub rounds: usize,
+}
+
+pub fn build_send_message_to_vector_cv(args: SendMessageToVectorCVBuilder) -> ConfigurationValue {
+    let cv_list = vec![
+        ("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
+        ("one_to_many_pattern".to_string(), args.one_to_many_pattern),
+        ("message_size".to_string(), ConfigurationValue::Number(args.message_size as f64)),
+        ("rounds".to_string(), ConfigurationValue::Number(args.rounds as f64)),
+    ];
+    ConfigurationValue::Object("SendMessageToVector".to_string(), cv_list)
+}
+
+mod test {
+    use crate::TopologyBuilderArgument;
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+    use crate::config_parser::ConfigurationValue;
+    use crate::Plugs;
+    use crate::topology::{new_topology, Topology};
+    use crate::traffic::new_traffic;
+
+    fn get_hamming_topology(switches: f64) -> Box<dyn Topology>{
+        let hamming_cv = ConfigurationValue::Object("Hamming".to_string(), vec![
+            ("servers_per_router".to_string(), ConfigurationValue::Number(1.0)),
+            ("sides".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Number(switches)]),),
+        ]); //hamming CV
+        let plugs = Plugs::default();
+        let params = TopologyBuilderArgument {
+            cv: &hamming_cv,
+            rng: &mut StdRng::seed_from_u64(0),
+            plugs: &plugs,
+        };
+        new_topology(params)
+    }
+
+    #[test]
+    fn test_send_message_to_vector() {
+        let switches = 4.0;
+        let mut rng = StdRng::seed_from_u64(0);
+        let one_to_many_pattern = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);
+        let cv_builder = super::SendMessageToVectorCVBuilder {
+            tasks: 4,
+            one_to_many_pattern,
+            message_size: 16,
+            rounds: 2,
+        };
+        let cv = super::build_send_message_to_vector_cv(cv_builder);
+
+        let traffic_builder = super::TrafficBuilderArgument{
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: &*get_hamming_topology(switches),
+        };
+
+        //Starts the traffic
+        let mut messages = vec![];
+        let mut t = new_traffic(traffic_builder);
+
+        assert_eq!(t.number_tasks(), switches as usize);
+        for _ in 0..(switches as usize -1) // extract all messages
+        {
+            for i in 0..switches as usize {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..switches as usize {
+                let message = t.generate_message(i, 0, &*get_hamming_topology(switches), &mut rng).unwrap();
+                messages.push(message);
+            }
+        }
+
+        for _ in 0..(switches as usize -1) // extract all messages
+        {
+            for i in 0..switches as usize {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..switches as usize {
+                let message = t.generate_message(i, 0, &*get_hamming_topology(switches), &mut rng).unwrap();
+                messages.push(message);
+            }
+        }
+
+        //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+        for i in 0..(switches as usize) {
+            assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            // assert_eq!(t.task_state(i, 0).unwrap(), super::TaskTrafficState::FinishedGenerating);
+        }
+
+        assert_eq!(t.is_finished(), false);
+        //consume all messages
+        for i in 0..messages.len() {
+            assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, &*get_hamming_topology(switches), &mut rng), true);
+        }
+        assert_eq!(t.is_finished(), true);
     }
 }

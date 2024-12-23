@@ -1,7 +1,7 @@
 
 use super::prelude::*;
 use super::NeighbourRouterIteratorItem;
-use crate::pattern::prelude::*;
+use crate::meta_pattern::prelude::*;
 use crate::matrix::Matrix;
 use crate::match_object_panic;
 use crate::config_parser::ConfigurationValue;
@@ -17,11 +17,11 @@ Example configuration:
 ```ignore
 RemappedServersTopology{
 	topology: Mesh{sides:[4,4],servers_per_router:1},
-	pattern: RandomPermutation,
+	meta_pattern: RandomPermutation,
 }
 ```
 
-For the same concept on patterns see [RemappedNodes](crate::pattern::RemappedNodes).
+For the same concept on patterns see [RemappedNodes](crate::meta_pattern::RemappedNodes).
 
 **/
 #[derive(Debug,Quantifiable)]
@@ -129,14 +129,14 @@ impl RemappedServersTopology
 		let mut pattern = None;
 		match_object_panic!(arg.cv, "RemappedServers", value,
 			"topology" => topology = Some(new_topology(TopologyBuilderArgument{cv:value,rng:&mut arg.rng,..arg})),
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"meta_pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
-		let topology = topology.expect("There were no topology in configuration of RemappedServersTopology.");
+		 let topology = topology.expect("There were no topology in configuration of RemappedServersTopology.");
 		let n = topology.num_servers();
-		let mut pattern = pattern.expect("There were no pattern in configuration of RemappedServersTopology.");
-		pattern.initialize(n,n,&*topology,arg.rng);
+		let mut pattern = pattern.expect("There were no meta_pattern in configuration of RemappedServersTopology.");
+		pattern.initialize(n, n, Some(&*topology), arg.rng);
 		let from_base_map : Vec<usize> = (0..n).map(|server_inside|{
-			pattern.get_destination(server_inside,&*topology,arg.rng)
+			pattern.get_destination(server_inside,Some(&*topology),arg.rng)
 		}).collect();
 		let mut into_base_map = vec![None;n];
 		for (inside,&outside) in from_base_map.iter().enumerate()
@@ -174,7 +174,7 @@ impl RemappedServersTopology
 }
 
 /**
-Deletes `amount` links selected randomly. May employ a pattern to select on what switches they fault may occur.
+Deletes `amount` links selected randomly. May employ a meta_pattern to select on what switches they fault may occur.
 
 The following example takes a 6x6 [Hamming] and breaks 30 links randomly selected with both enpoints inside a 4x4 block. The `seed` is fixed so the same fault set is employed even if the global RNG changes.
 ```ignore
@@ -273,7 +273,7 @@ impl RandomLinkFaults
 			"topology" => topology = Some(new_topology(TopologyBuilderArgument{cv:value,rng:&mut arg.rng,..arg})),
 			"amount" => amount = Some( value.as_i32().expect("bad value for amount") ),
 			"seed" => rng = Some( value.as_rng().expect("bad value for seed") ),
-			"switch_pattern" => switch_pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"switch_pattern" => switch_pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"switch_pattern_input_size" => switch_pattern_input_size = Some( value.as_usize().expect("bad value for amount") ),
 		);
 		let topology = topology.expect("There were no topology in configuration of RemappedServersTopology.");
@@ -282,10 +282,10 @@ impl RandomLinkFaults
 		let n = topology.num_routers();
 		let switch_set : Option<HashSet<usize>> = if let Some(mut pattern) = switch_pattern {
 			let input_size = switch_pattern_input_size.unwrap_or(n);
-			pattern.initialize(input_size,n,&*topology,rng);
+			pattern.initialize(input_size,n,Some(&*topology),rng);
 			let mut switches = HashSet::new();
 			for input in 0..input_size {
-				let output = pattern.get_destination(input,&*topology,rng);
+				let output = pattern.get_destination(input,Some(&*topology),rng);
 				switches.insert(output);
 			}
 			Some(switches)
