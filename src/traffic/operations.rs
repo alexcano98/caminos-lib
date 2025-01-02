@@ -7,7 +7,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::{SliceRandom, StdRng};
 use crate::{match_object_panic, Message, Time};
 use crate::measures::TrafficStatistics;
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::meta_pattern::{new_pattern, simple_pattern::SimplePattern, MetaPatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Generating, WaitingData};
@@ -27,8 +27,8 @@ TrafficMap{
 
 TrafficMap also gives the possibility of seeing a small application as a large, helping in the composition of large applications.
 The following example uses TrafficMap together with [TrafficSum](Sum),
-[CartesianEmbedding](crate::pattern::CartesianEmbedding), [Composition](crate::pattern::Composition),
-and [CartesianTransform](crate::pattern::CartesianTransform) to divide the network into
+[CartesianEmbedding](crate::SimplePattern::CartesianEmbedding), [Composition](crate::SimplePattern::Composition),
+and [CartesianTransform](crate::SimplePattern::CartesianTransform) to divide the network into
 two regions, each employing a different kind of traffic.
 ```ignore
 TrafficSum
@@ -41,7 +41,7 @@ TrafficSum
 				destination_sides: [3,10,5],
 			},
 			application: HomogeneousTraffic{
-				pattern: Uniform,
+				SimplePattern: Uniform,
 				tasks: 75,
 				load: 1.0,
 				message_size: 16,
@@ -60,7 +60,7 @@ TrafficSum
 				},
 			]},
 			application: Burst{
-				pattern: Uniform,
+				SimplePattern: Uniform,
 				tasks: 75,
 				message_size: 16,
 				messages_per_task: 100,
@@ -70,7 +70,7 @@ TrafficSum
 },
 ```
 
-The `map` is computed once when the traffic is created. Thus, it is recommended for the [Pattern] indicated by `map` to be idempotent.
+The `map` is computed once when the traffic is created. Thus, it is recommended for the [SimplePattern] indicated by `map` to be idempotent.
 
 Currently, the `map` is required to be injective. This is, two tasks must not be mapped into a single one. This restriction could be lifted in the future.
  **/
@@ -96,7 +96,7 @@ pub struct TrafficMap
     number_tasks: usize,
 
     /// The map to be applied to the traffic.
-    map: Box<dyn Pattern>,
+    map: Box<dyn SimplePattern>,
 }
 
 impl Traffic for TrafficMap
@@ -202,7 +202,7 @@ impl TrafficMap
         match_object_panic!(arg.cv,"TrafficMap",value,
 			"tasks" => number_tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"application" => application = Some(new_traffic(TrafficBuilderArgument{cv:value,rng:&mut arg.rng,..arg})), //traffic of the application
-			"map" => map = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
+			"map" => map = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
 		);
 
         let number_tasks = number_tasks.expect("There were no tasks in configuration of TrafficMap.");
@@ -210,10 +210,10 @@ impl TrafficMap
         let mut map = map.expect("There were no map in configuration of TrafficMap.");
 
         let app_tasks = application.number_tasks();
-        map.initialize(app_tasks, number_tasks, arg.topology, arg.rng);
+        map.initialize(app_tasks, number_tasks, Some(arg.topology), arg.rng);
 
         let from_app_to_machine: Vec<_> = (0..app_tasks).map(|inner_origin| {
-            map.get_destination(inner_origin, arg.topology, arg.rng)
+            map.get_destination(inner_origin, Some(arg.topology), arg.rng)
         }).collect();
 
         // from_machine_to_app is the inverse of from_app_to_machine
@@ -447,7 +447,7 @@ impl Sum
 /**
 The tasks in a ProductTraffic are grouped in blocks of size `block_size`. The traffic each block generates follows the underlying `block_traffic` [Traffic],
 but with the group of destination being indicated by the `global_pattern`.
-First check whether a transformation at the [Pattern] level is enough; specially see the [crate::pattern::ProductPattern] pattern.
+First check whether a transformation at the [SimplePattern] level is enough; specially see the [crate::SimplePattern::ProductPattern] SimplePattern.
 
 ```ignore
 ProductTraffic{
@@ -463,7 +463,7 @@ pub struct ProductTraffic
 {
 	block_size: usize,
 	block_traffic: Box<dyn Traffic>,
-	global_pattern: Box<dyn Pattern>,
+	global_pattern: Box<dyn SimplePattern>,
 	global_size: usize,
 	//Set of generated messages.
 	//generated_messages: BTreeMap<*const Message,Rc<Message>>,
@@ -476,7 +476,7 @@ impl Traffic for ProductTraffic
 		let local=origin % self.block_size;
 		let global=origin / self.block_size;
 		//let local_dest=self.block_pattern.get_destination(local,topology,rng);
-		let global_dest=self.global_pattern.get_destination(global,topology,rng);
+		let global_dest=self.global_pattern.get_destination(global,Some(topology),rng);
 		//global_dest*self.block_size+local_dest
 		let inner_message=self.block_traffic.generate_message(local,cycle,topology,rng)?;
 		let mut payload = Vec::with_capacity(inner_message.payload().len() + 8);
@@ -548,7 +548,7 @@ impl ProductTraffic
 		let mut global_pattern=None;
 		match_object_panic!(arg.cv,"ProductTraffic",value,
 			"block_traffic" => block_traffic=Some(new_traffic(TrafficBuilderArgument{cv:value,rng:&mut arg.rng,..arg})),
-			"global_pattern" => global_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"global_pattern" => global_pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"block_size" => block_size=Some(value.as_f64().expect("bad value for block_size") as usize),
 		);
 		let block_size=block_size.expect("There were no block_size");
@@ -557,7 +557,7 @@ impl ProductTraffic
 		// TODO: should receive a `global_size` argument. When missing, fall back to use topology size.
 		// TODO: Also check for divisibility.
 		let global_size=arg.topology.num_servers()/block_size;
-		global_pattern.initialize(global_size,global_size,arg.topology,arg.rng);
+		global_pattern.initialize(global_size,global_size,Some(arg.topology),arg.rng);
 		ProductTraffic{
 			block_size,
 			block_traffic,
@@ -571,15 +571,15 @@ impl ProductTraffic
 ///In this traffic each task has a limited amount of data that can send over the amount it has received.
 ///For example, with `bound=1` after a task sends a message it must wait to receive one.
 ///And if received `x` messages then it may generate `x+bound` before having to wait.
-///All messages have same size, follow the same pattern.
+///All messages have same size, follow the same SimplePattern.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct BoundedDifference
 {
 	///Number of tasks applying this traffic.
 	tasks: usize,
-	///The pattern of the communication.
-	pattern: Box<dyn Pattern>,
+	///The SimplePattern of the communication.
+	pattern: Box<dyn SimplePattern>,
 	///The size of each sent message.
 	message_size: usize,
 	///The load offered to the network. Proportion of the cycles that should be injecting phits.
@@ -605,7 +605,7 @@ impl Traffic for BoundedDifference
 			return Err(TrafficError::OriginOutsideTraffic);
 		}
 		assert!(self.allowance[origin]>0,"Origin {} has no allowance to send more messages.",origin);
-		let destination=self.pattern.get_destination(origin,topology,rng);
+		let destination=self.pattern.get_destination(origin,Some(topology),rng);
 		if origin==destination
 		{
 			return Err(TrafficError::SelfMessage);
@@ -676,7 +676,7 @@ impl BoundedDifference
 		let mut message_size=None;
 		let mut bound=None;
 		match_object_panic!(arg.cv,"BoundedDifference",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -686,8 +686,8 @@ impl BoundedDifference
 		let message_size=message_size.expect("There were no message_size");
 		let bound=bound.expect("There were no bound");
 		let load=load.expect("There were no load");
-		let mut pattern=pattern.expect("There were no pattern");
-		pattern.initialize(tasks, tasks, arg.topology, arg.rng);
+		let mut pattern=pattern.expect("There were no SimplePattern");
+		pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
 		BoundedDifference{
 			tasks,
 			pattern,

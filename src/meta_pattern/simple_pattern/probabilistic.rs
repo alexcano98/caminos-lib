@@ -1,10 +1,12 @@
+use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::MetaPattern;
 use std::cell::{RefCell};
 use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom};
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::config_parser::ConfigurationValue;
 use crate::topology::{Topology, Location};
 use crate::{match_object_panic};
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
 
 
 ///Each destination request will be uniform random among all the range `0..size` minus the `origin`.
@@ -19,13 +21,13 @@ pub struct UniformPattern
     allow_self: bool,
 }
 
-impl Pattern for UniformPattern
+impl MetaPattern<usize, usize>for UniformPattern
 {
-    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         self.size=target_size;
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let discard_self = !self.allow_self && origin<self.size;
         let random_size = if discard_self { self.size-1 } else { self.size };
@@ -42,7 +44,7 @@ impl Pattern for UniformPattern
 
 impl UniformPattern
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> UniformPattern
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> UniformPattern
     {
         let mut allow_self = false;
         match_object_panic!(arg.cv,"Uniform",value,
@@ -69,13 +71,13 @@ pub struct Hotspots
 {
     ///The allowed destinations
     destinations: Vec<usize>,
-    ///An amount of destinations o be added to the vector on pattern initialization.
+    ///An amount of destinations o be added to the vector on meta_pattern initialization.
     extra_random_destinations: usize
 }
 
-impl Pattern for Hotspots
+impl MetaPattern<usize, usize>for Hotspots
 {
-    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         //XXX Do we want to check the user given destinations against target_size?
         for _ in 0..self.extra_random_destinations
@@ -88,7 +90,7 @@ impl Pattern for Hotspots
             panic!("The Hotspots pattern requires to have at least one destination.");
         }
     }
-    fn get_destination(&self, _origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, _origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let r = rng.gen_range(0..self.destinations.len());
         self.destinations[r]
@@ -97,7 +99,7 @@ impl Pattern for Hotspots
 
 impl Hotspots
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Hotspots
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Hotspots
     {
         let mut destinations=None;
         let mut extra_random_destinations=None;
@@ -122,16 +124,16 @@ impl Hotspots
 pub struct RandomMix
 {
     ///The patterns in the pool to be selected.
-    patterns: Vec<Box<dyn Pattern>>,
-    ///The given weights, one per pattern.
+    patterns: Vec<Box<dyn SimplePattern>>,
+    ///The given weights, one per meta_pattern.
     weights: Vec<usize>,
     ///A total weight computed at initialization.
     total_weight: usize,
 }
 
-impl Pattern for RandomMix
+impl MetaPattern<usize, usize>for RandomMix
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if self.patterns.len()!=self.weights.len()
         {
@@ -147,7 +149,7 @@ impl Pattern for RandomMix
         }
         self.total_weight=self.weights.iter().sum();
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let mut w = rng.gen_range(0..self.total_weight);
         let mut index = 0;
@@ -162,13 +164,13 @@ impl Pattern for RandomMix
 
 impl RandomMix
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RandomMix
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RandomMix
     {
         let mut patterns=None;
         let mut weights=None;
         match_object_panic!(arg.cv,"RandomMix",value,
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
 			"weights" => weights=Some(value.as_array().expect("bad value for weights").iter()
 				.map(|v|v.as_f64().expect("bad value in weights") as usize).collect()),
 		);
@@ -195,9 +197,9 @@ pub struct GloballyShufflingDestinations
     pending: RefCell<Vec<usize>>,
 }
 
-impl Pattern for GloballyShufflingDestinations
+impl MetaPattern<usize, usize>for GloballyShufflingDestinations
 {
-    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         self.size=target_size;
         self.pending=RefCell::new(Vec::with_capacity(self.size));
@@ -206,7 +208,7 @@ impl Pattern for GloballyShufflingDestinations
         //	unimplemented!("Different sizes are not yet implemented for GloballyShufflingDestinations");
         //}
     }
-    fn get_destination(&self, _origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, _origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let mut pending = self.pending.borrow_mut();
         if pending.is_empty()
@@ -224,7 +226,7 @@ impl Pattern for GloballyShufflingDestinations
 
 impl GloballyShufflingDestinations
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> GloballyShufflingDestinations
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> GloballyShufflingDestinations
     {
         match_object_panic!(arg.cv,"GloballyShufflingDestinations",_value);
         GloballyShufflingDestinations{
@@ -248,9 +250,9 @@ pub struct GroupShufflingDestinations
     pending: Vec<RefCell<Vec<usize>>>,
 }
 
-impl Pattern for GroupShufflingDestinations
+impl MetaPattern<usize, usize>for GroupShufflingDestinations
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         self.size = target_size;
         let number_of_groups = (source_size+self.group_size-1) / self.group_size;// ts/gs rounded up
@@ -260,7 +262,7 @@ impl Pattern for GroupShufflingDestinations
         //	unimplemented!("Different sizes are not yet implemented for GroupShufflingDestinations");
         //}
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let group = origin / self.group_size;
         let mut pending = self.pending[group].borrow_mut();
@@ -279,7 +281,7 @@ impl Pattern for GroupShufflingDestinations
 
 impl GroupShufflingDestinations
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> GroupShufflingDestinations
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> GroupShufflingDestinations
     {
         let mut group_size = None;
         if let &ConfigurationValue::Object(ref cv_name, ref cv_pairs)=arg.cv
@@ -318,15 +320,15 @@ impl GroupShufflingDestinations
 
 /**
 Each message gets its destination sampled uniformly at random among the servers attached to neighbour routers.
-It may build a pattern either of servers or switches, controlled through the `switch_level` configuration flag.
-This pattern autoscales if requested a size multiple of the network size.
+It may build a meta_pattern either of servers or switches, controlled through the `switch_level` configuration flag.
+This meta_pattern autoscales if requested a size multiple of the network size.
 
 Example configuration:
 ```ignore
 UniformDistance{
 	///The distance at which the destination must be from the source.
 	distance: 1,
-	/// Optionally build the pattern at the switches. This should be irrelevant at direct network with the same number of servers per switch.
+	/// Optionally build the meta_pattern at the switches. This should be irrelevant at direct network with the same number of servers per switch.
 	//switch_level: true,
 	legend_name: "uniform among neighbours",
 }
@@ -338,7 +340,7 @@ pub struct UniformDistance
 {
     ///Distance to which destinations must chosen.
     distance: usize,
-    ///Whether the pattern is defined at the switches, or otherwise, at the servers.
+    ///Whether the meta_pattern is defined at the switches, or otherwise, at the servers.
     switch_level: bool,
     ///sources/destinations mapped to each router/server (depending on `switch_level`).
     concentration: usize,
@@ -346,12 +348,13 @@ pub struct UniformDistance
     pool: Vec<Vec<usize>>,
 }
 
-impl Pattern for UniformDistance
+impl MetaPattern<usize, usize>for UniformDistance
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
+        let topology = topology.expect("UniformDistance needs a topology");
         let n= if self.switch_level { topology.num_routers() } else { topology.num_servers() };
-        //assert!(n==source_size && n==target_size,"The UniformDistance pattern needs source_size({})==target_size({})==num_routers({})",source_size,target_size,n);
+        //assert!(n==source_size && n==target_size,"The UniformDistance meta_pattern needs source_size({})==target_size({})==num_routers({})",source_size,target_size,n);
         assert_eq!(source_size, target_size, "The UniformDistance pattern needs source_size({})==target_size({})", source_size, target_size);
         assert_eq!(source_size % n, 0, "The UniformDistance pattern needs the number of {}({}) to be a divisor of source_size({})", if self.switch_level { "routers" } else { "servers" }, n, source_size);
         self.concentration = source_size/n;
@@ -383,7 +386,7 @@ impl Pattern for UniformDistance
             self.pool.push(found);
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let pool = &self.pool[origin/self.concentration];
         let r=rng.gen_range(0..pool.len());
@@ -393,7 +396,7 @@ impl Pattern for UniformDistance
 
 impl UniformDistance
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> UniformDistance
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> UniformDistance
     {
         let mut distance =  None;
         let mut switch_level =  false;
@@ -435,13 +438,13 @@ pub struct Circulant
     pub size: i32,
 }
 
-impl Pattern for Circulant
+impl MetaPattern<usize, usize>for Circulant
 {
-    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         self.size = target_size as i32;
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let r = rng.gen_range(0..self.generators.len());
         let gen = self.generators[r];
@@ -452,7 +455,7 @@ impl Pattern for Circulant
 
 impl Circulant
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Circulant
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Circulant
     {
         let mut generators = vec![];
         match_object_panic!(arg.cv,"Circulant",value,
@@ -471,9 +474,9 @@ impl Circulant
 }
 
 /**
-A pattern in which the destinations are randomly sampled from the destinations for which there are some middle router satisfying
-some criteria. Note this is only a pattern, the actual packet route does not have to go through such middle router.
-It has the same implicit concentration scaling as UniformDistance, allowing building a pattern over a multiple of the number of switches.
+A meta_pattern in which the destinations are randomly sampled from the destinations for which there are some middle router satisfying
+some criteria. Note this is only a meta_pattern, the actual packet route does not have to go through such middle router.
+It has the same implicit concentration scaling as UniformDistance, allowing building a meta_pattern over a multiple of the number of switches.
 
 Example configuration:
 ```ignore
@@ -488,7 +491,7 @@ RestrictedMiddleUniform{
 	distances_to_destination: [1],
 	/// Optionally, a vector with distances from source to destination, ignoring middle.
 	distances_source_to_destination: [2],
-	/// Optionally, set a pattern for those sources with no legal destination.
+	/// Optionally, set a meta_pattern for those sources with no legal destination.
 	else: Uniform,
 }
 ```
@@ -502,8 +505,8 @@ pub struct RestrictedMiddleUniform
     distances_to_source: Option<Vec<usize>>,
     distances_to_destination: Option<Vec<usize>>,
     distances_source_to_destination: Option<Vec<usize>>,
-    else_pattern: Option<Box<dyn Pattern>>,
-    ///Whether the pattern is defined at the switches, or otherwise, at the servers.
+    else_pattern: Option<Box<dyn SimplePattern>>,
+    ///Whether the meta_pattern is defined at the switches, or otherwise, at the servers.
     switch_level: bool,
     /// sources/destinations mapped to each router. An implicit product to ease the normal case.
     concentration: usize,
@@ -511,12 +514,13 @@ pub struct RestrictedMiddleUniform
     pool: Vec<Vec<usize>>,
 }
 
-impl Pattern for RestrictedMiddleUniform
+impl MetaPattern<usize, usize>for RestrictedMiddleUniform
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
+        let topology = topology.expect("RestrictedMiddleUniform needs a topology");
         let n= if self.switch_level { topology.num_routers() } else { topology.num_servers() };
-        //assert!(n==source_size && n==target_size,"The RestrictedMiddleUniform pattern needs source_size({})==target_size({})==num_routers({})",source_size,target_size,n);
+        //assert!(n==source_size && n==target_size,"The RestrictedMiddleUniform meta_pattern needs source_size({})==target_size({})==num_routers({})",source_size,target_size,n);
         assert_eq!(source_size, target_size, "The RestrictedMiddleUniform pattern needs source_size({})==target_size({})", source_size, target_size);
         assert_eq!(source_size % n, 0, "The RestrictedMiddleUniform pattern needs the number of {}({}) to be a divisor of source_size({})", if self.switch_level { "routers" } else { "servers" }, n, source_size);
         self.concentration = source_size/n;
@@ -595,10 +599,10 @@ impl Pattern for RestrictedMiddleUniform
         }
         if let Some(ref mut pat) = self.else_pattern
         {
-            pat.initialize(source_size,target_size,topology,rng);
+            pat.initialize(source_size,target_size,Some(topology),rng);
         }
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let pool = &self.pool[origin/self.concentration];
         if pool.is_empty() {
@@ -613,7 +617,7 @@ impl Pattern for RestrictedMiddleUniform
 
 impl RestrictedMiddleUniform
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RestrictedMiddleUniform
+    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RestrictedMiddleUniform
     {
         let mut minimum_index = None;
         let mut maximum_index = None;
@@ -637,7 +641,7 @@ impl RestrictedMiddleUniform
 				value.as_array().expect("bad value for distances_source_to_destination").iter().map(
 				|x|x.as_f64().expect("bad value for distances_source_to_destination") as usize
 			).collect()),
-			"else" => else_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"else" => else_pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"switch_level" => switch_level = value.as_bool().expect("bad value for switch_level"),
 		);
         RestrictedMiddleUniform{

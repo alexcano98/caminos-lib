@@ -144,9 +144,9 @@ Configuration
 		degree: 10,//Number of router ports reserved to go to other routers
 		legend_name: "random 500-regular graph",//Name used on generated outputs
 	},
-	traffic: HomogeneousTraffic//Select a traffic. e.g., traffic repeating a pattern continuously.
+	traffic: HomogeneousTraffic//Select a traffic. e.g., traffic repeating a meta_pattern continuously.
 	{
-		pattern: ![//We can make a simulation for each of several patterns.
+		meta_pattern: ![//We can make a simulation for each of several patterns.
 			Uniform { legend_name:"uniform" },
 			RandomPermutation { legend_name:"random server permutation" },
 		],
@@ -210,15 +210,15 @@ An example of output description `main.od` is
 [
 	CSV//To generate a csv with a selection of fields
 	{
-		fields: [=configuration.traffic.pattern.legend_name, =configuration.traffic.load, =result.accepted_load, =result.average_message_delay, =configuration.routing.legend_name, =result.server_consumption_jain_index, =result.server_generation_jain_index, =result.average_packet_hops, =result.average_link_utilization, =result.maximum_link_utilization],
+		fields: [=configuration.traffic.meta_pattern.legend_name, =configuration.traffic.load, =result.accepted_load, =result.average_message_delay, =configuration.routing.legend_name, =result.server_consumption_jain_index, =result.server_generation_jain_index, =result.average_packet_hops, =result.average_link_utilization, =result.maximum_link_utilization],
 		filename: "results.csv",
 	},
 	Plots//To plot curves of data.
 	{
-		selector: =configuration.traffic.pattern.legend_name,//Make a plot for each value of the selector
+		selector: =configuration.traffic.meta_pattern.legend_name,//Make a plot for each value of the selector
 		kind: [
 			//We may create groups of figures.
-			//In this example. For each value of pattern we draw three graphics.
+			//In this example. For each value of meta_pattern we draw three graphics.
 			Plotkind{
 				//The first one is accepted load for each offered load.
 				//Simulations with same parameter, here offered load, are averaged together.
@@ -256,7 +256,7 @@ An example of output description `main.od` is
 	},
 	Plots
 	{
-		selector: =configuration.traffic.pattern.legend_name,//Make a plot for each value of the selector
+		selector: =configuration.traffic.meta_pattern.legend_name,//Make a plot for each value of the selector
 		//We can create histograms.
 		kind: [Plotkind{
 			label_abscissas: "path length",
@@ -315,6 +315,7 @@ Both entries `directory_main` and `file_main` receive a `&Plugs` argument that m
 	//missing repository and categories.
 	#![allow(clippy::cargo_common_metadata)]
 
+use crate::meta_pattern::simple_pattern::SimplePattern;
 pub use quantifiable_derive::Quantifiable;//the derive macro
 
 //config_parser contains automatically generated code. No sense in being too strict.
@@ -323,7 +324,7 @@ pub use quantifiable_derive::Quantifiable;//the derive macro
 pub mod config_parser;
 pub mod topology;
 pub mod traffic;
-pub mod pattern;
+pub mod meta_pattern;
 pub mod router;
 pub mod routing;
 pub mod event;
@@ -365,7 +366,7 @@ use event::{EventQueue,Event,EventGeneration};
 use quantify::Quantifiable;
 use experiments::{Experiment,Action,ExperimentOptions};
 use policies::{VirtualChannelPolicy,VCPolicyBuilderArgument};
-use pattern::{Pattern,PatternBuilderArgument};
+use meta_pattern::{MetaPatternBuilderArgument};
 use config::flatten_configuration_value;
 use measures::{Statistics,ServerStatistics};
 use error::{Error,SourceLocation};
@@ -1935,7 +1936,7 @@ pub struct Plugs
 	stages: BTreeMap<String, fn(StageBuilderArgument) -> Box<dyn Stage> >,
 	routings: BTreeMap<String,fn(RoutingBuilderArgument) -> Box<dyn Routing>>,
 	traffics: BTreeMap<String,fn(TrafficBuilderArgument) -> Box<dyn Traffic> >,
-	patterns: BTreeMap<String, fn(PatternBuilderArgument) -> Box<dyn Pattern> >,
+	patterns: BTreeMap<String, fn(MetaPatternBuilderArgument) -> Box<dyn SimplePattern> >,
 	policies: BTreeMap<String, fn(VCPolicyBuilderArgument) -> Box<dyn VirtualChannelPolicy> >,
 	allocators: BTreeMap<String, fn(AllocatorBuilderArgument) -> Box<dyn Allocator> >,
 }
@@ -1966,7 +1967,7 @@ impl Plugs
 	{
 		self.policies.insert(key,builder);
 	}
-	pub fn add_pattern(&mut self, key:String, builder: fn(PatternBuilderArgument) -> Box<dyn Pattern>)
+	pub fn add_pattern(&mut self, key:String, builder: fn(MetaPatternBuilderArgument) -> Box<dyn SimplePattern>)
 	{
 		self.patterns.insert(key,builder);
 	}

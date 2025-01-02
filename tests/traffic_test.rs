@@ -21,8 +21,8 @@ fn periodic_burst_traffic_test()
     };
 
     //Pattern
-    let total_sides = vec![1, 2]; //sides of the Cartesian pattern
-    let cartesian_shift = vec![0, 1]; //shift of the Cartesian pattern
+    let total_sides = vec![1, 2]; //sides of the Cartesian meta_pattern
+    let cartesian_shift = vec![0, 1]; //shift of the Cartesian meta_pattern
     let shift_pattern_builder = ShiftPatternBuilder{
         sides: total_sides.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(), //vec![ConfigurationValue::Number(2.0),ConfigurationValue::Number(1.0)],
         shift: cartesian_shift.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(),//vec![ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0)],
@@ -135,8 +135,8 @@ fn sum_traffic_test()
     };
 
     //Pattern
-    let total_sides = vec![1, 2]; //sides of the Cartesian pattern
-    let cartesian_shift = vec![0, 1]; //shift of the Cartesian pattern
+    let total_sides = vec![1, 2]; //sides of the Cartesian meta_pattern
+    let cartesian_shift = vec![0, 1]; //shift of the Cartesian meta_pattern
     let shift_pattern_builder = ShiftPatternBuilder{
         sides: total_sides.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(), //vec![ConfigurationValue::Number(2.0),ConfigurationValue::Number(1.0)],
         shift: cartesian_shift.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(),//vec![ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0)],

@@ -900,15 +900,15 @@ RFC{
 
 ### RemappedServersTopology
 
-[RemappedServersTopology](operations::RemappedServersTopology) transforms the server indices of a base topology. This does not change the indices of routers. The pattern is called once
+[RemappedServersTopology](operations::RemappedServersTopology) transforms the server indices of a base topology. This does not change the indices of routers. The meta_pattern is called once
 to generate a map from the base servers to the used indices. This resulting map must be a permutation and it would panic otherwise.
-The pattern may be the Identity for no change. A RandomPermutation is a shuffle of the server identifiers.
+The meta_pattern may be the Identity for no change. A RandomPermutation is a shuffle of the server identifiers.
 
 Example configuration:
 ```ignore
 RemappedServers{
 	topology: Mesh{sides:[4,4],servers_per_router:1},
-	pattern: RandomPermutation,
+	meta_pattern: RandomPermutation,
 }
 ```
 

@@ -1,4 +1,5 @@
 
+use crate::meta_pattern::simple_pattern::SimplePattern;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::prelude::SliceRandom;
@@ -7,7 +8,7 @@ use rand::prelude::SliceRandom;
 use crate::allocator::{Allocator, Request, GrantedRequests, AllocatorBuilderArgument};
 use crate::config_parser::ConfigurationValue;
 use crate::match_object_panic;
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
 use crate::topology::{new_topology, Topology, TopologyBuilderArgument};
 
 
@@ -33,7 +34,7 @@ pub struct LabelReduction {
     ///Labels to be reduced
     labels: Vec<Vec<usize>>,
     /// The patterns to be reduced
-    patterns: Vec< Box<dyn Pattern>>,
+    patterns: Vec< Box<dyn SimplePattern>>,
     ///dummy topology
     topology: Box<dyn Topology>,
     /// The RNG or None if the seed is not set
@@ -86,7 +87,7 @@ impl LabelReduction {
             {
                 &ConfigurationValue::Array(ref s) => {
                     for p in s {
-                        patterns.push(new_pattern(PatternBuilderArgument{cv: p, plugs: args.plugs}));
+                        patterns.push(new_pattern(MetaPatternBuilderArgument{cv: p, plugs: args.plugs}));
                     }
                 },
                 _ => panic!("Bad value for patterns"),
@@ -193,7 +194,7 @@ impl Allocator for LabelReduction {
             let pat_ref = p.as_ref();
 
             request_clone = request_clone.clone().into_iter().filter(|r|{
-                let lab = pat_ref.get_destination(r.priority.unwrap(),self.topology.as_ref(), rng).clone();
+                let lab = pat_ref.get_destination(r.priority.unwrap(),Some(self.topology.as_ref()), rng).clone();
                 if self.labels[index].contains(&lab)
                 {
                     if *map.get(&lab).unwrap() == 0usize {

@@ -1,80 +1,27 @@
-/*!
-
-A [Pattern] defines the way elements select their destinations.
-
-see [`new_pattern`](fn.new_pattern.html) for documentation on the configuration syntax of predefined patterns.
-
- */
+use crate::config_parser::ConfigurationValue;
+use crate::meta_pattern::{MetaPattern, MetaPatternBuilderArgument};
+use crate::meta_pattern::simple_pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
+use crate::meta_pattern::simple_pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
+use crate::meta_pattern::simple_pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
+use crate::meta_pattern::simple_pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
 
 pub mod extra;
 pub mod operations;
 pub mod probabilistic;
 pub mod transformations;
 
-
-use ::rand::{rngs::StdRng};
-
-use crate::config_parser::ConfigurationValue;
-use crate::topology::{Topology};
-use crate::quantify::Quantifiable;
-use crate::{Plugs};
-use crate::pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, EncapsulatedPattern, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
-use crate::pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
-use crate::pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
-use crate::pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
-
-/// Some things most uses of the pattern module will use.
-pub mod prelude
-{
-    pub use super::{Pattern,new_pattern,PatternBuilderArgument};
-}
-
-///A `Pattern` describes how a set of entities decides destinations into another set of entities.
-///The entities are initially servers, but after some operators it may mean router, rows/columns, or other groupings.
-///The source and target set may be or not be the same. Or even be of different size.
-///Thus, a `Pattern` is a generalization of the mathematical concept of function.
-pub trait Pattern : Quantifiable + std::fmt::Debug
-{
-    //Indices are either servers or virtual things.
-    ///Fix the input and output size, providing the topology and random number generator.
-    ///Careful with using topology in sub-patterns. For example, it may be misleading to use the dragonfly topology when
-    ///building a pattern among groups or a pattern among the routers of a single group.
-    ///Even just a pattern of routers instead of a pattern of servers can lead to mistakes.
-    ///Read the documentation of the traffic or meta-pattern using the pattern to know what its their input and output.
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng);
-    ///Obtain a destination of a source. This will be called repeatedly as the traffic requires destination for its messages.
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize;
-}
-
-///The argument to a builder function of patterns.
-#[derive(Debug)]
-pub struct PatternBuilderArgument<'a>
-{
-    ///A ConfigurationValue::Object defining the pattern.
-    pub cv: &'a ConfigurationValue,
-    ///The user defined plugs. In case the pattern needs to create elements.
-    pub plugs: &'a Plugs,
-}
-
-impl<'a> PatternBuilderArgument<'a>
-{
-    fn with_cv<'b>(&'b self, new_cv:&'b ConfigurationValue) -> PatternBuilderArgument<'b>
-    {
-        PatternBuilderArgument{
-            cv: new_cv,
-            plugs: self.plugs,
-        }
-    }
-}
+///A `SimplePattern` describes how a set of entities decides destinations into another set of entities.
+pub trait SimplePattern: MetaPattern<usize, usize>{}
+impl <T> SimplePattern for T where T: MetaPattern<usize, usize>{}
 
 
-/**Build a new pattern. Patterns are maps between two sets which may depend on the RNG. Generally over the whole set of servers, but sometimes among routers or groups. Check the documentation of the parent Traffic/Permutation for its interpretation.
+/**Build a new meta_pattern. Patterns are maps between two sets which may depend on the RNG. Generally over the whole set of servers, but sometimes among routers or groups. Check the documentation of the parent Traffic/Permutation for its interpretation.
 
 ## Roughly uniform patterns
 
 ### Uniform
 
-In the [uniform](UniformPattern) pattern all elements have same probability to send to any other.
+In the [uniform](UniformPattern) meta_pattern all elements have same probability to send to any other.
 ```ignore
 Uniform{
 	legend_name: "uniform",
@@ -83,7 +30,7 @@ Uniform{
 
 ### GloballyShufflingDestinations
 
-The [GloballyShufflingDestinations] is an uniform-like pattern that avoids repeating the same destination. It keeps a global vector of destinations. It is shuffled and each created message gets its destination from there. Sometimes you may be selected yourself as destination.
+The [GloballyShufflingDestinations] is an uniform-like meta_pattern that avoids repeating the same destination. It keeps a global vector of destinations. It is shuffled and each created message gets its destination from there. Sometimes you may be selected yourself as destination.
 
 ```ignore
 GloballyShufflingDestinations{
@@ -93,7 +40,7 @@ GloballyShufflingDestinations{
 
 ### GroupShufflingDestinations
 
-The [GroupShufflingDestinations] pattern is alike [GloballyShufflingDestinations] but keeping one destination vector per each group.
+The [GroupShufflingDestinations] meta_pattern is alike [GloballyShufflingDestinations] but keeping one destination vector per each group.
 
 ```ignore
 GroupShufflingDestinations{
@@ -106,23 +53,23 @@ GroupShufflingDestinations{
 ### UniformDistance
 
 In [UniformDistance] each message gets its destination sampled uniformly at random among the servers attached to neighbour routers.
-It may build a pattern either of servers or switches, controlled through the `switch_level` configuration flag.
-This pattern autoscales if requested a size multiple of the network size.
+It may build a meta_pattern either of servers or switches, controlled through the `switch_level` configuration flag.
+This meta_pattern autoscales if requested a size multiple of the network size.
 
 Example configuration:
 ```ignore
 UniformDistance{
 	///The distance at which the destination must be from the source.
 	distance: 1,
-	/// Optionally build the pattern at the switches. This should be irrelevant at direct network with the same number of servers per switch.
+	/// Optionally build the meta_pattern at the switches. This should be irrelevant at direct network with the same number of servers per switch.
 	//switch_level: true,
 	legend_name: "uniform among neighbours",
 }
 ```
 
 ### RestrictedMiddleUniform
-[RestrictedMiddleUniform] is a pattern in which the destinations are randomly sampled from the destinations for which there are some middle router satisfying some criteria. Note this is only a pattern, the actual packet route does not have to go through such middle router.
-It has the same implicit concentration scaling as UniformDistance, allowing building a pattern over a multiple of the number of switches.
+[RestrictedMiddleUniform] is a meta_pattern in which the destinations are randomly sampled from the destinations for which there are some middle router satisfying some criteria. Note this is only a meta_pattern, the actual packet route does not have to go through such middle router.
+It has the same implicit concentration scaling as UniformDistance, allowing building a meta_pattern over a multiple of the number of switches.
 
 Example configuration:
 ```ignore
@@ -137,7 +84,7 @@ RestrictedMiddleUniform{
 	distances_to_destination: [1],
 	/// Optionally, a vector with distances from source to destination, ignoring middle.
 	distances_source_to_destination: [2],
-	/// Optionally, set a pattern for those sources with no legal destination.
+	/// Optionally, set a meta_pattern for those sources with no legal destination.
 	else: Uniform,
 }
 ```
@@ -169,8 +116,8 @@ With [FileMap] a map is read from a file. Each element has a unique destination.
 ```ignore
 FileMap{
 	/// Note this is a string literal.
-	filename: "/path/to/pattern",
-	legend_name: "A pattern in my device",
+	filename: "/path/to/meta_pattern",
+	legend_name: "A meta_pattern in my device",
 }
 ```
 
@@ -239,7 +186,7 @@ Product{
 ```
 
 ### Components
-[Components](ComponentsPattern) divides the topology along link classes. The 'local' pattern is Uniform.
+[Components](ComponentsPattern) divides the topology along link classes. The 'local' meta_pattern is Uniform.
 ```ignore
 Components{
 	global_pattern: RandomPermutation,
@@ -249,7 +196,7 @@ Components{
 ```
 
 ### Composition
-The [Composition] pattern allows to concatenate transformations.
+The [Composition] meta_pattern allows to concatenate transformations.
 ```ignore
 Composition{
 	patterns: [  FileMap{filename: "/patterns/second"}, FileMap{filename: "/patterns/first"}  ]
@@ -259,12 +206,12 @@ Composition{
 
 
 ### Pow
-A [Pow] is composition of a `pattern` with itself `exponent` times.
+A [Pow] is composition of a `meta_pattern` with itself `exponent` times.
 ```ignore
 Pow{
-	pattern: FileMap{filename: "/patterns/mypattern"},
+	meta_pattern: FileMap{filename: "/patterns/mypattern"},
 	exponent: "3",
-	legend_name: "Apply 3 times my pattern",
+	legend_name: "Apply 3 times my meta_pattern",
 }
 ```
 
@@ -280,36 +227,36 @@ RandomMix{
 ```
 
 ### IndependentRegions
-With [IndependentRegions] the set of nodes is partitioned in independent regions, each with its own pattern. Source and target sizes must be equal.
+With [IndependentRegions] the set of nodes is partitioned in independent regions, each with its own meta_pattern. Source and target sizes must be equal.
 ```ignore
 IndependentRegions{
 	// An array with the patterns for each region.
 	patterns: [Uniform, Hotspots{destinations:[0]}],
 	// An array with the size of each region. They must add up to the total size.
 	sizes: [100, 50],
-	// Alternatively, use relative_sizes. the pattern will be initialized with sizes proportional to these.
+	// Alternatively, use relative_sizes. the meta_pattern will be initialized with sizes proportional to these.
 	// You must use exactly one of either `sizes` or `relative_sizes`.
 	// relative_sizes: [88, 11],
 }
 ```
 ### RemappedNodes
-[RemappedNodes] allows to apply another pattern using indices that are mapped by another pattern.
+[RemappedNodes] allows to apply another meta_pattern using indices that are mapped by another meta_pattern.
 
 Example building a cycle in random order.
 ```ignore
 RemappedNodes{
-	/// The underlying pattern to be used.
-	pattern: Circulant{generators:[1]},
-	/// The pattern defining the relabelling.
+	/// The underlying meta_pattern to be used.
+	meta_pattern: Circulant{generators:[1]},
+	/// The meta_pattern defining the relabelling.
 	map: RandomPermutation,
 }
 ```
 
 ### CartesianCut
 
-With [CartesianCut] you see the nodes as block with an embedded block. Then you define a pattern inside the small block and another outside. See [CartesianCut] for details and examples.
+With [CartesianCut] you see the nodes as block with an embedded block. Then you define a meta_pattern inside the small block and another outside. See [CartesianCut] for details and examples.
  */
-pub fn new_pattern(arg:PatternBuilderArgument) -> Box<dyn Pattern>
+pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn SimplePattern>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -337,10 +284,10 @@ pub fn new_pattern(arg:PatternBuilderArgument) -> Box<dyn Pattern>
             "Hotspots" => Box::new(Hotspots::new(arg)),
             "RandomMix" => Box::new(RandomMix::new(arg)),
             "ConstantShuffle" =>
-            {
-                println!("WARNING: the name ConstantShuffle is deprecated, use GloballyShufflingDestinations");
-                Box::new(GloballyShufflingDestinations::new(arg))
-            }
+                {
+                    println!("WARNING: the name ConstantShuffle is deprecated, use GloballyShufflingDestinations");
+                    Box::new(GloballyShufflingDestinations::new(arg))
+                }
             "GloballyShufflingDestinations" => Box::new(GloballyShufflingDestinations::new(arg)),
             "GroupShufflingDestinations" => Box::new(GroupShufflingDestinations::new(arg)),
             "UniformDistance" => Box::new(UniformDistance::new(arg)),
@@ -364,8 +311,8 @@ pub fn new_pattern(arg:PatternBuilderArgument) -> Box<dyn Pattern>
             "RecursiveDistanceHalving" => Box::new(RecursiveDistanceHalving::new(arg)),
             "BinomialTree" => Box::new(BinomialTree::new(arg)),
             "InmediateSequencePattern" => Box::new(InmediateSequencePattern::new(arg)),
-            "ManhattanNeighbours" | "KingNeighbours" => EncapsulatedPattern::new(cv_name.clone(), arg),
-            _ => panic!("Unknown pattern {}",cv_name),
+            // "ManhattanNeighbours" | "KingNeighbours" => EncapsulatedPattern::new(cv_name.clone(), arg),
+            _ => panic!("Unknown meta_pattern {}",cv_name),
         }
     }
     else
@@ -375,7 +322,7 @@ pub fn new_pattern(arg:PatternBuilderArgument) -> Box<dyn Pattern>
 }
 
 /// In case you want to build a list of patterns but some of them are optional.
-pub fn new_optional_pattern(arg:PatternBuilderArgument) -> Option<Box<dyn Pattern>>
+pub fn new_optional_pattern(arg:MetaPatternBuilderArgument) -> Option<Box<dyn SimplePattern>>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -565,9 +512,184 @@ pub fn get_linear_transform(args: BuildLinearTransformCV) -> ConfigurationValue
 
 
 
+#[derive(Debug, Default)]
+pub struct BuildCompositionCV{
+    pub patterns: Vec<ConfigurationValue>,
+    pub middle_sizes: Option<Vec<usize>>,
+}
+
+pub fn get_composition_pattern_cv(args: BuildCompositionCV) -> ConfigurationValue{
+
+    let mut vector = vec![
+        ("patterns".to_string(), ConfigurationValue::Array(args.patterns)),
+    ];
+
+    if let Some(middle_sizes) = args.middle_sizes{
+        vector.push(("middle_sizes".to_string(), ConfigurationValue::Array(middle_sizes.into_iter().map(|x| ConfigurationValue::Number(x as f64)).collect())));
+    }
+
+    ConfigurationValue::Object("Composition".to_string(), vector)
+}
+
+#[derive(Debug, Default)]
+pub struct BuildCartesianTransformCV{
+    pub(crate) sides: Vec<usize>,
+    pub(crate) multiplier: Option<Vec<i32>>,
+    pub(crate) shift: Option<Vec<usize>>,
+    pub(crate) permute: Option<Vec<usize>>,
+    pub(crate) complement: Option<Vec<bool>>,
+    pub(crate) project: Option<Vec<bool>>,
+    pub(crate) random: Option<Vec<bool>>,
+    pub(crate) patterns: Option<Vec<ConfigurationValue>>,
+}
+
+pub fn get_cartesian_transform_from_builder(args: BuildCartesianTransformCV) -> ConfigurationValue
+{
+    let mut sides = Vec::new();
+
+    for i in 0..args.sides.len()
+    {
+        sides.push(ConfigurationValue::Number(args.sides[i] as f64));
+    }
+
+    let mut params = vec![
+        ("sides".to_string(), ConfigurationValue::Array(sides)),
+    ];
+    if let Some(multiplier) = args.multiplier
+    {
+        let mut multiplier_cv = Vec::new();
+        for i in 0..multiplier.len()
+        {
+            multiplier_cv.push(ConfigurationValue::Number(multiplier[i] as f64));
+        }
+        params.push(("multiplier".to_string(), ConfigurationValue::Array(multiplier_cv)));
+    }
+    if let Some(shift) = args.shift
+    {
+        let mut shift_cv = Vec::new();
+        for i in 0..shift.len()
+        {
+            shift_cv.push(ConfigurationValue::Number(shift[i] as f64));
+        }
+        params.push(("shift".to_string(), ConfigurationValue::Array(shift_cv)));
+    }
+    if let Some(permute) = args.permute
+    {
+        let mut permute_cv = Vec::new();
+        for i in 0..permute.len()
+        {
+            permute_cv.push(ConfigurationValue::Number(permute[i] as f64));
+        }
+        params.push(("permute".to_string(), ConfigurationValue::Array(permute_cv)));
+    }
+    if let Some(complement) = args.complement
+    {
+        let mut complement_cv = Vec::new();
+        for i in 0..complement.len()
+        {
+            if complement[i]
+            {
+                complement_cv.push(ConfigurationValue::True);
+            }
+            else
+            {
+                complement_cv.push(ConfigurationValue::False);
+            }
+        }
+        params.push(("complement".to_string(), ConfigurationValue::Array(complement_cv)));
+    }
+    if let Some(project) = args.project
+    {
+        let mut project_cv = Vec::new();
+        for i in 0..project.len()
+        {
+            if project[i]
+            {
+                project_cv.push(ConfigurationValue::True);
+            }
+            else
+            {
+                project_cv.push(ConfigurationValue::False);
+            }
+        }
+        params.push(("project".to_string(), ConfigurationValue::Array(project_cv)));
+    }
+    if let Some(random) = args.random
+    {
+        let mut random_cv = Vec::new();
+        for i in 0..random.len()
+        {
+            if random[i]
+            {
+                random_cv.push(ConfigurationValue::True);
+            }
+            else
+            {
+                random_cv.push(ConfigurationValue::False);
+            }
+        }
+        params.push(("random".to_string(), ConfigurationValue::Array(random_cv)));
+    }
+    if let Some(patterns) = args.patterns
+    {
+        let mut patterns_cv = Vec::new();
+        for i in 0..patterns.len()
+        {
+            patterns_cv.push(patterns[i].clone());
+        }
+        params.push(("patterns".to_string(), ConfigurationValue::Array(patterns_cv)));
+    }
+    ConfigurationValue::Object(
+        "CartesianTransform".to_string(),
+        params,
+    )
+}
+
+pub struct BuildLinearTransformCV{
+    pub(crate) source_size: Vec<usize>,
+    pub(crate) matrix: Vec<Vec<i32>>,
+    pub(crate) target_size: Vec<usize>,
+}
+
+pub fn get_linear_transform(args: BuildLinearTransformCV) -> ConfigurationValue
+{
+    let mut source_size = Vec::new();
+    let mut matrix = Vec::new();
+    let mut target_size = Vec::new();
+    for i in 0..args.source_size.len()
+    {
+        source_size.push(ConfigurationValue::Number(args.source_size[i] as f64));
+    }
+    for i in 0..args.matrix.len()
+    {
+        let mut row = Vec::new();
+        for j in 0..args.matrix[i].len()
+        {
+            row.push(ConfigurationValue::Number(args.matrix[i][j] as f64));
+        }
+        matrix.push(ConfigurationValue::Array(row));
+    }
+    for i in 0..args.target_size.len()
+    {
+        target_size.push(ConfigurationValue::Number(args.target_size[i] as f64));
+    }
+    ConfigurationValue::Object(
+        "LinearTransform".to_string(),
+        vec![
+            ("source_size".to_string(), ConfigurationValue::Array(source_size)),
+            ("matrix".to_string(), ConfigurationValue::Array(matrix)),
+            ("target_size".to_string(), ConfigurationValue::Array(target_size)),
+        ]
+    )
+}
+
+
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use rand::rngs::StdRng;
+    use crate::Plugs;
+use super::*;
     use rand::SeedableRng;
     #[test]
     fn uniform_test()
@@ -586,15 +708,15 @@ mod tests {
                 {
                     let cv_allow_self = if allow_self { ConfigurationValue::True } else { ConfigurationValue::False };
                     let cv = ConfigurationValue::Object("Uniform".to_string(),vec![("allow_self".to_string(),cv_allow_self)]);
-                    let arg = PatternBuilderArgument{ cv:&cv, plugs:&plugs };
+                    let arg = MetaPatternBuilderArgument{ cv:&cv, plugs:&plugs };
                     let mut uniform = UniformPattern::new(arg);
-                    uniform.initialize(origin_size,destination_size,&*dummy_topology,&mut rng);
+                    uniform.initialize(origin_size,destination_size,Some(&*dummy_topology),&mut rng);
                     let sample_size = (origin_size+destination_size)*10;
                     let origin=5;
                     let mut counts = vec![0;destination_size];
                     for _ in 0..sample_size
                     {
-                        let destination = uniform.get_destination(origin,&*dummy_topology,&mut rng);
+                        let destination = uniform.get_destination(origin,Some(&*dummy_topology),&mut rng);
                         assert!(destination<destination_size, "bad destination from {} into {} (allow_self:{}) got {}",origin_size,destination_size,allow_self,destination);
                         counts[destination]+=1;
                     }
@@ -627,13 +749,13 @@ mod tests {
             let mut unique_count = 0;
             for _ in 0..sample_size
             {
-                let arg = PatternBuilderArgument{ cv:&cv, plugs:&plugs };
+                let arg = MetaPatternBuilderArgument{ cv:&cv, plugs:&plugs };
                 let mut with_self = FixedRandom::new(arg);
-                with_self.initialize(size,size,&*dummy_topology,&mut rng);
+                with_self.initialize(size,size,Some(&*dummy_topology),&mut rng);
                 let mut dests = vec![0;size];
                 for origin in 0..size
                 {
-                    let destination = with_self.get_destination(origin,&*dummy_topology,&mut rng);
+                    let destination = with_self.get_destination(origin,Some(&*dummy_topology),&mut rng);
                     if destination==origin
                     {
                         count+=1;
@@ -651,11 +773,11 @@ mod tests {
         let cv = ConfigurationValue::Object("FixedRandom".to_string(),vec![("allow_self".to_string(),ConfigurationValue::False)]);
         for logsize in 1..10
         {
-            let arg = PatternBuilderArgument{ cv:&cv, plugs:&plugs };
+            let arg = MetaPatternBuilderArgument{ cv:&cv, plugs:&plugs };
             let size = 2usize.pow(logsize);
             let mut without_self = FixedRandom::new(arg);
-            without_self.initialize(size,size,&*dummy_topology,&mut rng);
-            let count = (0..size).filter( |&origin| origin==without_self.get_destination(origin,&*dummy_topology,&mut rng) ).count();
+            without_self.initialize(size,size,Some(&*dummy_topology),&mut rng);
+            let count = (0..size).filter( |&origin| origin==without_self.get_destination(origin,Some(&*dummy_topology),&mut rng) ).count();
             assert_eq!(count, 0, "Got {} selfs at size {}.", count, size);
         }
     }

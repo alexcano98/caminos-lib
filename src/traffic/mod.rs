@@ -9,14 +9,15 @@ see [`new_traffic`](fn.new_traffic.html) for documentation on the configuration 
 
 mod collectives;
 mod sequences;
-mod mini_apps;
+mod extra;
 mod basic;
 mod operations;
 
-use crate::AsMessage;
-use crate::traffic::mini_apps::{MiniApp, Stencil, TrafficCredit};
-use crate::traffic::collectives::MessageBarrier;
 use crate::traffic::collectives::MPICollective;
+use crate::AsMessage;
+use crate::traffic::extra::{MiniApp, TrafficManager};
+use crate::traffic::collectives::MessageBarrier;
+// use crate::traffic::collectives::MPICollective;
 use crate::traffic::sequences::{MessageTaskSequence, TaskSequence};
 use crate::traffic::sequences::Sequence;
 use crate::traffic::sequences::TimeSequenced;
@@ -33,7 +34,7 @@ use crate::topology::Topology;
 use crate::event::Time;
 use crate::measures::TrafficStatistics;
 use crate::quantify::Quantifiable;
-use crate::traffic::basic::{Burst, Homogeneous, PeriodicBurst, Reactive, Sleep, SubRangeTraffic, TrafficMessages};
+use crate::traffic::basic::{Burst, Homogeneous, PeriodicBurst, Reactive, SendMessageToVector, Sleep, SubRangeTraffic, TrafficMessages};
 use crate::traffic::operations::{BoundedDifference, ProductTraffic, Replica, Shifted, Sum, TrafficMap};
 
 ///Possible errors when trying to generate a message with a `Traffic`.
@@ -118,14 +119,14 @@ pub struct TrafficBuilderArgument<'a>
 ## Base traffics.
 
 ### Homogeneous
-[Homogeneous] is a traffic where all tasks behave equally and uniform in time. Some `pattern` is generated
+[Homogeneous] is a traffic where all tasks behave equally and uniform in time. Some `simplePattern` is generated
 by `tasks` number of involved tasks along the whole simulation. Each task tries to use its link toward the network a `load`
 fraction of the cycles. The generated messages has a size in phits of `message_size`. The generation is the typical Bernoulli process.
 
 Example configuration.
 ```ignore
 HomogeneousTraffic{
-	pattern:Uniform,
+	simplePattern:Uniform,
 	tasks:1000,
 	load: 0.9,
 	message_size: 16,
@@ -137,7 +138,7 @@ In the [Burst] traffic each of the involved `tasks` has a initial list of `messa
 are consumed the simulation is requested to end.
 ```ignore
 Burst{
-	pattern:Uniform,
+	simplePattern:Uniform,
 	tasks:1000,
 	messages_per_task:200,
 	message_size: 16,
@@ -168,7 +169,7 @@ TrafficSum{
 
 ### ShiftedTraffic
 
-A [ShiftedTraffic](Shifted) shifts a given traffic a certain amount of tasks. Yu should really check if some pattern transformation fit your purpose, since it will be simpler.
+A [ShiftedTraffic](Shifted) shifts a given traffic a certain amount of tasks. Yu should really check if some simplePattern transformation fit your purpose, since it will be simpler.
 ```ignore
 ShiftedTraffic{
 	traffic: HomogeneousTraffic{...},
@@ -181,7 +182,7 @@ ShiftedTraffic{
 A [ProductTraffic] divides the tasks into blocks. Each group generates traffic following the `block_traffic`, but instead of having the destination in the same block it is selected a destination by using the `global_pattern` of the block. Blocks of interest are
 * The tasks attached to a router. Then if the global_pattern is a permutation, all the tasks will comunicate with tasks attached to the same router. This can stress the network a lot more than a permutation of tasks.
 * All tasks in a group of a dragonfly. If the global_pattern is a permutation, there is only a global link between groups, and Shortest routing is used, then all the packets generated in a group will try by the same global link. Other global links being unused.
-Note there is also a product at pattern level, which may be easier to use.
+Note there is also a product at simplePattern level, which may be easier to use.
 
 ```ignore
 ProductTraffic{
@@ -264,15 +265,16 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"TrafficMap" => Box::new(TrafficMap::new(arg)),
 			"PeriodicBurst" => Box::new(PeriodicBurst::new(arg)),
 			"Sleep" => Box::new(Sleep::new(arg)),
-			"TrafficCredit" => Box::new(TrafficCredit::new(arg)),
+			"TrafficManager" => Box::new(TrafficManager::new(arg)),
 			"Messages" => Box::new(TrafficMessages::new(arg)),
 			"MessageTaskSequence" => Box::new(MessageTaskSequence::new(arg)),
 			"TaskSequence" => Box::new(TaskSequence::new(arg)),
 			"MessageBarrier" => Box::new(MessageBarrier::new(arg)),
 			"Replica" => Box::new(Replica::new(arg)),
-			"Stencil" => Box::new(Stencil::new(arg)),
+			"Stencil" | "SendMessageToVector" => Box::new(SendMessageToVector::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
-			"Wavefront" | "LinearAll2All" => MiniApp::new(cv_name.clone(), arg),
+			"Wavefront" | "All2AllLinear" => MiniApp::new(cv_name.clone(), arg),
+			"MessageSizeModifier" => Box::new(extra::MessageSizeModifier::new(arg)),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}
@@ -299,6 +301,7 @@ pub fn build_traffic_map_cv(args: BuildTrafficMapCVArgs) -> ConfigurationValue {
 	)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct BuildTrafficSumCVArgs{
 	pub(crate) tasks: usize,
@@ -309,6 +312,7 @@ pub struct BuildTrafficSumCVArgs{
 	pub(crate) server_task_isolation: Option<bool>,
 }
 
+#[allow(dead_code)]
 pub(crate) fn build_traffic_sum_cv(args: BuildTrafficSumCVArgs) -> ConfigurationValue {
 	let mut vector= vec![
 		("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
@@ -332,4 +336,3 @@ pub(crate) fn build_traffic_sum_cv(args: BuildTrafficSumCVArgs) -> Configuration
 		vector
 	)
 }
-
