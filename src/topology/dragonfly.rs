@@ -401,6 +401,40 @@ impl Arrangement for Palmtree
 	}
 }
 
+
+/// Alex arrangement for DF+
+#[derive(Quantifiable,Debug,Default)]
+pub struct Cgraphs
+{
+	size: ArrangementSize,
+}
+
+impl Arrangement for Cgraphs
+{
+	fn initialize(&mut self, size:ArrangementSize, _rng: &mut StdRng)
+	{
+		self.size = size;
+	}
+	fn map( &self, input:ArrangementPoint ) -> ArrangementPoint
+	{
+		let target_group_index = (input.group_index + input.port_index +1) % self.size.number_of_groups;
+		let target_port = self.size.number_of_ports -input.port_index -1;
+		let target_group_offset = input.group_offset;
+
+		ArrangementPoint{
+			group_index: target_group_index,
+			group_offset: target_group_offset,
+			port_index: target_port,
+		}
+	}
+	fn get_size(&self) -> ArrangementSize
+	{
+		self.size
+	}
+}
+
+
+
 #[derive(Quantifiable,Debug,Default)]
 pub struct RandomArrangement
 {
@@ -510,6 +544,7 @@ pub fn new_arrangement(arg:ArrangementBuilderArgument) -> Box<dyn Arrangement>
 		match cv_name.as_ref()
 		{
 			"Palmtree" => Box::new(Palmtree::default()),
+			"Cgraphs" => Box::new(Cgraphs::default()),
 			"Random" => Box::new(RandomArrangement::default()),
 			_ => panic!("Unknown arrangement {}",cv_name),
 		}
@@ -1473,6 +1508,31 @@ mod tests {
 				}
 			}
 		}
+	}
+	#[test]
+	fn cgraphs_arrangement()
+	{
+		let mut rng = StdRng::seed_from_u64(0);
+		let size = ArrangementSize { number_of_groups: 7, group_size: 6, number_of_ports: 6, lag: 1 };
+		let mut cgraphs = Cgraphs::default();
+		cgraphs.initialize(size, &mut rng);
+		let point = ArrangementPoint { group_index: 0, group_offset: 0, port_index: 0 };
+		let target = cgraphs.map(point);
+		assert!(target.group_index == 1 && target.group_offset == 0 && target.port_index == 5, "invalid arrangement {:?}", target );
+		let target = cgraphs.map(target);
+		assert!(target.group_index == 0 && target.group_offset == 0 && target.port_index == 0, "invalid arrangement {:?}", target );
+
+		let point = ArrangementPoint { group_index: 0, group_offset: 1, port_index: 0 };
+		let target = cgraphs.map(point);
+		assert!(target.group_index == 1 && target.group_offset == 1 && target.port_index == 5, "invalid arrangement {:?}", target );
+		let target = cgraphs.map(target);
+		assert!(target.group_index == 0 && target.group_offset == 1 && target.port_index == 0, "invalid arrangement {:?}", target );
+
+		let point2 = ArrangementPoint { group_index: 0, group_offset: 0, port_index: 1 };
+		let target2 = cgraphs.map(point2);
+		assert!(target2.group_index == 2 && target2.group_offset == 0 && target2.port_index == 4, "invalid arrangement {:?}", target2 );
+		let target2 = cgraphs.map(target2);
+		assert!(target2.group_index == 0 && target2.group_offset == 0 && target2.port_index == 1, "invalid arrangement {:?}", target2 );
 	}
 }
 

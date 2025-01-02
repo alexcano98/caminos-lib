@@ -1194,6 +1194,8 @@ impl Routing for RegionRouting
 			let Location::RouterPort {router_index: next_router, router_port:_} = topology.neighbour(current_router, port).0 else { panic!("There should be a port")};
 			for (i, (ptlv, ltpv)) in self.physical_to_logical_vector.iter().zip(self.logical_to_physical_vector.iter()).enumerate()
 			{
+				//print all for debug
+				// println!(" i={}, next_router={}, ptlv[next_router]={}, ltpv[ptlv[next_router]]={}, current_router={}, ptlv[current_router]={}, ltpv[ptlv[current_router]]={}", i, next_router, ptlv[next_router], ltpv[ptlv[next_router]], current_router, ptlv[current_router], ltpv[ptlv[current_router]]);
 				if ltpv[ptlv[current_router]] == current_router && ltpv[ptlv[next_router]] == next_router
 				{
 					selections.insert(i);
@@ -1206,6 +1208,7 @@ impl Routing for RegionRouting
 		}
 		for i in selections
 		{
+			// println!("selected region {}", i);
 			let selected_bri = &routing_info.meta.as_ref().unwrap()[i +1];
 			let current_logical = self.physical_to_logical_vector[i][current_router];
 			let target_logical = self.physical_to_logical_vector[i][target_router];
@@ -1309,6 +1312,9 @@ impl Routing for RegionRouting
 			}
 			self.logical_to_physical_vector[i] = logical_to_physical;
 		}
+
+		// println!("physical_to_logical_vector={:?}",self.physical_to_logical_vector);
+		// println!("logical_to_physical_vector={:?}",self.logical_to_physical_vector);
 
 
 		self.default_routing.initialize(topology, rng);

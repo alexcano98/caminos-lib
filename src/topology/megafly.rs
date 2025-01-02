@@ -278,9 +278,29 @@ pub fn pack_source_destination_server(source_server: usize, destination_server:u
 MegaflyAD routing from Indirect adaptive routing...
 It uses 2VCs, one for the 1st segment, and another for the 2nd segment.
 ```ignore
-MegaflyAD{
+	MegaflyAD{
+		first_allowed_virtual_channels: [0],
+		second_allowed_virtual_channels: [1],
+		minimal_to_deroute: [1, 1, 0],
+		source_group_pattern:[
+			[None, None], //up
+			[None, None], //down
+		],
+		intermediate_group_pattern:[
+			[None, None], //up
+			[None, None], //down
+		],
+		destination_group_pattern:[
+			[None, None], //up
+			[None, None], //down
+		],
+		global_pattern_per_hop:[
+			[None, None],
+			[None, None]
+		],
+		legend_name: "FPAR 2 vc",
+	},
 
-}
 ```
  **/
 #[derive(Debug)]
