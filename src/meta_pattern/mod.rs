@@ -1,17 +1,17 @@
 /*!
 
-A [SimplePattern] defines the way elements select their destinations.
+A [GeneralPattern] defines the way elements select their destinations.
 
 see [`new_pattern`](fn.new_pattern.html) for documentation on the configuration syntax of predefined patterns.
 
  */
 
-pub mod simple_pattern;
+pub mod pattern;
 pub mod many_to_one_pattern;
 pub mod one_to_many_pattern;
 pub mod many_to_many_pattern;
 
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use rand::prelude::StdRng;
 use crate::config_parser::ConfigurationValue;
 use crate::meta_pattern::many_to_many_pattern::ManyToManyPattern;
@@ -24,11 +24,19 @@ use crate::topology::Topology;
 /// Some things most uses of the simple module will use.
 pub mod prelude
 {
-    pub use super::{new_pattern, simple_pattern::SimplePattern, MetaPatternBuilderArgument};
+    pub use super::{new_pattern, pattern::Pattern, MetaPatternBuilderArgument};
 }
 
-pub trait MetaPattern<E, T>: Quantifiable + std::fmt::Debug{
+/// A Trait to create patterns (or functions).
+/// The generic parameter E is the type of the argument passed to the pattern.
+/// The generic parameter T is the type of the pattern's return value.
+pub trait GeneralPattern<E, T>: Quantifiable + std::fmt::Debug{
+    ///Initializes the pattern and variables.
+    ///It performs any necessary setup/checks.
+    ///Variables 'source_size' and 'destination_size', define the number of elements in the spaces where the pattern is going to be used.
+    ///Topology (Optional) is the topology where the pattern is going to be used.
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng);
+    ///Returns the destination of an element.
     fn get_destination(&self, param: E, topology:Option<&dyn Topology>, rng: &mut StdRng)-> T;
 }
 
@@ -53,9 +61,9 @@ impl<'a> MetaPatternBuilderArgument<'a>
     }
 }
 
-pub fn new_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn SimplePattern>
+pub fn new_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn Pattern>
 {
-   simple_pattern::new_pattern(arg)
+   pattern::new_pattern(arg)
 }
 
 pub fn new_one_to_many_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn OneToManyPattern>

@@ -315,7 +315,7 @@ Both entries `directory_main` and `file_main` receive a `&Plugs` argument that m
 	//missing repository and categories.
 	#![allow(clippy::cargo_common_metadata)]
 
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 pub use quantifiable_derive::Quantifiable;//the derive macro
 
 //config_parser contains automatically generated code. No sense in being too strict.
@@ -1936,7 +1936,7 @@ pub struct Plugs
 	stages: BTreeMap<String, fn(StageBuilderArgument) -> Box<dyn Stage> >,
 	routings: BTreeMap<String,fn(RoutingBuilderArgument) -> Box<dyn Routing>>,
 	traffics: BTreeMap<String,fn(TrafficBuilderArgument) -> Box<dyn Traffic> >,
-	patterns: BTreeMap<String, fn(MetaPatternBuilderArgument) -> Box<dyn SimplePattern> >,
+	patterns: BTreeMap<String, fn(MetaPatternBuilderArgument) -> Box<dyn Pattern> >,
 	policies: BTreeMap<String, fn(VCPolicyBuilderArgument) -> Box<dyn VirtualChannelPolicy> >,
 	allocators: BTreeMap<String, fn(AllocatorBuilderArgument) -> Box<dyn Allocator> >,
 }
@@ -1967,7 +1967,7 @@ impl Plugs
 	{
 		self.policies.insert(key,builder);
 	}
-	pub fn add_pattern(&mut self, key:String, builder: fn(MetaPatternBuilderArgument) -> Box<dyn SimplePattern>)
+	pub fn add_pattern(&mut self, key:String, builder: fn(MetaPatternBuilderArgument) -> Box<dyn Pattern>)
 	{
 		self.patterns.insert(key,builder);
 	}

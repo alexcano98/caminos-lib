@@ -1,11 +1,13 @@
 pub mod neighbours;
 
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{MetaPattern, MetaPatternBuilderArgument};
+use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
 
-
-pub trait OneToManyPattern: MetaPattern<usize, Vec<usize>>{}
-impl <T> OneToManyPattern for T where T: MetaPattern<usize, Vec<usize>>{}
+/// A 'OneToManyPattern' is a pattern that takes a single natural number (usize), and returns a list of natural numbers.
+/// The source_size and destination_size of the fn initialize (...) method represent where those are natural number exist.
+/// This is useful for patterns that return a list of neighbours, for example.
+pub trait OneToManyPattern: GeneralPattern<usize, Vec<usize>>{}
+impl <T> OneToManyPattern for T where T: GeneralPattern<usize, Vec<usize>>{}
 
 
 pub(super) fn new_one_to_many_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn OneToManyPattern>

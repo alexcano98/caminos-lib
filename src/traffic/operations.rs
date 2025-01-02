@@ -7,7 +7,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::{SliceRandom, StdRng};
 use crate::{match_object_panic, Message, Time};
 use crate::measures::TrafficStatistics;
-use crate::meta_pattern::{new_pattern, simple_pattern::SimplePattern, MetaPatternBuilderArgument};
+use crate::meta_pattern::{new_pattern, pattern::Pattern, MetaPatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Generating, WaitingData};
@@ -27,8 +27,8 @@ TrafficMap{
 
 TrafficMap also gives the possibility of seeing a small application as a large, helping in the composition of large applications.
 The following example uses TrafficMap together with [TrafficSum](Sum),
-[CartesianEmbedding](crate::SimplePattern::CartesianEmbedding), [Composition](crate::SimplePattern::Composition),
-and [CartesianTransform](crate::SimplePattern::CartesianTransform) to divide the network into
+[CartesianEmbedding](crate::Pattern::CartesianEmbedding), [Composition](crate::Pattern::Composition),
+and [CartesianTransform](crate::Pattern::CartesianTransform) to divide the network into
 two regions, each employing a different kind of traffic.
 ```ignore
 TrafficSum
@@ -70,7 +70,7 @@ TrafficSum
 },
 ```
 
-The `map` is computed once when the traffic is created. Thus, it is recommended for the [SimplePattern] indicated by `map` to be idempotent.
+The `map` is computed once when the traffic is created. Thus, it is recommended for the [Pattern] indicated by `map` to be idempotent.
 
 Currently, the `map` is required to be injective. This is, two tasks must not be mapped into a single one. This restriction could be lifted in the future.
  **/
@@ -96,7 +96,7 @@ pub struct TrafficMap
     number_tasks: usize,
 
     /// The map to be applied to the traffic.
-    map: Box<dyn SimplePattern>,
+    map: Box<dyn Pattern>,
 }
 
 impl Traffic for TrafficMap
@@ -447,7 +447,7 @@ impl Sum
 /**
 The tasks in a ProductTraffic are grouped in blocks of size `block_size`. The traffic each block generates follows the underlying `block_traffic` [Traffic],
 but with the group of destination being indicated by the `global_pattern`.
-First check whether a transformation at the [SimplePattern] level is enough; specially see the [crate::SimplePattern::ProductPattern] SimplePattern.
+First check whether a transformation at the [Pattern] level is enough; specially see the [crate::Pattern::ProductPattern] SimplePattern.
 
 ```ignore
 ProductTraffic{
@@ -463,7 +463,7 @@ pub struct ProductTraffic
 {
 	block_size: usize,
 	block_traffic: Box<dyn Traffic>,
-	global_pattern: Box<dyn SimplePattern>,
+	global_pattern: Box<dyn Pattern>,
 	global_size: usize,
 	//Set of generated messages.
 	//generated_messages: BTreeMap<*const Message,Rc<Message>>,
@@ -579,7 +579,7 @@ pub struct BoundedDifference
 	///Number of tasks applying this traffic.
 	tasks: usize,
 	///The SimplePattern of the communication.
-	pattern: Box<dyn SimplePattern>,
+	pattern: Box<dyn Pattern>,
 	///The size of each sent message.
 	message_size: usize,
 	///The load offered to the network. Proportion of the cycles that should be injecting phits.
@@ -676,7 +676,7 @@ impl BoundedDifference
 		let mut message_size=None;
 		let mut bound=None;
 		match_object_panic!(arg.cv,"BoundedDifference",value,
-			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),

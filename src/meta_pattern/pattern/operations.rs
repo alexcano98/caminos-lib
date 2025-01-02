@@ -1,5 +1,5 @@
-use crate::meta_pattern::simple_pattern::SimplePattern;
-use crate::meta_pattern::MetaPattern;
+use crate::meta_pattern::pattern::Pattern;
+use crate::meta_pattern::GeneralPattern;
 use std::cell::{RefCell};
 use ::rand::{rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
@@ -18,11 +18,11 @@ use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
 pub struct ProductPattern
 {
     block_size: usize,
-    block_pattern: Box<dyn SimplePattern>,
-    global_pattern: Box<dyn SimplePattern>,
+    block_pattern: Box<dyn Pattern>,
+    global_pattern: Box<dyn Pattern>,
 }
 
-impl MetaPattern<usize, usize>for ProductPattern
+impl GeneralPattern<usize, usize>for ProductPattern
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -79,11 +79,11 @@ Thus in a composition of two patterns in which the midddle size is `x`and not eq
 #[derive(Debug)]
 pub struct Composition
 {
-    patterns: Vec<Box<dyn SimplePattern>>,
+    patterns: Vec<Box<dyn Pattern>>,
     middle_sizes: Vec<usize>,
 }
 
-impl MetaPattern<usize, usize>for Composition
+impl GeneralPattern<usize, usize>for Composition
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -150,12 +150,12 @@ Sum{ //A vector of 2's
 #[derive(Debug)]
 pub struct Sum
 {
-    patterns: Vec<Box<dyn SimplePattern>>,
+    patterns: Vec<Box<dyn Pattern>>,
     middle_sizes: Vec<usize>,
     target_size: Option<usize>,
 }
 
-impl MetaPattern<usize, usize>for Sum
+impl GeneralPattern<usize, usize>for Sum
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -212,11 +212,11 @@ impl Sum
 #[derive(Debug)]
 pub struct Pow
 {
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     exponent: usize,
 }
 
-impl MetaPattern<usize, usize>for Pow
+impl GeneralPattern<usize, usize>for Pow
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -240,7 +240,7 @@ impl Pow
         let mut pattern=None;
         let mut exponent=None;
         match_object_panic!(arg.cv,"Pow",value,
-			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"exponent" => exponent=Some(value.as_f64().expect("bad value for exponent") as usize),
 		);
         let pattern=pattern.expect("There were no meta_pattern");
@@ -265,12 +265,12 @@ RoundRobin{ // Alternate between three random permutations
 pub struct RoundRobin
 {
     ///The patterns in the pool to be selected.
-    patterns: Vec<Box<dyn SimplePattern>>,
+    patterns: Vec<Box<dyn Pattern>>,
     /// Vec meta_pattern origin
     index: RefCell<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for RoundRobin
+impl GeneralPattern<usize, usize>for RoundRobin
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -327,7 +327,7 @@ DestinationSets{
 pub struct DestinationSets
 {
     ///Patterns to get the set of destinations
-    patterns: Vec<Box<dyn SimplePattern>>,
+    patterns: Vec<Box<dyn Pattern>>,
     ///Set of destinations.
     destination_set: Vec<Vec<usize>>,
     ///Exclude self references
@@ -336,7 +336,7 @@ pub struct DestinationSets
     index: RefCell<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for DestinationSets
+impl GeneralPattern<usize, usize>for DestinationSets
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -376,7 +376,7 @@ impl DestinationSets
 				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
             "exclude_self_references" => exclude_self_references = value.as_bool().expect("bad value for exclude_self_references"),
 		);
-        let patterns:Vec<Box<dyn SimplePattern>>=patterns.expect("There were no patterns");
+        let patterns:Vec<Box<dyn Pattern>>=patterns.expect("There were no patterns");
 
         DestinationSets{
             patterns,
@@ -397,14 +397,14 @@ impl DestinationSets
 pub struct Inverse
 {
     ///Pattern to apply.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     ///Destination
     inverse_values: Vec<Option<usize>>,
     ///default destination
     default_destination: Option<usize>,
 }
 
-impl MetaPattern<usize, usize>for Inverse
+impl GeneralPattern<usize, usize>for Inverse
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -449,7 +449,7 @@ impl Inverse
         let mut pattern = None;
         let mut default_destination = None;
         match_object_panic!(arg.cv,"Inverse",value,
-			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"default_destination" => default_destination = Some(value.as_usize().expect("bad value for default_destination")),
 		);
         let pattern = pattern.expect("There were no meta_pattern in configuration of Inverse.");
@@ -484,13 +484,13 @@ Select a region of tasks to execute a meta_pattern. The size of the application 
 pub struct SubApp
 {
     subtasks: usize,
-    selection_pattern: Box<dyn SimplePattern>,
-    subapp_pattern: Box<dyn SimplePattern>,
-    others_pattern: Box<dyn SimplePattern>,
+    selection_pattern: Box<dyn Pattern>,
+    subapp_pattern: Box<dyn Pattern>,
+    others_pattern: Box<dyn Pattern>,
     selected_vec: Vec<usize>,
 }
 
-impl MetaPattern<usize, usize>for SubApp
+impl GeneralPattern<usize, usize>for SubApp
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -579,12 +579,12 @@ pub struct CandidatesSelection
     ///Pattern to apply.
     selected: Option<Vec<usize>>,
     ///Pattern to apply.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     ///Pattern destination size.
     pattern_destination_size: usize,
 }
 
-impl MetaPattern<usize, usize>for CandidatesSelection
+impl GeneralPattern<usize, usize>for CandidatesSelection
 {
     fn initialize(&mut self, source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -617,7 +617,7 @@ impl CandidatesSelection
         let mut pattern = None;
         let mut pattern_destination_size = None;
         match_object_panic!(arg.cv,"CandidatesSelection",value,
-			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"pattern_destination_size" => pattern_destination_size = Some(value.as_usize().expect("bad value for pattern_destination_size")),
 		);
         let pattern = pattern.expect("There were no meta_pattern in configuration of CandidatesSelection.");
@@ -650,7 +650,7 @@ pub struct IndependentRegions
     /// If not empty it must sum up to the total size and have as many elements as the `patterns` field.
     sizes: Vec<usize>,
     /// The meta_pattern to be employed in each region.
-    patterns: Vec<Box<dyn SimplePattern>>,
+    patterns: Vec<Box<dyn Pattern>>,
     /// If not empty, it is used to build the actual `sizes`.
     relative_sizes: Vec<f64>,
 }
@@ -674,7 +674,7 @@ pub fn proportional_vec_with_sum(weights:&Vec<f64>, target_sum:usize) -> Vec<usi
     result
 }
 
-impl MetaPattern<usize, usize>for IndependentRegions
+impl GeneralPattern<usize, usize>for IndependentRegions
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -829,12 +829,12 @@ Switch{
  **/
 #[derive(Debug,Quantifiable)]
 pub struct Switch {
-    indexing: Box<dyn SimplePattern>,
-    patterns: Vec<Box<dyn SimplePattern>>,
+    indexing: Box<dyn Pattern>,
+    patterns: Vec<Box<dyn Pattern>>,
     seed: Option<f64>,
 }
 
-impl MetaPattern<usize, usize>for Switch {
+impl GeneralPattern<usize, usize>for Switch {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.indexing.initialize(source_size,self.patterns.len(),topology,rng);

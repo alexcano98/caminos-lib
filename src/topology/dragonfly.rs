@@ -1,5 +1,5 @@
-use crate::meta_pattern::simple_pattern::SimplePattern;
-use crate::meta_pattern::simple_pattern::probabilistic::UniformPattern;
+use crate::meta_pattern::pattern::Pattern;
+use crate::meta_pattern::pattern::probabilistic::UniformPattern;
 use ::rand::{rngs::StdRng};
 use super::prelude::*;
 use super::cartesian::CartesianData;
@@ -732,12 +732,12 @@ pub struct Valiant4Dragonfly
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
 	//meta_pattern to select intermideate nodes
-	pattern:Box<dyn SimplePattern>,
+	pattern:Box<dyn Pattern>,
 	distance_middle_destination: usize,
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
 	//exclude_h_groups:bool,
-	intermediate_bypass: Option<Box<dyn SimplePattern>>,
+	intermediate_bypass: Option<Box<dyn Pattern>>,
 	local_missrouting: bool, //only local missrouting if target in the group
 	dragonfly_bypass: bool, //lggl routes
 }
@@ -1013,7 +1013,7 @@ impl Valiant4Dragonfly
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn SimplePattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
+		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
 		let mut distance_middle_destination=0;
 		// let mut exclude_h_groups=false;
 		let mut first_reserved_virtual_channels=vec![];

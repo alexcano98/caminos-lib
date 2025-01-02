@@ -1,5 +1,5 @@
 
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::prelude::SliceRandom;
@@ -34,7 +34,7 @@ pub struct LabelReduction {
     ///Labels to be reduced
     labels: Vec<Vec<usize>>,
     /// The patterns to be reduced
-    patterns: Vec< Box<dyn SimplePattern>>,
+    patterns: Vec< Box<dyn Pattern>>,
     ///dummy topology
     topology: Box<dyn Topology>,
     /// The RNG or None if the seed is not set

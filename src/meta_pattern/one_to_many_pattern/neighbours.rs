@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use crate::match_object_panic;
-use crate::meta_pattern::{MetaPattern, MetaPatternBuilderArgument};
+use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
 use crate::topology::prelude::CartesianData;
 use crate::topology::Topology;
 use crate::ConfigurationValue;
@@ -84,7 +84,7 @@ pub struct ManhattanNeighbours
     neighbours: Vec<Vec<usize>>
 }
 
-impl MetaPattern<usize, Vec<usize>> for ManhattanNeighbours{
+impl GeneralPattern<usize, Vec<usize>> for ManhattanNeighbours{
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         //panic if source size is different to neighbour.len()
         assert_eq!(source_size, self.neighbours.len());
@@ -164,7 +164,7 @@ pub struct KingNeighbours
     neighbours: Vec<Vec<usize>>
 }
 
-impl MetaPattern<usize, Vec<usize>> for KingNeighbours{
+impl GeneralPattern<usize, Vec<usize>> for KingNeighbours{
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         //panic if source size is different to neighbour.len()
         assert_eq!(source_size, self.neighbours.len());
@@ -245,7 +245,7 @@ pub struct HypercubeNeighbours
     neighbours: Vec<Vec<usize>>
 }
 
-impl MetaPattern<usize, Vec<usize>> for HypercubeNeighbours{
+impl GeneralPattern<usize, Vec<usize>> for HypercubeNeighbours{
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         //panic if source size is not a power of 2
         assert!(source_size.is_power_of_two());
@@ -288,7 +288,7 @@ pub struct BinomialTreeNeighbours
     go_up: bool,
 }
 
-impl MetaPattern<usize, Vec<usize>> for BinomialTreeNeighbours{
+impl GeneralPattern<usize, Vec<usize>> for BinomialTreeNeighbours{
     fn initialize(&mut self, source_size: usize, _target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         //panic if source size is not a power of 2
         assert!(source_size.is_power_of_two());
@@ -297,14 +297,14 @@ impl MetaPattern<usize, Vec<usize>> for BinomialTreeNeighbours{
         //calculate the neighbours
         for i in 0..source_size{
             //get the index of the first 1 in the binary representation of i
-            let mut index = 0;
+            let mut index = -1;
             for j in 0..dimensions{
                 if i & (1 << j) != 0{
-                    index = j;
+                    index = j as i32;
                     break;
                 }
             }
-            for i in index+1..dimensions{
+            for i in ((index+1) as u32)..dimensions{
                 let neighbour = (i ^ (1 << index)) as usize;
                 if self.go_up{
                     self.neighbours[i as usize].push(neighbour);
@@ -313,7 +313,7 @@ impl MetaPattern<usize, Vec<usize>> for BinomialTreeNeighbours{
                 }
             }
         }
-
+        println!("{:?}", self.neighbours);
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
         self.neighbours[param].clone()
@@ -341,7 +341,7 @@ pub struct BinaryTreeNeighbours
     go_up: bool,
 }
 
-impl MetaPattern<usize, Vec<usize>> for BinaryTreeNeighbours {
+impl GeneralPattern<usize, Vec<usize>> for BinaryTreeNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         //panic if source size is not a power of 2
         // assert!(source_size.is_power_of_two());
@@ -393,7 +393,7 @@ pub struct AllNeighbours
     neighbours: Vec<Vec<usize>>,
 }
 
-impl MetaPattern<usize, Vec<usize>> for AllNeighbours {
+impl GeneralPattern<usize, Vec<usize>> for AllNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         assert_eq!(source_size,target_size);
 
@@ -427,7 +427,7 @@ pub struct InmediateNeighbours
     modular: bool,
 }
 
-impl MetaPattern<usize, Vec<usize>> for InmediateNeighbours {
+impl GeneralPattern<usize, Vec<usize>> for InmediateNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         let all_size = self.sides.clone().into_iter().reduce(|a, b| (a * b)).unwrap();
         assert_eq!(source_size,target_size);
@@ -494,6 +494,9 @@ pub fn inmediate_neighbours_cv_builder(arg: InmediateNeighboursCVBuilder) -> Con
 
 #[cfg(test)]
 mod tests {
+    use rand::SeedableRng;
+    use crate::meta_pattern::GeneralPattern;
+
     #[test]
     fn test_manhattan_neighbours_distance_1() {
 
@@ -776,6 +779,28 @@ mod tests {
             for (i, value) in vector.iter().enumerate(){
                 assert!(expected[index].contains(value));
             }
+        }
+    }
+
+    #[test]
+    fn test_binomial_tree_neighbours(){
+        let mut binomial_tree = super::BinomialTreeNeighbours{
+            neighbours: vec![],
+            go_up: true,
+        };
+        binomial_tree.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+        let expected = vec![
+            vec![1, 2, 4],
+            vec![3, 5],
+            vec![6],
+            vec![7],
+            vec![5],
+            vec![6],
+            vec![7],
+            vec![],
+        ];
+        for i in 0..8{
+            assert_eq!(binomial_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
         }
     }
 }

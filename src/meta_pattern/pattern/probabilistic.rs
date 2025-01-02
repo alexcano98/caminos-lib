@@ -1,5 +1,5 @@
-use crate::meta_pattern::simple_pattern::SimplePattern;
-use crate::meta_pattern::MetaPattern;
+use crate::meta_pattern::pattern::Pattern;
+use crate::meta_pattern::GeneralPattern;
 use std::cell::{RefCell};
 use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom};
 use quantifiable_derive::Quantifiable;//the derive macro
@@ -21,7 +21,7 @@ pub struct UniformPattern
     allow_self: bool,
 }
 
-impl MetaPattern<usize, usize>for UniformPattern
+impl GeneralPattern<usize, usize>for UniformPattern
 {
     fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -75,7 +75,7 @@ pub struct Hotspots
     extra_random_destinations: usize
 }
 
-impl MetaPattern<usize, usize>for Hotspots
+impl GeneralPattern<usize, usize>for Hotspots
 {
     fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -124,14 +124,14 @@ impl Hotspots
 pub struct RandomMix
 {
     ///The patterns in the pool to be selected.
-    patterns: Vec<Box<dyn SimplePattern>>,
+    patterns: Vec<Box<dyn Pattern>>,
     ///The given weights, one per meta_pattern.
     weights: Vec<usize>,
     ///A total weight computed at initialization.
     total_weight: usize,
 }
 
-impl MetaPattern<usize, usize>for RandomMix
+impl GeneralPattern<usize, usize>for RandomMix
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -197,7 +197,7 @@ pub struct GloballyShufflingDestinations
     pending: RefCell<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for GloballyShufflingDestinations
+impl GeneralPattern<usize, usize>for GloballyShufflingDestinations
 {
     fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -250,7 +250,7 @@ pub struct GroupShufflingDestinations
     pending: Vec<RefCell<Vec<usize>>>,
 }
 
-impl MetaPattern<usize, usize>for GroupShufflingDestinations
+impl GeneralPattern<usize, usize>for GroupShufflingDestinations
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -348,7 +348,7 @@ pub struct UniformDistance
     pool: Vec<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for UniformDistance
+impl GeneralPattern<usize, usize>for UniformDistance
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -438,7 +438,7 @@ pub struct Circulant
     pub size: i32,
 }
 
-impl MetaPattern<usize, usize>for Circulant
+impl GeneralPattern<usize, usize>for Circulant
 {
     fn initialize(&mut self, _source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -505,7 +505,7 @@ pub struct RestrictedMiddleUniform
     distances_to_source: Option<Vec<usize>>,
     distances_to_destination: Option<Vec<usize>>,
     distances_source_to_destination: Option<Vec<usize>>,
-    else_pattern: Option<Box<dyn SimplePattern>>,
+    else_pattern: Option<Box<dyn Pattern>>,
     ///Whether the meta_pattern is defined at the switches, or otherwise, at the servers.
     switch_level: bool,
     /// sources/destinations mapped to each router. An implicit product to ease the normal case.
@@ -514,7 +514,7 @@ pub struct RestrictedMiddleUniform
     pool: Vec<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for RestrictedMiddleUniform
+impl GeneralPattern<usize, usize>for RestrictedMiddleUniform
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {

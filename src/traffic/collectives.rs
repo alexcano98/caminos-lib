@@ -1,4 +1,4 @@
-use crate::meta_pattern::simple_pattern::extra::get_candidates_selection;
+use crate::meta_pattern::pattern::extra::get_candidates_selection;
 use crate::AsMessage;
 use std::rc::Rc;
 use quantifiable_derive::Quantifiable;

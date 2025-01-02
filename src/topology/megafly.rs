@@ -1,14 +1,14 @@
 
 
 use crate::meta_pattern::MetaPatternBuilderArgument;
-use crate::meta_pattern::simple_pattern::new_optional_pattern;
+use crate::meta_pattern::pattern::new_optional_pattern;
 use quantifiable_derive::Quantifiable;//the derive macro
 use super::prelude::*;
 use crate::matrix::Matrix;
 use super::dragonfly::{Arrangement,ArrangementPoint,ArrangementSize,Palmtree,new_arrangement};
 use crate::config_parser::ConfigurationValue;
 use crate::match_object_panic;
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use crate::routing::{CandidateEgress, Error, Routing, RoutingBuilderArgument, RoutingInfo, RoutingNextCandidates};
 use crate::topology::NeighbourRouterIteratorItem;
 
@@ -309,10 +309,10 @@ pub struct MegaflyAD
 	first_allowed_virtual_channels: Vec<usize>,
 	second_allowed_virtual_channels: Vec<usize>,
 	minimal_to_deroute: Vec<usize>,
-	source_group_pattern:  Vec<Vec<Option<Box<dyn SimplePattern>>>>,
-	intermediate_group_pattern:  Vec<Vec<Option<Box<dyn SimplePattern>>>>,
-	destination_group_pattern:  Vec<Vec<Option<Box<dyn SimplePattern>>>>,
-	global_pattern_per_hop: Vec<Vec<Option<Box<dyn SimplePattern>>>>,
+	source_group_pattern:  Vec<Vec<Option<Box<dyn Pattern>>>>,
+	intermediate_group_pattern:  Vec<Vec<Option<Box<dyn Pattern>>>>,
+	destination_group_pattern:  Vec<Vec<Option<Box<dyn Pattern>>>>,
+	global_pattern_per_hop: Vec<Vec<Option<Box<dyn Pattern>>>>,
 	consume_same_channel: bool,
 	set_global_minimal_channel: bool,
 }

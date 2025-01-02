@@ -1,4 +1,4 @@
-use crate::meta_pattern::simple_pattern::{get_cartesian_transform_from_builder, get_composition_pattern_cv, get_linear_transform, BuildCartesianTransformCV, BuildCompositionCV, BuildLinearTransformCV};
+use crate::meta_pattern::pattern::{get_cartesian_transform_from_builder, get_composition_pattern_cv, get_linear_transform, BuildCartesianTransformCV, BuildCompositionCV, BuildLinearTransformCV};
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -11,7 +11,7 @@ use crate::AsMessage;
 use crate::config_parser::ConfigurationValue;
 use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
 use crate::meta_pattern::one_to_many_pattern::neighbours::{inmediate_neighbours_cv_builder, InmediateNeighboursCVBuilder};
-use crate::meta_pattern::simple_pattern::extra::{get_candidates_selection, get_cartesian_transform, get_hotspot_destination};
+use crate::meta_pattern::pattern::extra::{get_candidates_selection, get_cartesian_transform, get_hotspot_destination};
 use crate::packet::ReferredPayload;
 use crate::topology::cartesian::CartesianData;
 use crate::topology::Topology;
@@ -556,7 +556,7 @@ mod tests {
 		use rand::prelude::StdRng;
 		use rand::SeedableRng;
 		use crate::config_parser::ConfigurationValue;
-		use crate::meta_pattern::simple_pattern::extra::get_candidates_selection;
+		use crate::meta_pattern::pattern::extra::get_candidates_selection;
 		use crate::Plugs;
 		use crate::topology::{new_topology, Topology};
 		use crate::traffic::new_traffic;

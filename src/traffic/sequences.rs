@@ -9,7 +9,7 @@ use crate::{match_object_panic, Message, Time};
 use crate::config_parser::ConfigurationValue;
 use crate::measures::TrafficStatistics;
 use crate::packet::ReferredPayload;
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, UnspecifiedWait, WaitingCycle};
@@ -517,7 +517,7 @@ pub struct MultimodalBurst
 	/// a usize with the total number of messages of this kind that each task must generate
 	/// a usize with the size of each message size.
 	/// a usize with the number of messages to send of this kind before switching to the next one.
-	provenance: Vec< (Box<dyn SimplePattern>, usize, usize, usize) >,
+	provenance: Vec< (Box<dyn Pattern>, usize, usize, usize) >,
 	///For each task and kind we track `pending[task][kind]=(total_remaining,step_remaining)`.
 	///where `total_remaining` is the total number of messages of this kind that this task has yet to send.
 	///and `step_remaining` is the number of messages that the task will send before switch to the next kind.
@@ -649,7 +649,7 @@ impl MultimodalBurst
 					let mut message_size=None;
 					let mut step_size=None;
 					match_object_panic!(pcv,"Provenance",pvalue,
-						"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
+						"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
 						"messages_per_task" | "messages_per_server" | "total_messages" =>
 							messages_per_task=Some(pvalue.as_f64().expect("bad value for messages_per_task") as usize),
 						"message_size" => message_size=Some(pvalue.as_f64().expect("bad value for message_size") as usize),

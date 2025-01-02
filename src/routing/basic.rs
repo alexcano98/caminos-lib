@@ -10,7 +10,7 @@ Implementation of basic routing algorithms.
 
 */
 
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use std::cell::RefCell;
 use ::rand::{rngs::StdRng,Rng};
 
@@ -126,7 +126,7 @@ pub struct Valiant
 	/// A meta_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant_choice)` the first stage is terminated.
 	/// This is intended to use with projecting patterns, for example those that map a whole group to a single representative.
 	/// In such case, upon reaching that intermediate group the packet would change to the second fase, without having to reach the specific router.
-	intermediate_bypass: Option<Box<dyn SimplePattern>>,
+	intermediate_bypass: Option<Box<dyn Pattern>>,
 }
 
 impl Routing for Valiant

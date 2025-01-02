@@ -1,5 +1,5 @@
-use crate::meta_pattern::simple_pattern::SimplePattern;
-use crate::meta_pattern::MetaPattern;
+use crate::meta_pattern::pattern::Pattern;
+use crate::meta_pattern::GeneralPattern;
 use std::convert::TryInto;
 use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom};
 
@@ -20,7 +20,7 @@ pub struct Identity
 {
 }
 
-impl MetaPattern<usize, usize> for Identity
+impl GeneralPattern<usize, usize> for Identity
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -79,7 +79,7 @@ pub struct LinearTransform
     target_size: CartesianData,
 }
 
-impl MetaPattern<usize, usize>for LinearTransform
+impl GeneralPattern<usize, usize>for LinearTransform
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -215,7 +215,7 @@ pub struct RandomPermutation
     rng: Option<StdRng>,
 }
 
-impl MetaPattern<usize, usize>for RandomPermutation
+impl GeneralPattern<usize, usize>for RandomPermutation
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -259,7 +259,7 @@ pub struct RandomInvolution
     permutation: Vec<usize>,
 }
 
-impl MetaPattern<usize, usize>for RandomInvolution
+impl GeneralPattern<usize, usize>for RandomInvolution
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -354,7 +354,7 @@ pub struct FixedRandom
     rng: Option<StdRng>,
 }
 
-impl MetaPattern<usize, usize>for FixedRandom
+impl GeneralPattern<usize, usize>for FixedRandom
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -411,7 +411,7 @@ pub struct CartesianFactor
     target_size: usize,
 }
 
-impl MetaPattern<usize, usize>for CartesianFactor
+impl GeneralPattern<usize, usize>for CartesianFactor
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -494,10 +494,10 @@ pub struct CartesianTransform
     ///A random roll performed in each call to `get_destination`.
     random: Option<Vec<bool>>,
     ///Optionally, set a meta_pattern at coordinate. Use Identity for those coordinates with no operation.
-    patterns: Option<Vec<Box<dyn SimplePattern>>>,
+    patterns: Option<Vec<Box<dyn Pattern>>>,
 }
 
-impl MetaPattern<usize, usize>for CartesianTransform
+impl GeneralPattern<usize, usize>for CartesianTransform
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -619,7 +619,7 @@ impl CartesianTransform
 pub struct CartesianTiling
 {
     /// The original meta_pattern.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     /// The Cartesian interpretation of the original meta_pattern.
     base_cartesian_data: CartesianData,
     /// How much to repeat at each dimension.
@@ -628,7 +628,7 @@ pub struct CartesianTiling
     final_cartesian_data: CartesianData,
 }
 
-impl MetaPattern<usize, usize>for CartesianTiling
+impl GeneralPattern<usize, usize>for CartesianTiling
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -664,7 +664,7 @@ impl CartesianTiling
         let mut sides:Option<Vec<_>>=None;
         let mut repetitions:Option<Vec<_>> = None;
         match_object_panic!(arg.cv,"CartesianTiling",value,
-			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 			"sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
 				.map(|v|v.as_f64().expect("bad value in sides") as usize).collect()),
 			"repetitions" => repetitions = Some(value.as_array().expect("bad value for repetitions").iter()
@@ -706,7 +706,7 @@ pub struct CartesianEmbedding
     destination_cartesian_data: CartesianData,
 }
 
-impl MetaPattern<usize, usize>for CartesianEmbedding
+impl GeneralPattern<usize, usize>for CartesianEmbedding
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -810,12 +810,12 @@ pub struct CartesianCut
     /// At each dimension cut 1 stripe for each `cut_stride[dim]` uncut cells. Default to 1.
     cut_strides: Vec<usize>,
     /// The meta_pattern over the cut block.
-    cut_pattern: Box<dyn SimplePattern>,
+    cut_pattern: Box<dyn Pattern>,
     /// The meta_pattern over the rest.
-    remainder_pattern: Box<dyn SimplePattern>,
+    remainder_pattern: Box<dyn Pattern>,
 }
 
-impl MetaPattern<usize, usize>for CartesianCut
+impl GeneralPattern<usize, usize>for CartesianCut
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -869,8 +869,8 @@ impl CartesianCut
         let mut cut_sides:Option<Vec<_>>=None;
         let mut cut_offsets:Option<Vec<_>>=None;
         let mut cut_strides:Option<Vec<_>>=None;
-        let mut cut_pattern:Option<Box<dyn SimplePattern>>=None;
-        let mut remainder_pattern:Option<Box<dyn SimplePattern>>=None;
+        let mut cut_pattern:Option<Box<dyn Pattern>>=None;
+        let mut remainder_pattern:Option<Box<dyn Pattern>>=None;
         match_object_panic!(arg.cv,"CartesianCut",value,
 			"uncut_sides" => uncut_sides = Some(value.as_array().expect("bad value for uncut_sides").iter()
 				.map(|v|v.as_usize().expect("bad value in uncut_sides")).collect()),
@@ -955,7 +955,7 @@ impl CartesianCut
 
 
 /**
-Apply some other [SimplePattern] over a set of nodes whose indices have been remapped according to a [SimplePattern]-given permutation.
+Apply some other [Pattern] over a set of nodes whose indices have been remapped according to a [Pattern]-given permutation.
 A source `x` chooses as destination `map(meta_pattern(invmap(x)))`, where `map` is the given permutation, `invmap` its inverse and `meta_pattern` is the underlying meta_pattern to apply. In other words, if `meta_pattern(a)=b`, then destination of `map(a)` is set to `map(b)`. It can be seen as a [Composition] that manages building the inverse map.
 
 Remapped nodes requires source and destination to be of the same size. The meta_pattern creating the map is called once and must result in a permutation, as to be able to make its inverse.
@@ -983,12 +983,12 @@ pub struct RemappedNodes
     /// The inverse of `from_base_map`.
     into_base_map: Vec<usize>,
     /// The inner meta_pattern to be applied.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     /// The meta_pattern to build the map vectors.
-    map: Box<dyn SimplePattern>,
+    map: Box<dyn Pattern>,
 }
 
-impl MetaPattern<usize, usize>for RemappedNodes
+impl GeneralPattern<usize, usize>for RemappedNodes
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -1028,7 +1028,7 @@ impl RemappedNodes
         let mut pattern = None;
         let mut map = None;
         match_object_panic!(arg.cv, "RemappedNodes", value,
-			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"map" => map = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
         let pattern = pattern.expect("There were no meta_pattern in configuration of RemappedNodes.");
@@ -1064,7 +1064,7 @@ pub struct AddVector
     modulo: bool,
 }
 
-impl MetaPattern<usize, usize>for AddVector
+impl GeneralPattern<usize, usize>for AddVector
 {
     fn initialize(&mut self, _source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {

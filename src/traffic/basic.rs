@@ -8,7 +8,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use rand::Rng;
 use crate::{match_object_panic, Message, Time};
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use crate::topology::Topology;
 use crate::traffic::{TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, Generating, UnspecifiedWait};
@@ -19,7 +19,7 @@ Traffic in which all messages have same size, follow the same SimplePattern, and
 
 ```ignore
 HomogeneousTraffic{
-	SimplePattern:Uniform,
+	pattern:Uniform,
 	tasks:1000,
 	load: 0.9,
 	message_size: 16,
@@ -33,7 +33,7 @@ pub struct Homogeneous
 	///Number of tasks applying this traffic.
 	tasks: usize,
 	///The SimplePattern of the communication.
-	pattern: Box<dyn SimplePattern>,
+	pattern: Box<dyn Pattern>,
 	///The size of each sent message.
 	message_size: usize,
 	///The load offered to the network. Proportion of the cycles that should be injecting phits.
@@ -128,7 +128,7 @@ impl Homogeneous
 		let mut pattern=None;
 		let mut message_size=None;
 		match_object_panic!(arg.cv,"HomogeneousTraffic",value,
-			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -155,7 +155,7 @@ The traffic will be considered complete when all tasks have generated their mess
 
 ```ignore
 Burst{
-	SimplePattern:Uniform,
+	pattern:Uniform,
 	tasks:1000,
 	messages_per_task:200,
 	message_size: 16,
@@ -170,7 +170,7 @@ pub struct Burst
     ///Number of tasks applying this traffic.
     tasks: usize,
     ///The SimplePattern of the communication.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     ///The size of each sent message.
     message_size: usize,
     ///The number of messages each task has pending to sent.
@@ -282,7 +282,7 @@ impl Burst
         let mut message_size=None;
         let mut expected_messages_to_consume = None;
         match_object_panic!(arg.cv,"Burst",value,
-			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"messages_per_task" | "messages_per_server" => messages_per_task=Some(value.as_f64().expect("bad value for messages_per_task") as usize),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -322,7 +322,7 @@ pub struct BuildBurstCVArgs{
 pub fn build_burst_cv(args: BuildBurstCVArgs) -> ConfigurationValue {
     let mut cv_list = vec![
         ("tasks".to_string(), ConfigurationValue::Number(args.tasks as f64)),
-        ("simple_pattern".to_string(), args.pattern),
+        ("pattern".to_string(), args.pattern),
         ("messages_per_task".to_string(), ConfigurationValue::Number(args.messages_per_task as f64)),
         ("message_size".to_string(), ConfigurationValue::Number(args.message_size as f64)),
         //("expected_messages_to_consume_per_task".to_string(), ConfigurationValue::Number(args.expected_messages_to_consume_per_task as f64)),
@@ -595,7 +595,7 @@ All the subtraffics in `traffics` must give the same value for `number_tasks`, w
 
 ```ignore
 PeriodicBurst{
-	SimplePattern:Uniform,
+	pattern:Uniform,
 	period: 2000,
 	offset: 0,
 	finish: 100000,
@@ -614,7 +614,7 @@ pub struct PeriodicBurst
     ///Number of tasks applying this traffic.
     tasks: usize,
     ///The SimplePattern of the communication.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     ///The size of each sent message.
     message_size: usize,
     ///Messages to send per period
@@ -743,7 +743,7 @@ impl PeriodicBurst
         let mut messages_per_task_per_period=None;
         let mut message_size=None;
         match_object_panic!(arg.cv,"PeriodicBurst",value,
-			"simple_pattern" | "pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"period" => period = Some(value.as_usize().expect("bad value in period")),
 			"offset" => offset = Some(value.as_usize().expect("bad value in offset")),
 			"finish" => finish=Some(value.as_usize().expect("bad value for finish")),
@@ -1128,8 +1128,8 @@ mod test {
     use crate::config_parser::ConfigurationValue;
     use crate::Plugs;
     use crate::topology::{new_topology, Topology};
-    use crate::traffic::new_traffic;
 
+    #[allow(dead_code)]
     fn get_hamming_topology(switches: f64) -> Box<dyn Topology>{
         let hamming_cv = ConfigurationValue::Object("Hamming".to_string(), vec![
             ("servers_per_router".to_string(), ConfigurationValue::Number(1.0)),
@@ -1166,7 +1166,7 @@ mod test {
 
         //Starts the traffic
         let mut messages = vec![];
-        let mut t = new_traffic(traffic_builder);
+        let mut t = super::new_traffic(traffic_builder);
 
         assert_eq!(t.number_tasks(), switches as usize);
         for _ in 0..(switches as usize -1) // extract all messages

@@ -1,6 +1,6 @@
 
-use crate::meta_pattern::simple_pattern::SimplePattern;
-use crate::meta_pattern::simple_pattern::probabilistic::UniformPattern;
+use crate::meta_pattern::pattern::Pattern;
+use crate::meta_pattern::pattern::probabilistic::UniformPattern;
 use std::cell::RefCell;
 use ::rand::{Rng, rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
@@ -2586,7 +2586,7 @@ pub struct Valiant4Hamming
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
 	//meta_pattern to select intermideate nodes
-	pattern:Box<dyn SimplePattern>,
+	pattern:Box<dyn Pattern>,
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
 	remove_target_dimensions_aligment: Vec<Vec<usize>>,
@@ -2868,7 +2868,7 @@ impl Valiant4Hamming
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn SimplePattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
+		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
 		let mut first_reserved_virtual_channels=vec![];
 		let mut second_reserved_virtual_channels=vec![];
 		let mut remove_target_dimensions_aligment = vec![];

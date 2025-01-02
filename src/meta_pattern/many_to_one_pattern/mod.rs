@@ -1,12 +1,13 @@
 mod probabilistic;
 
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{MetaPattern, MetaPatternBuilderArgument};
-// use crate::meta_pattern::many_to_one_pattern::probabilistic::{UniformDistanceMultiPattern, UniformMultiPattern};
-// pub mod probabilistic;
+use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
 
-pub trait ManyToOnePattern: MetaPattern<ManyToOneParam, usize>{}
-impl <T> ManyToOnePattern for T where T: MetaPattern<ManyToOneParam, usize>{}
+/// A 'ManyToOnePattern' is a pattern that takes a single natural number (usize), and returns a list of natural numbers.
+/// The source_size and destination_size of the fn initialize (...) method represent where those are natural number exist.
+/// Maybe not useful because of the ManyToManyPattern.
+pub trait ManyToOnePattern: GeneralPattern<ManyToOneParam, usize>{}
+impl <T> ManyToOnePattern for T where T: GeneralPattern<ManyToOneParam, usize>{}
 
 #[allow(dead_code)]
 pub struct ManyToOneParam{

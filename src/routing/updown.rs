@@ -15,7 +15,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::routing::prelude::*;
 use crate::topology::{Topology,NeighbourRouterIteratorItem,Location};
 use crate::matrix::Matrix;
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 
 /**
 Use shortest up/down paths from origin to destination. The up/down paths are understood as provided by `Topology::up_down_distance`.
@@ -84,8 +84,8 @@ UpDown {
 #[derive(Debug)]
 pub struct UpDown
 {
-	routing_up_stage_patterns: Option<Vec<Box<dyn SimplePattern>>>,
-	port_pattern: Option<Vec<Box<dyn SimplePattern>>>,
+	routing_up_stage_patterns: Option<Vec<Box<dyn Pattern>>>,
+	port_pattern: Option<Vec<Box<dyn Pattern>>>,
 	target_sizes: Option<Vec<usize>>,
 	port_pattern_source_sizes: Option<Vec<usize>>,
 }

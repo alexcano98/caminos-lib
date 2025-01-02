@@ -1,5 +1,5 @@
-use crate::meta_pattern::simple_pattern::SimplePattern;
-use crate::meta_pattern::simple_pattern::new_pattern;
+use crate::meta_pattern::pattern::Pattern;
+use crate::meta_pattern::pattern::new_pattern;
 use std::cell::{RefCell};
 use std::collections::VecDeque;
 use std::convert::TryInto;
@@ -11,7 +11,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::topology::cartesian::CartesianData;//for CartesianTransform
 use crate::topology::{Topology, Location};
 use crate::{match_object_panic};
-use crate::meta_pattern::MetaPattern;
+use crate::meta_pattern::GeneralPattern;
 use crate::meta_pattern::{MetaPatternBuilderArgument};
 
 
@@ -35,7 +35,7 @@ pub struct FileMap
     permutation: Vec<usize>,
 }
 
-impl MetaPattern<usize, usize> for FileMap
+impl GeneralPattern<usize, usize> for FileMap
 {
     fn initialize(&mut self, _source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -101,11 +101,11 @@ pub struct ComponentsPattern
 {
     component_classes: Vec<usize>,
     //block_pattern: Box<dyn Pattern>,//we would need patterns between places of different extent.
-    global_pattern: Box<dyn SimplePattern>,
+    global_pattern: Box<dyn Pattern>,
     components: Vec<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize> for ComponentsPattern
+impl GeneralPattern<usize, usize> for ComponentsPattern
 {
     fn initialize(&mut self, _source_size:usize, _target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
@@ -215,7 +215,7 @@ pub struct InmediateSequencePattern
     sequences_input: RefCell<Vec<VecDeque<usize>>>,
 }
 
-impl MetaPattern<usize, usize>for InmediateSequencePattern
+impl GeneralPattern<usize, usize>for InmediateSequencePattern
 {
     fn initialize(&mut self, source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -260,12 +260,12 @@ ElementComposition{
 pub struct ElementComposition
 {
     ///Pattern to apply.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     ///Pending destinations.
     origin_state: RefCell<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for ElementComposition
+impl GeneralPattern<usize, usize>for ElementComposition
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -295,7 +295,7 @@ impl ElementComposition
     {
         let mut pattern = None;
         match_object_panic!(arg.cv,"ElementComposition",value,
-			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
 		);
         let pattern = pattern.expect("There were no meta_pattern in configuration of ElementComposition.");
         ElementComposition{
@@ -320,7 +320,7 @@ pub struct RecursiveDistanceHalving
     neighbours_order: Option<Vec<Vec<usize>>>,
 }
 
-impl MetaPattern<usize, usize>for RecursiveDistanceHalving
+impl GeneralPattern<usize, usize>for RecursiveDistanceHalving
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -424,7 +424,7 @@ pub struct BinomialTree
     state: RefCell<Vec<usize>>,
 }
 
-impl MetaPattern<usize, usize>for BinomialTree
+impl GeneralPattern<usize, usize>for BinomialTree
 {
     fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
@@ -511,7 +511,7 @@ impl BinomialTree
 
 
 /**
-A transparent meta-meta_pattern to help debug other [SimplePattern].
+A transparent meta-meta_pattern to help debug other [Pattern].
 
 ```ignore
 Debug{
@@ -524,7 +524,7 @@ Debug{
 #[derive(Debug,Quantifiable)]
 pub struct DebugPattern {
     /// The meta_pattern being applied transparently.
-    pattern: Box<dyn SimplePattern>,
+    pattern: Box<dyn Pattern>,
     /// Whether to consider an error not being a permutation.
     check_permutation: bool,
     /// Size of source cached at initialization.
@@ -533,7 +533,7 @@ pub struct DebugPattern {
     target_size: usize,
 }
 
-impl MetaPattern<usize, usize>for DebugPattern{
+impl GeneralPattern<usize, usize>for DebugPattern{
     fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.source_size = source_size;
@@ -571,7 +571,7 @@ impl DebugPattern{
         let mut pattern = None;
         let mut check_permutation = false;
         match_object_panic!(arg.cv,"Debug",value,
-			"simple_pattern" | "pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"check_permutation" => check_permutation = value.as_bool().expect("bad value for check_permutation"),
 		);
         let pattern = pattern.expect("Missing meta_pattern in configuration of Debug.");
@@ -781,7 +781,7 @@ pub fn get_switch_pattern(index_pattern: ConfigurationValue, patterns: Vec<Confi
 
 pub fn get_candidates_selection(pattern: ConfigurationValue, pattern_destination_size: usize) -> ConfigurationValue{
     ConfigurationValue::Object("CandidatesSelection".to_string(), vec![
-        ("simple_pattern".to_string(), pattern),
+        ("pattern".to_string(), pattern),
         ("pattern_destination_size".to_string(), ConfigurationValue::Number(pattern_destination_size as f64)),
     ])
 }
@@ -813,7 +813,7 @@ FOR ALEX, NO MASTER
 #[derive(Debug,Quantifiable)]
 pub struct MiDebugPattern {
     /// The meta_pattern being applied transparently.
-    pattern: Vec<Box<dyn SimplePattern>>,
+    pattern: Vec<Box<dyn Pattern>>,
     /// Whether to consider an error not being a permutation.
     check_permutation: bool,
     /// Whether to consider an error not being an injection.
@@ -824,7 +824,7 @@ pub struct MiDebugPattern {
     target_size: usize,
 }
 
-impl MetaPattern<usize, usize>for MiDebugPattern {
+impl GeneralPattern<usize, usize>for MiDebugPattern {
     fn initialize(&mut self, _source_size:usize, _target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         // self.source_size = source_size;

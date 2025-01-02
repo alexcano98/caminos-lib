@@ -8,7 +8,7 @@ see [`new_virtual_channel_policy`](fn.new_virtual_channel_policy.html) for docum
 
 */
 
-use crate::meta_pattern::simple_pattern::SimplePattern;
+use crate::meta_pattern::pattern::Pattern;
 use crate::config_parser::ConfigurationValue;
 use crate::routing::CandidateEgress;
 use crate::router::Router;
@@ -3202,7 +3202,7 @@ pub struct CartesianSpaceLabel
 	// Size for the vector space after applyin the transformation (If any)
 	// target_space: CartesianData,
 	///Transformation to apply to the vector
-	pattern: Box<dyn SimplePattern>,
+	pattern: Box<dyn Pattern>,
 }
 
 impl VirtualChannelPolicy for CartesianSpaceLabel

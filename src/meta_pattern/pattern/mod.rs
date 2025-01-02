@@ -1,18 +1,20 @@
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{MetaPattern, MetaPatternBuilderArgument};
-use crate::meta_pattern::simple_pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
-use crate::meta_pattern::simple_pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
-use crate::meta_pattern::simple_pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
-use crate::meta_pattern::simple_pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
+use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::meta_pattern::pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
+use crate::meta_pattern::pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
+use crate::meta_pattern::pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
+use crate::meta_pattern::pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
 
 pub mod extra;
 pub mod operations;
 pub mod probabilistic;
 pub mod transformations;
 
-///A `SimplePattern` describes how a set of entities decides destinations into another set of entities.
-pub trait SimplePattern: MetaPattern<usize, usize>{}
-impl <T> SimplePattern for T where T: MetaPattern<usize, usize>{}
+///A `Pattern` describes how a set of entities decides destinations into another set of entities.
+/// A Pattern maps a natural number (usize) to another natural number.
+/// It's the more basic impl of the GeneralPattern trait.
+pub trait Pattern: GeneralPattern<usize, usize>{}
+impl <T> Pattern for T where T: GeneralPattern<usize, usize>{}
 
 
 /**Build a new meta_pattern. Patterns are maps between two sets which may depend on the RNG. Generally over the whole set of servers, but sometimes among routers or groups. Check the documentation of the parent Traffic/Permutation for its interpretation.
@@ -256,7 +258,7 @@ RemappedNodes{
 
 With [CartesianCut] you see the nodes as block with an embedded block. Then you define a meta_pattern inside the small block and another outside. See [CartesianCut] for details and examples.
  */
-pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn SimplePattern>
+pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn Pattern>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -322,7 +324,7 @@ pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn SimplePatte
 }
 
 /// In case you want to build a list of patterns but some of them are optional.
-pub fn new_optional_pattern(arg:MetaPatternBuilderArgument) -> Option<Box<dyn SimplePattern>>
+pub fn new_optional_pattern(arg:MetaPatternBuilderArgument) -> Option<Box<dyn Pattern>>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -512,176 +514,176 @@ pub fn get_linear_transform(args: BuildLinearTransformCV) -> ConfigurationValue
 
 
 
-#[derive(Debug, Default)]
-pub struct BuildCompositionCV{
-    pub patterns: Vec<ConfigurationValue>,
-    pub middle_sizes: Option<Vec<usize>>,
-}
-
-pub fn get_composition_pattern_cv(args: BuildCompositionCV) -> ConfigurationValue{
-
-    let mut vector = vec![
-        ("patterns".to_string(), ConfigurationValue::Array(args.patterns)),
-    ];
-
-    if let Some(middle_sizes) = args.middle_sizes{
-        vector.push(("middle_sizes".to_string(), ConfigurationValue::Array(middle_sizes.into_iter().map(|x| ConfigurationValue::Number(x as f64)).collect())));
-    }
-
-    ConfigurationValue::Object("Composition".to_string(), vector)
-}
-
-#[derive(Debug, Default)]
-pub struct BuildCartesianTransformCV{
-    pub(crate) sides: Vec<usize>,
-    pub(crate) multiplier: Option<Vec<i32>>,
-    pub(crate) shift: Option<Vec<usize>>,
-    pub(crate) permute: Option<Vec<usize>>,
-    pub(crate) complement: Option<Vec<bool>>,
-    pub(crate) project: Option<Vec<bool>>,
-    pub(crate) random: Option<Vec<bool>>,
-    pub(crate) patterns: Option<Vec<ConfigurationValue>>,
-}
-
-pub fn get_cartesian_transform_from_builder(args: BuildCartesianTransformCV) -> ConfigurationValue
-{
-    let mut sides = Vec::new();
-
-    for i in 0..args.sides.len()
-    {
-        sides.push(ConfigurationValue::Number(args.sides[i] as f64));
-    }
-
-    let mut params = vec![
-        ("sides".to_string(), ConfigurationValue::Array(sides)),
-    ];
-    if let Some(multiplier) = args.multiplier
-    {
-        let mut multiplier_cv = Vec::new();
-        for i in 0..multiplier.len()
-        {
-            multiplier_cv.push(ConfigurationValue::Number(multiplier[i] as f64));
-        }
-        params.push(("multiplier".to_string(), ConfigurationValue::Array(multiplier_cv)));
-    }
-    if let Some(shift) = args.shift
-    {
-        let mut shift_cv = Vec::new();
-        for i in 0..shift.len()
-        {
-            shift_cv.push(ConfigurationValue::Number(shift[i] as f64));
-        }
-        params.push(("shift".to_string(), ConfigurationValue::Array(shift_cv)));
-    }
-    if let Some(permute) = args.permute
-    {
-        let mut permute_cv = Vec::new();
-        for i in 0..permute.len()
-        {
-            permute_cv.push(ConfigurationValue::Number(permute[i] as f64));
-        }
-        params.push(("permute".to_string(), ConfigurationValue::Array(permute_cv)));
-    }
-    if let Some(complement) = args.complement
-    {
-        let mut complement_cv = Vec::new();
-        for i in 0..complement.len()
-        {
-            if complement[i]
-            {
-                complement_cv.push(ConfigurationValue::True);
-            }
-            else
-            {
-                complement_cv.push(ConfigurationValue::False);
-            }
-        }
-        params.push(("complement".to_string(), ConfigurationValue::Array(complement_cv)));
-    }
-    if let Some(project) = args.project
-    {
-        let mut project_cv = Vec::new();
-        for i in 0..project.len()
-        {
-            if project[i]
-            {
-                project_cv.push(ConfigurationValue::True);
-            }
-            else
-            {
-                project_cv.push(ConfigurationValue::False);
-            }
-        }
-        params.push(("project".to_string(), ConfigurationValue::Array(project_cv)));
-    }
-    if let Some(random) = args.random
-    {
-        let mut random_cv = Vec::new();
-        for i in 0..random.len()
-        {
-            if random[i]
-            {
-                random_cv.push(ConfigurationValue::True);
-            }
-            else
-            {
-                random_cv.push(ConfigurationValue::False);
-            }
-        }
-        params.push(("random".to_string(), ConfigurationValue::Array(random_cv)));
-    }
-    if let Some(patterns) = args.patterns
-    {
-        let mut patterns_cv = Vec::new();
-        for i in 0..patterns.len()
-        {
-            patterns_cv.push(patterns[i].clone());
-        }
-        params.push(("patterns".to_string(), ConfigurationValue::Array(patterns_cv)));
-    }
-    ConfigurationValue::Object(
-        "CartesianTransform".to_string(),
-        params,
-    )
-}
-
-pub struct BuildLinearTransformCV{
-    pub(crate) source_size: Vec<usize>,
-    pub(crate) matrix: Vec<Vec<i32>>,
-    pub(crate) target_size: Vec<usize>,
-}
-
-pub fn get_linear_transform(args: BuildLinearTransformCV) -> ConfigurationValue
-{
-    let mut source_size = Vec::new();
-    let mut matrix = Vec::new();
-    let mut target_size = Vec::new();
-    for i in 0..args.source_size.len()
-    {
-        source_size.push(ConfigurationValue::Number(args.source_size[i] as f64));
-    }
-    for i in 0..args.matrix.len()
-    {
-        let mut row = Vec::new();
-        for j in 0..args.matrix[i].len()
-        {
-            row.push(ConfigurationValue::Number(args.matrix[i][j] as f64));
-        }
-        matrix.push(ConfigurationValue::Array(row));
-    }
-    for i in 0..args.target_size.len()
-    {
-        target_size.push(ConfigurationValue::Number(args.target_size[i] as f64));
-    }
-    ConfigurationValue::Object(
-        "LinearTransform".to_string(),
-        vec![
-            ("source_size".to_string(), ConfigurationValue::Array(source_size)),
-            ("matrix".to_string(), ConfigurationValue::Array(matrix)),
-            ("target_size".to_string(), ConfigurationValue::Array(target_size)),
-        ]
-    )
-}
+// #[derive(Debug, Default)]
+// pub struct BuildCompositionCV{
+//     pub patterns: Vec<ConfigurationValue>,
+//     pub middle_sizes: Option<Vec<usize>>,
+// }
+//
+// pub fn get_composition_pattern_cv(args: BuildCompositionCV) -> ConfigurationValue{
+//
+//     let mut vector = vec![
+//         ("patterns".to_string(), ConfigurationValue::Array(args.patterns)),
+//     ];
+//
+//     if let Some(middle_sizes) = args.middle_sizes{
+//         vector.push(("middle_sizes".to_string(), ConfigurationValue::Array(middle_sizes.into_iter().map(|x| ConfigurationValue::Number(x as f64)).collect())));
+//     }
+//
+//     ConfigurationValue::Object("Composition".to_string(), vector)
+// }
+//
+// #[derive(Debug, Default)]
+// pub struct BuildCartesianTransformCV{
+//     pub(crate) sides: Vec<usize>,
+//     pub(crate) multiplier: Option<Vec<i32>>,
+//     pub(crate) shift: Option<Vec<usize>>,
+//     pub(crate) permute: Option<Vec<usize>>,
+//     pub(crate) complement: Option<Vec<bool>>,
+//     pub(crate) project: Option<Vec<bool>>,
+//     pub(crate) random: Option<Vec<bool>>,
+//     pub(crate) patterns: Option<Vec<ConfigurationValue>>,
+// }
+//
+// pub fn get_cartesian_transform_from_builder(args: BuildCartesianTransformCV) -> ConfigurationValue
+// {
+//     let mut sides = Vec::new();
+//
+//     for i in 0..args.sides.len()
+//     {
+//         sides.push(ConfigurationValue::Number(args.sides[i] as f64));
+//     }
+//
+//     let mut params = vec![
+//         ("sides".to_string(), ConfigurationValue::Array(sides)),
+//     ];
+//     if let Some(multiplier) = args.multiplier
+//     {
+//         let mut multiplier_cv = Vec::new();
+//         for i in 0..multiplier.len()
+//         {
+//             multiplier_cv.push(ConfigurationValue::Number(multiplier[i] as f64));
+//         }
+//         params.push(("multiplier".to_string(), ConfigurationValue::Array(multiplier_cv)));
+//     }
+//     if let Some(shift) = args.shift
+//     {
+//         let mut shift_cv = Vec::new();
+//         for i in 0..shift.len()
+//         {
+//             shift_cv.push(ConfigurationValue::Number(shift[i] as f64));
+//         }
+//         params.push(("shift".to_string(), ConfigurationValue::Array(shift_cv)));
+//     }
+//     if let Some(permute) = args.permute
+//     {
+//         let mut permute_cv = Vec::new();
+//         for i in 0..permute.len()
+//         {
+//             permute_cv.push(ConfigurationValue::Number(permute[i] as f64));
+//         }
+//         params.push(("permute".to_string(), ConfigurationValue::Array(permute_cv)));
+//     }
+//     if let Some(complement) = args.complement
+//     {
+//         let mut complement_cv = Vec::new();
+//         for i in 0..complement.len()
+//         {
+//             if complement[i]
+//             {
+//                 complement_cv.push(ConfigurationValue::True);
+//             }
+//             else
+//             {
+//                 complement_cv.push(ConfigurationValue::False);
+//             }
+//         }
+//         params.push(("complement".to_string(), ConfigurationValue::Array(complement_cv)));
+//     }
+//     if let Some(project) = args.project
+//     {
+//         let mut project_cv = Vec::new();
+//         for i in 0..project.len()
+//         {
+//             if project[i]
+//             {
+//                 project_cv.push(ConfigurationValue::True);
+//             }
+//             else
+//             {
+//                 project_cv.push(ConfigurationValue::False);
+//             }
+//         }
+//         params.push(("project".to_string(), ConfigurationValue::Array(project_cv)));
+//     }
+//     if let Some(random) = args.random
+//     {
+//         let mut random_cv = Vec::new();
+//         for i in 0..random.len()
+//         {
+//             if random[i]
+//             {
+//                 random_cv.push(ConfigurationValue::True);
+//             }
+//             else
+//             {
+//                 random_cv.push(ConfigurationValue::False);
+//             }
+//         }
+//         params.push(("random".to_string(), ConfigurationValue::Array(random_cv)));
+//     }
+//     if let Some(patterns) = args.patterns
+//     {
+//         let mut patterns_cv = Vec::new();
+//         for i in 0..patterns.len()
+//         {
+//             patterns_cv.push(patterns[i].clone());
+//         }
+//         params.push(("patterns".to_string(), ConfigurationValue::Array(patterns_cv)));
+//     }
+//     ConfigurationValue::Object(
+//         "CartesianTransform".to_string(),
+//         params,
+//     )
+// }
+//
+// pub struct BuildLinearTransformCV{
+//     pub(crate) source_size: Vec<usize>,
+//     pub(crate) matrix: Vec<Vec<i32>>,
+//     pub(crate) target_size: Vec<usize>,
+// }
+//
+// pub fn get_linear_transform(args: BuildLinearTransformCV) -> ConfigurationValue
+// {
+//     let mut source_size = Vec::new();
+//     let mut matrix = Vec::new();
+//     let mut target_size = Vec::new();
+//     for i in 0..args.source_size.len()
+//     {
+//         source_size.push(ConfigurationValue::Number(args.source_size[i] as f64));
+//     }
+//     for i in 0..args.matrix.len()
+//     {
+//         let mut row = Vec::new();
+//         for j in 0..args.matrix[i].len()
+//         {
+//             row.push(ConfigurationValue::Number(args.matrix[i][j] as f64));
+//         }
+//         matrix.push(ConfigurationValue::Array(row));
+//     }
+//     for i in 0..args.target_size.len()
+//     {
+//         target_size.push(ConfigurationValue::Number(args.target_size[i] as f64));
+//     }
+//     ConfigurationValue::Object(
+//         "LinearTransform".to_string(),
+//         vec![
+//             ("source_size".to_string(), ConfigurationValue::Array(source_size)),
+//             ("matrix".to_string(), ConfigurationValue::Array(matrix)),
+//             ("target_size".to_string(), ConfigurationValue::Array(target_size)),
+//         ]
+//     )
+// }
 
 
 
