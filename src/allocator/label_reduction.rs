@@ -1,5 +1,5 @@
 
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::prelude::SliceRandom;
@@ -8,7 +8,7 @@ use rand::prelude::SliceRandom;
 use crate::allocator::{Allocator, Request, GrantedRequests, AllocatorBuilderArgument};
 use crate::config_parser::ConfigurationValue;
 use crate::match_object_panic;
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::topology::{new_topology, Topology, TopologyBuilderArgument};
 
 
@@ -87,7 +87,7 @@ impl LabelReduction {
             {
                 &ConfigurationValue::Array(ref s) => {
                     for p in s {
-                        patterns.push(new_pattern(MetaPatternBuilderArgument{cv: p, plugs: args.plugs}));
+                        patterns.push(new_pattern(GeneralPatternBuilderArgument{cv: p, plugs: args.plugs}));
                     }
                 },
                 _ => panic!("Bad value for patterns"),

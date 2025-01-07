@@ -1,4 +1,4 @@
-use crate::meta_pattern::pattern::{get_cartesian_transform_from_builder, get_composition_pattern_cv, get_linear_transform, BuildCartesianTransformCV, BuildCompositionCV, BuildLinearTransformCV};
+use crate::general_pattern::pattern::{get_cartesian_transform_from_builder, get_composition_pattern_cv, get_linear_transform, BuildCartesianTransformCV, BuildCompositionCV, BuildLinearTransformCV};
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -9,9 +9,9 @@ use crate::{match_object_panic, Message, Time};
 
 use crate::AsMessage;
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
-use crate::meta_pattern::one_to_many_pattern::neighbours::{inmediate_neighbours_cv_builder, InmediateNeighboursCVBuilder};
-use crate::meta_pattern::pattern::extra::{get_candidates_selection, get_cartesian_transform, get_hotspot_destination};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
+use crate::general_pattern::one_to_many_pattern::neighbours::{immediate_neighbours_cv_builder, ImmediateNeighboursCVBuilder};
+use crate::general_pattern::pattern::extra::{get_candidates_selection, get_cartesian_transform, get_hotspot_destination};
 use crate::packet::ReferredPayload;
 use crate::topology::cartesian::CartesianData;
 use crate::topology::Topology;
@@ -178,7 +178,7 @@ impl TrafficManager
 			"credits_to_activate" => credits_to_activate=Some(value.as_usize().expect("bad value for credits_to_activate")),
 			"credits_per_received_message" => credits_per_received_message=Some(value.as_usize().expect("bad value for credits_per_received_message")),
 			"messages_per_transition" => messages_per_transition=Some(value.as_usize().expect("bad value for messages_per_transition")),
-			"initial_credits" => initial_credits=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"initial_credits" => initial_credits=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
 
 		let tasks=tasks.expect("There were no tasks");
@@ -424,13 +424,13 @@ fn get_wavefront(task_space: Vec<usize>, message_size:usize) -> ConfigurationVal
 		neighbours[i] = 1;
 		neighbours_vector.push(neighbours);
 	}
-	let inmediate_neighbours_builder = InmediateNeighboursCVBuilder{
+	let inmediate_neighbours_builder = ImmediateNeighboursCVBuilder {
 		sides: task_space.clone(),
 		vector_neighbours: neighbours_vector,
 		modular: false,
 	};
 
-	let inmediate_neighbours = inmediate_neighbours_cv_builder(inmediate_neighbours_builder);
+	let inmediate_neighbours = immediate_neighbours_cv_builder(inmediate_neighbours_builder);
 
 	let total_tasks = task_space.iter().product();
 	let message_to_vector_builder = SendMessageToVectorCVBuilder{
@@ -556,7 +556,7 @@ mod tests {
 		use rand::prelude::StdRng;
 		use rand::SeedableRng;
 		use crate::config_parser::ConfigurationValue;
-		use crate::meta_pattern::pattern::extra::get_candidates_selection;
+		use crate::general_pattern::pattern::extra::get_candidates_selection;
 		use crate::Plugs;
 		use crate::topology::{new_topology, Topology};
 		use crate::traffic::new_traffic;

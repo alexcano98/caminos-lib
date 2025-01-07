@@ -1,5 +1,5 @@
 use crate::AsMessage;
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use std::collections::{BTreeSet};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -9,7 +9,7 @@ use crate::{match_object_panic, Message, Time};
 use crate::config_parser::ConfigurationValue;
 use crate::measures::TrafficStatistics;
 use crate::packet::ReferredPayload;
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, UnspecifiedWait, WaitingCycle};
@@ -649,7 +649,7 @@ impl MultimodalBurst
 					let mut message_size=None;
 					let mut step_size=None;
 					match_object_panic!(pcv,"Provenance",pvalue,
-						"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
+						"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
 						"messages_per_task" | "messages_per_server" | "total_messages" =>
 							messages_per_task=Some(pvalue.as_f64().expect("bad value for messages_per_task") as usize),
 						"message_size" => message_size=Some(pvalue.as_f64().expect("bad value for message_size") as usize),

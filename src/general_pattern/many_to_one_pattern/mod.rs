@@ -1,7 +1,5 @@
-mod probabilistic;
-
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 
 /// A 'ManyToOnePattern' is a pattern that takes a single natural number (usize), and returns a list of natural numbers.
 /// The source_size and destination_size of the fn initialize (...) method represent where those are natural number exist.
@@ -16,7 +14,7 @@ pub struct ManyToOneParam{
     pub(crate) vector: Vec<usize>,
 }
 
-pub fn new_many_to_one_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn ManyToOnePattern>
+pub fn new_many_to_one_pattern(arg: GeneralPatternBuilderArgument) -> Box<dyn ManyToOnePattern>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {

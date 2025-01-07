@@ -1,6 +1,6 @@
 use crate::AsMessage;
 use crate::new_traffic;
-use crate::meta_pattern::{new_one_to_many_pattern, new_pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_one_to_many_pattern, new_pattern, GeneralPatternBuilderArgument};
 use std::collections::{BTreeSet, VecDeque};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -8,7 +8,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use rand::Rng;
 use crate::{match_object_panic, Message, Time};
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 use crate::topology::Topology;
 use crate::traffic::{TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, Generating, UnspecifiedWait};
@@ -128,7 +128,7 @@ impl Homogeneous
 		let mut pattern=None;
 		let mut message_size=None;
 		match_object_panic!(arg.cv,"HomogeneousTraffic",value,
-			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -282,7 +282,7 @@ impl Burst
         let mut message_size=None;
         let mut expected_messages_to_consume = None;
         match_object_panic!(arg.cv,"Burst",value,
-			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"messages_per_task" | "messages_per_server" => messages_per_task=Some(value.as_f64().expect("bad value for messages_per_task") as usize),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -743,7 +743,7 @@ impl PeriodicBurst
         let mut messages_per_task_per_period=None;
         let mut message_size=None;
         match_object_panic!(arg.cv,"PeriodicBurst",value,
-			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"period" => period = Some(value.as_usize().expect("bad value in period")),
 			"offset" => offset = Some(value.as_usize().expect("bad value in offset")),
 			"finish" => finish=Some(value.as_usize().expect("bad value for finish")),
@@ -1077,7 +1077,7 @@ impl SendMessageToVector
 
         match_object_panic!(&cv,"SendMessageToVector" ,value,
             "tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
-            "one_to_many_pattern" => destinations=Some(new_one_to_many_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+            "one_to_many_pattern" => destinations=Some(new_one_to_many_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
             "rounds" => rounds = value.as_usize().expect("bad value for rounds"),
             "message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
         );

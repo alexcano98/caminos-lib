@@ -1,5 +1,5 @@
-use crate::meta_pattern::pattern::Pattern;
-use crate::meta_pattern::pattern::probabilistic::UniformPattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::probabilistic::UniformPattern;
 use ::rand::{rngs::StdRng};
 use super::prelude::*;
 use super::cartesian::CartesianData;
@@ -8,7 +8,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::matrix::Matrix;
 use crate::quantify::Quantifiable;
 use crate::match_object_panic;
-use crate::meta_pattern::prelude::*;
+use crate::general_pattern::prelude::*;
 
 /**
 Builds a dragonfly topology, this is, a hierarchical topology where each group is fully-connected (a complete graph) and each pair of groups is connected at least with a global link.
@@ -713,11 +713,11 @@ It removes switches from source and target groups as intermediate switches.
 Valiant4Dragonfly{
 	first: Shortest,
 	second: Shortest,
-	meta_pattern: Uniform, // meta_pattern to select intermediate switches
+	general_pattern: Uniform, // general_pattern to select intermediate switches
 	distance_middle_destination: 3, // distance between the int switch and destination
 	first_reserved_virtual_channels: [0],//optional parameter, defaults to empty. Reserves some VCs to be used only in the first stage
 	second_reserved_virtual_channels: [1,2],//optional, defaults to empty. Reserves some VCs to be used only in the second stage.
-	intermediate_bypass: CartesianTransform{sides:[4,4],project:[true,false]} //optional, defaults to None. A meta_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant4Dragonfly_choice)` the first stage is terminated.
+	intermediate_bypass: CartesianTransform{sides:[4,4],project:[true,false]} //optional, defaults to None. A general_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant4Dragonfly_choice)` the first stage is terminated.
 	local_missrouting: true, //allow local missrouting, only if target in the group
 	dragonfly_bypass: true, //Take shorcuts avoiding dumb hops
 	legend_name: "Using Valiant4Dragonfly scheme, shortest to intermediate and shortest to destination",
@@ -731,7 +731,7 @@ pub struct Valiant4Dragonfly
 {
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
-	//meta_pattern to select intermideate nodes
+	//general_pattern to select intermideate nodes
 	pattern:Box<dyn Pattern>,
 	distance_middle_destination: usize,
 	first_reserved_virtual_channels: Vec<usize>,
@@ -1013,7 +1013,7 @@ impl Valiant4Dragonfly
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
+		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
 		let mut distance_middle_destination=0;
 		// let mut exclude_h_groups=false;
 		let mut first_reserved_virtual_channels=vec![];
@@ -1024,7 +1024,7 @@ impl Valiant4Dragonfly
 		match_object_panic!(arg.cv,"Valiant4Dragonfly",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-			"meta_pattern" => pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("meta_pattern not valid for Valiant4Dragonfly"),
+			"general_pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Dragonfly"),
 			"distance_middle_destination" => distance_middle_destination=value.as_f64().expect("bad value for distance_middle_destination") as usize,
 			// "exclude_h_groups"=> exclude_h_groups=value.as_bool().expect("bad value for exclude_h_groups"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
@@ -1033,7 +1033,7 @@ impl Valiant4Dragonfly
 			"second_reserved_virtual_channels" => second_reserved_virtual_channels=value.
 				as_array().expect("bad value for second_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in second_reserved_virtual_channels") as usize).collect(),
-			"intermediate_bypass" => intermediate_bypass=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"intermediate_bypass" => intermediate_bypass=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"local_missrouting" => local_missrouting=value.as_bool().expect("bad value for local_missrouting"),
 			"dragonfly_bypass" => dragonfly_bypass=value.as_bool().expect("bad value for dragonfly_bypass"),
 		);
@@ -1273,7 +1273,7 @@ impl PAR
 		// //let mut servers_per_router=None;
 		// let mut first=None;
 		// let mut second=None;
-		// let mut meta_pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
+		// let mut general_pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
 		// // let mut exclude_h_groups=false;
 		// let mut first_reserved_virtual_channels=vec![];
 		// let mut second_reserved_virtual_channels=vec![];
@@ -1283,7 +1283,7 @@ impl PAR
 		match_object_panic!(arg.cv,"PAR",_value,
 			// "first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			// "second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-			// "meta_pattern" => meta_pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("meta_pattern not valid for PAR"),
+			// "general_pattern" => general_pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for PAR"),
 			// // "exclude_h_groups"=> exclude_h_groups=value.as_bool().expect("bad value for exclude_h_groups"),
 			// "first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 			// 	as_array().expect("bad value for first_reserved_virtual_channels").iter()

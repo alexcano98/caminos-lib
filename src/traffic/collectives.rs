@@ -1,11 +1,11 @@
-use crate::meta_pattern::pattern::extra::get_candidates_selection;
+use crate::general_pattern::pattern::extra::get_candidates_selection;
 use crate::AsMessage;
 use std::rc::Rc;
 use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use crate::config_parser::ConfigurationValue;
 use crate::{match_object_panic, Message, Time};
-use crate::meta_pattern::one_to_many_pattern::neighbours::{inmediate_neighbours_cv_builder, InmediateNeighboursCVBuilder};
+use crate::general_pattern::one_to_many_pattern::neighbours::{immediate_neighbours_cv_builder, ImmediateNeighboursCVBuilder};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::basic::{build_send_message_to_vector_cv, SendMessageToVectorCVBuilder};
@@ -333,12 +333,12 @@ fn ring_iteration(tasks: usize, data_size: usize, iterations: usize) -> Configur
     let message_size = data_size/tasks;
 
     let neighbours_vector = vec![vec![1]];
-    let immediate_neighbours_builder = InmediateNeighboursCVBuilder{
+    let immediate_neighbours_builder = ImmediateNeighboursCVBuilder {
         sides: vec![tasks],
         vector_neighbours: neighbours_vector,
         modular: true,
     };
-    let immediate_neighbours = inmediate_neighbours_cv_builder(immediate_neighbours_builder);
+    let immediate_neighbours = immediate_neighbours_cv_builder(immediate_neighbours_builder);
 
     let message_to_vector_builder = SendMessageToVectorCVBuilder{
         tasks,

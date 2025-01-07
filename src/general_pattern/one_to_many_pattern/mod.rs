@@ -1,7 +1,7 @@
 pub mod neighbours;
 
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 
 /// A 'OneToManyPattern' is a pattern that takes a single natural number (usize), and returns a list of natural numbers.
 /// The source_size and destination_size of the fn initialize (...) method represent where those are natural number exist.
@@ -10,7 +10,7 @@ pub trait OneToManyPattern: GeneralPattern<usize, Vec<usize>>{}
 impl <T> OneToManyPattern for T where T: GeneralPattern<usize, Vec<usize>>{}
 
 
-pub(super) fn new_one_to_many_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn OneToManyPattern>
+pub(super) fn new_one_to_many_pattern(arg: GeneralPatternBuilderArgument) -> Box<dyn OneToManyPattern>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -21,7 +21,7 @@ pub(super) fn new_one_to_many_pattern(arg: MetaPatternBuilderArgument) -> Box<dy
             "BinomialTreeNeighbours" => Box::new(neighbours::BinomialTreeNeighbours::new(arg)),
             "BinaryTreeNeighbours" => Box::new(neighbours::BinaryTreeNeighbours::new(arg)),
             "AllNeighbours" => Box::new(neighbours::AllNeighbours::new(arg)),
-            "InmediateNeighbours" => Box::new(neighbours::InmediateNeighbours::new(arg)),
+            "ImmediateNeighbours" => Box::new(neighbours::ImmediateNeighbours::new(arg)),
             _ => panic!("Unknown OneToManyPattern {}", cv_name),
         }
     } else {

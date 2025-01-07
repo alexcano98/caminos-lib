@@ -10,7 +10,7 @@ Implementation of basic routing algorithms.
 
 */
 
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 use std::cell::RefCell;
 use ::rand::{rngs::StdRng,Rng};
 
@@ -19,7 +19,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::routing::prelude::*;
 use crate::topology::{Topology, Location};
 use crate::matrix::Matrix;
-use crate::meta_pattern::prelude::*;
+use crate::general_pattern::prelude::*;
 
 ///Use the shortest path from origin to destination
 #[derive(Debug)]
@@ -91,7 +91,7 @@ impl Shortest
 
 /**
 This is Valiant's randomization scheme. Each packet to be sent from a source to a destination is routed first to a random intermediate node, and from that intermediate to destination. These randomization makes the two parts behave as if the
-traffic meta_pattern was uniform at the cost of doubling the lengths.
+traffic general_pattern was uniform at the cost of doubling the lengths.
 
 See Valiant, L. G. (1982). A scheme for fast parallel communication. SIAM journal on computing, 11(2), 350-361.
 
@@ -105,7 +105,7 @@ Valiant{
 	//first_reserved_virtual_channels: [0],//optional parameter, defaults to empty. Reserves some VCs to be used only in the first stage
 	//second_reserved_virtual_channels: [1,2],//optional, defaults to empty. Reserves some VCs to be used only in the second stage.
 	//intermediate_bypass: CartesianTransform{sides:[4,4],project:[true,false]} //optional, defaults to None.
-	// A meta_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant_choice)` the first stage is terminated.
+	// A general_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant_choice)` the first stage is terminated.
 	// This is intended to use with projecting patterns, for example those that map a whole group to a single representative.
 	// In such case, upon reaching that intermediate group the packet would change to the second fase, without having to reach the specific router.
 }
@@ -123,7 +123,7 @@ pub struct Valiant
 	///For using minA, minB or MinBOTH
 	min_src_first:bool, //true means that a packet is injected in the first set of VC if if the source is the intermediate node
 	min_target_first:bool, //true means that a packet is injected in the first set of VC if if the target is the intermediate node
-	/// A meta_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant_choice)` the first stage is terminated.
+	/// A general_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant_choice)` the first stage is terminated.
 	/// This is intended to use with projecting patterns, for example those that map a whole group to a single representative.
 	/// In such case, upon reaching that intermediate group the packet would change to the second fase, without having to reach the specific router.
 	intermediate_bypass: Option<Box<dyn Pattern>>,
@@ -366,7 +366,7 @@ impl Valiant
 			"second_reserved_virtual_channels" => second_reserved_virtual_channels=value.
 				as_array().expect("bad value for second_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in second_reserved_virtual_channels") as usize).collect(),
-			"intermediate_bypass" => intermediate_bypass=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"intermediate_bypass" => intermediate_bypass=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
 		let first=first.expect("There were no first");
 		let second=second.expect("There were no second");

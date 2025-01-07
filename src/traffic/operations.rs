@@ -7,7 +7,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::{SliceRandom, StdRng};
 use crate::{match_object_panic, Message, Time};
 use crate::measures::TrafficStatistics;
-use crate::meta_pattern::{new_pattern, pattern::Pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_pattern, pattern::Pattern, GeneralPatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Generating, WaitingData};
@@ -202,7 +202,7 @@ impl TrafficMap
         match_object_panic!(arg.cv,"TrafficMap",value,
 			"tasks" => number_tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"application" => application = Some(new_traffic(TrafficBuilderArgument{cv:value,rng:&mut arg.rng,..arg})), //traffic of the application
-			"map" => map = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
+			"map" => map = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
 		);
 
         let number_tasks = number_tasks.expect("There were no tasks in configuration of TrafficMap.");
@@ -548,7 +548,7 @@ impl ProductTraffic
 		let mut global_pattern=None;
 		match_object_panic!(arg.cv,"ProductTraffic",value,
 			"block_traffic" => block_traffic=Some(new_traffic(TrafficBuilderArgument{cv:value,rng:&mut arg.rng,..arg})),
-			"global_pattern" => global_pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"global_pattern" => global_pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"block_size" => block_size=Some(value.as_f64().expect("bad value for block_size") as usize),
 		);
 		let block_size=block_size.expect("There were no block_size");
@@ -676,7 +676,7 @@ impl BoundedDifference
 		let mut message_size=None;
 		let mut bound=None;
 		match_object_panic!(arg.cv,"BoundedDifference",value,
-			"pattern" => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern" => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),

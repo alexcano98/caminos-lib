@@ -2,7 +2,7 @@ pub mod filters;
 mod operations;
 
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 
 #[derive(Clone)]
 pub struct ManyToManyParam{
@@ -20,7 +20,7 @@ pub trait ManyToManyPattern: GeneralPattern<ManyToManyParam, Vec<usize>>{}
 impl <T> ManyToManyPattern for T where T: GeneralPattern<ManyToManyParam, Vec<usize>>{}
 
 
-pub fn new_many_to_many_pattern(arg: MetaPatternBuilderArgument) -> Box<dyn ManyToManyPattern>
+pub fn new_many_to_many_pattern(arg: GeneralPatternBuilderArgument) -> Box<dyn ManyToManyPattern>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {

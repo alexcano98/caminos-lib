@@ -1,5 +1,5 @@
-use crate::meta_pattern::pattern::Pattern;
-use crate::meta_pattern::pattern::new_pattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::new_pattern;
 use std::cell::{RefCell};
 use std::collections::VecDeque;
 use std::convert::TryInto;
@@ -11,8 +11,8 @@ use crate::config_parser::ConfigurationValue;
 use crate::topology::cartesian::CartesianData;//for CartesianTransform
 use crate::topology::{Topology, Location};
 use crate::{match_object_panic};
-use crate::meta_pattern::GeneralPattern;
-use crate::meta_pattern::{MetaPatternBuilderArgument};
+use crate::general_pattern::GeneralPattern;
+use crate::general_pattern::{GeneralPatternBuilderArgument};
 
 
 /**
@@ -23,8 +23,8 @@ Example configuration:
 ```ignore
 FileMap{
 	/// Note this is a string literal.
-	filename: "/path/to/meta_pattern",
-	legend_name: "A meta_pattern in my device",
+	filename: "/path/to/general_pattern",
+	legend_name: "A general_pattern in my device",
 }
 ```
  **/
@@ -50,19 +50,19 @@ impl GeneralPattern<usize, usize> for FileMap
 
 impl FileMap
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> FileMap
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> FileMap
     {
         let mut filename=None;
         match_object_panic!(arg.cv,"FileMap",value,
 			"filename" => filename = Some(value.as_str().expect("bad value for filename").to_string()),
 		);
         let filename=filename.expect("There were no filename");
-        let file=File::open(&filename).expect("could not open meta_pattern file.");
+        let file=File::open(&filename).expect("could not open general_pattern file.");
         let reader = BufReader::new(&file);
         let mut permutation=Vec::new();
         for rline in reader.lines()
         {
-            let line=rline.expect("Some problem when reading the traffic meta_pattern.");
+            let line=rline.expect("Some problem when reading the traffic general_pattern.");
             let mut words=line.split_whitespace();
             let origin=words.next().unwrap().parse::<usize>().unwrap();
             let destination=words.next().unwrap().parse::<usize>().unwrap();
@@ -76,7 +76,7 @@ impl FileMap
             permutation,
         }
     }
-    pub(crate) fn embedded(arg:MetaPatternBuilderArgument) -> FileMap
+    pub(crate) fn embedded(arg: GeneralPatternBuilderArgument) -> FileMap
     {
         let mut map = None;
         match_object_panic!(arg.cv,"EmbeddedMap",value,
@@ -94,7 +94,7 @@ impl FileMap
 
 ///Divide the topology according to some given link classes, considering the graph components if the other links were removed.
 ///Then apply the `global_pattern` among the components and select randomly inside the destination component.
-///Note that this uses the topology and will cause problems if used as a sub-meta_pattern.
+///Note that this uses the topology and will cause problems if used as a sub-general_pattern.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct ComponentsPattern
@@ -174,13 +174,13 @@ impl GeneralPattern<usize, usize> for ComponentsPattern
 
 impl ComponentsPattern
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> ComponentsPattern
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> ComponentsPattern
     {
         let mut component_classes=None;
         //let mut block_pattern=None;
         let mut global_pattern=None;
         match_object_panic!(arg.cv,"Components",value,
-			"global_pattern" => global_pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"global_pattern" => global_pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
 			"component_classes" => component_classes = Some(value.as_array()
 				.expect("bad value for component_classes").iter()
 				.map(|v|v.as_f64().expect("bad value in component_classes") as usize).collect()),
@@ -199,7 +199,7 @@ impl ComponentsPattern
 
 
 /**
-A meta_pattern that returns in order values recieved from a list of values.
+A general_pattern that returns in order values recieved from a list of values.
 ```ignore
 InmediateSequencePattern{
     sequence: [0,1,2,3,4,5,6,7,8,9],
@@ -230,7 +230,7 @@ impl GeneralPattern<usize, usize>for InmediateSequencePattern
 
 impl InmediateSequencePattern
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> InmediateSequencePattern
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> InmediateSequencePattern
     {
         let mut sequence=None;
         match_object_panic!(arg.cv,"InmediateSequencePattern",value,
@@ -247,11 +247,11 @@ impl InmediateSequencePattern
 
 
 /**
-For each source, it keeps a state of the last destination used. When applying the meta_pattern, it uses the last destination as the origin for the meta_pattern, and
-the destination is saved for the next call to the meta_pattern.
+For each source, it keeps a state of the last destination used. When applying the general_pattern, it uses the last destination as the origin for the general_pattern, and
+the destination is saved for the next call to the general_pattern.
 ```ignore
 ElementComposition{
-	meta_pattern: RandomPermutation,
+	general_pattern: RandomPermutation,
 }
 ```
  **/
@@ -291,13 +291,13 @@ impl GeneralPattern<usize, usize>for ElementComposition
 
 impl ElementComposition
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> ElementComposition
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> ElementComposition
     {
         let mut pattern = None;
         match_object_panic!(arg.cv,"ElementComposition",value,
-			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
 		);
-        let pattern = pattern.expect("There were no meta_pattern in configuration of ElementComposition.");
+        let pattern = pattern.expect("There were no general_pattern in configuration of ElementComposition.");
         ElementComposition{
             pattern,
             origin_state: RefCell::new(vec![]),
@@ -328,7 +328,7 @@ impl GeneralPattern<usize, usize>for RecursiveDistanceHalving
         {
             panic!("RecursiveDistanceHalving requires source and target sets to have same size.");
         }
-        //If the source size is not a power of 2, the meta_pattern will not work.
+        //If the source size is not a power of 2, the general_pattern will not work.
         if !source_size.is_power_of_two()
         {
             panic!("RecursiveDistanceHalving requires source size to be a power of 2.");
@@ -367,7 +367,7 @@ impl GeneralPattern<usize, usize>for RecursiveDistanceHalving
 
 impl RecursiveDistanceHalving
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RecursiveDistanceHalving
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RecursiveDistanceHalving
     {
         let mut neighbours_order: Option<Vec<usize>> = None; //Array of vectors which represent the order of the neighbours
         match_object_panic!(arg.cv,"RecursiveDistanceHalving",value,
@@ -492,11 +492,11 @@ impl GeneralPattern<usize, usize>for BinomialTree
 
 impl BinomialTree
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> BinomialTree
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> BinomialTree
     {
         let mut upwards = None;
         match_object_panic!(arg.cv,"BinomialTree",value,
-			"upwards" => upwards = Some(value.as_bool().expect("bad value for upwards for meta_pattern BinomialTree")),
+			"upwards" => upwards = Some(value.as_bool().expect("bad value for upwards for general_pattern BinomialTree")),
 		);
         let upwards = upwards.expect("There were no upwards in configuration of BinomialTree.");
         BinomialTree{
@@ -511,11 +511,11 @@ impl BinomialTree
 
 
 /**
-A transparent meta-meta_pattern to help debug other [Pattern].
+A transparent meta-general_pattern to help debug other [Pattern].
 
 ```ignore
 Debug{
-	meta_pattern: ...,
+	general_pattern: ...,
 	check_permutation: true,
 }
 ```
@@ -523,7 +523,7 @@ Debug{
 //TODO: admissible, orders/cycle-finding, suprajective,
 #[derive(Debug,Quantifiable)]
 pub struct DebugPattern {
-    /// The meta_pattern being applied transparently.
+    /// The general_pattern being applied transparently.
     pattern: Box<dyn Pattern>,
     /// Whether to consider an error not being a permutation.
     check_permutation: bool,
@@ -567,14 +567,14 @@ impl GeneralPattern<usize, usize>for DebugPattern{
 }
 
 impl DebugPattern{
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> DebugPattern{
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> DebugPattern{
         let mut pattern = None;
         let mut check_permutation = false;
         match_object_panic!(arg.cv,"Debug",value,
-			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"check_permutation" => check_permutation = value.as_bool().expect("bad value for check_permutation"),
 		);
-        let pattern = pattern.expect("Missing meta_pattern in configuration of Debug.");
+        let pattern = pattern.expect("Missing general_pattern in configuration of Debug.");
         DebugPattern{
             pattern,
             check_permutation,
@@ -585,7 +585,7 @@ impl DebugPattern{
 }
 
 // /**
-// Neighbours meta_pattern that selects the neighbours of a node in a space.
+// Neighbours general_pattern that selects the neighbours of a node in a space.
 // ```ignore
 //
 // NearestNeighbours{ //Iter the neighbours of a node in each dimension. No wrap-around
@@ -812,7 +812,7 @@ FOR ALEX, NO MASTER
 //TODO: admissible, orders/cycle-finding, suprajective,
 #[derive(Debug,Quantifiable)]
 pub struct MiDebugPattern {
-    /// The meta_pattern being applied transparently.
+    /// The general_pattern being applied transparently.
     pattern: Vec<Box<dyn Pattern>>,
     /// Whether to consider an error not being a permutation.
     check_permutation: bool,
@@ -844,7 +844,7 @@ impl GeneralPattern<usize, usize>for MiDebugPattern {
                 for origin_local in 0..*size {
                     let dst = self.pattern[index].get_destination(origin_local,topology,rng);
                     if hits[dst] != -1 {
-                        panic!("Destination {} hit by origin {}, now by {}, in meta_pattern: {}",dst,hits[dst],origin_local, index);
+                        panic!("Destination {} hit by origin {}, now by {}, in general_pattern: {}",dst,hits[dst],origin_local, index);
                     }
                     hits[dst] = origin_local as isize;
                 }
@@ -861,7 +861,7 @@ impl GeneralPattern<usize, usize>for MiDebugPattern {
         // 	}
         // 	let mut hits = vec![false;self.target_size];
         // 	for origin in 0..self.source_size {
-        // 		let dst = self.meta_pattern.get_destination(origin,topology,rng);
+        // 		let dst = self.general_pattern.get_destination(origin,topology,rng);
         // 		if hits[dst] {
         // 			panic!("Destination {} hit at least twice.",dst);
         // 		}
@@ -876,7 +876,7 @@ impl GeneralPattern<usize, usize>for MiDebugPattern {
         // if origin >= self.source_size {
         // 	panic!("Received an origin {origin} beyond source size {size}",size=self.source_size);
         // }
-        // let dst = self.meta_pattern.get_destination(origin,topology,rng);
+        // let dst = self.general_pattern.get_destination(origin,topology,rng);
         // if dst >= self.target_size {
         // 	panic!("The destination {dst} is beyond the target size {size}",size=self.target_size);
         // }
@@ -885,22 +885,22 @@ impl GeneralPattern<usize, usize>for MiDebugPattern {
 }
 
 impl MiDebugPattern {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> MiDebugPattern {
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> MiDebugPattern {
         let mut pattern = None;
         let mut check_permutation = false;
         let mut check_injective = false;
         let mut source_size = None;
         let mut target_size = None;
         match_object_panic!(arg.cv,"Debug",value,
-			"patterns" => pattern = Some(value.as_array().expect("bad value for meta_pattern").iter()
-				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
+			"patterns" => pattern = Some(value.as_array().expect("bad value for general_pattern").iter()
+				.map(|pcv|new_pattern(GeneralPatternBuilderArgument{cv:pcv,..arg})).collect()),
 			"check_permutation" => check_permutation = value.as_bool().expect("bad value for check_permutation"),
 			"source_size" => source_size = Some(value.as_array().expect("bad value for source_size").iter()
 				.map(|v|v.as_usize().expect("bad value in source_size")).collect()),
 			"target_size" => target_size = Some(value.as_usize().expect("bad value for target_size")),
 			"check_injective" => check_injective = value.as_bool().expect("bad value for check_injective"),
 		);
-        let pattern = pattern.expect("Missing meta_pattern in configuration of Debug.");
+        let pattern = pattern.expect("Missing general_pattern in configuration of Debug.");
         let source_size = source_size.expect("Missing source_size in configuration of Debug.");
         let target_size = target_size.expect("Missing target_size in configuration of Debug.");
         MiDebugPattern {

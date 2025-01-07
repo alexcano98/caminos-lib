@@ -8,20 +8,20 @@ Implementation of general Up/Down-like routings.
 */
 
 use ::rand::{rngs::StdRng};
-use crate::meta_pattern::{new_pattern};
-use crate::meta_pattern::MetaPatternBuilderArgument;
+use crate::general_pattern::{new_pattern};
+use crate::general_pattern::GeneralPatternBuilderArgument;
 use crate::match_object_panic;
 use crate::config_parser::ConfigurationValue;
 use crate::routing::prelude::*;
 use crate::topology::{Topology,NeighbourRouterIteratorItem,Location};
 use crate::matrix::Matrix;
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 
 /**
 Use shortest up/down paths from origin to destination. The up/down paths are understood as provided by `Topology::up_down_distance`.
 Receives the following parameters.
-* `routing_up_stage_patterns` (optional): a meta_pattern which depends on source_server * num_servers + destination_server which is applied to the routing to select an up option in each up stage.
-* `port_pattern` (optional): apply a meta_pattern to the port.
+* `routing_up_stage_patterns` (optional): a general_pattern which depends on source_server * num_servers + destination_server which is applied to the routing to select an up option in each up stage.
+* `port_pattern` (optional): apply a general_pattern to the port.
 * `upwards_sizes` (optional): the target size of the patterns for each up stage.
 * `port_pattern_source_sizes` (optional): the source size of the port_pattern for each up stage. (should be the up degree for the stage)
 
@@ -186,10 +186,10 @@ impl UpDown
 		let mut port_pattern_source_sizes = None;
 		match_object_panic!(arg.cv,"UpDown",value,
 			"routing_up_stage_patterns" => routing_up_stage_patterns = Some(value.as_array().expect("bad value for routing_up_stage_patterns").iter().map(|x|{
-				new_pattern(MetaPatternBuilderArgument{cv:x,plugs:arg.plugs})
+				new_pattern(GeneralPatternBuilderArgument{cv:x,plugs:arg.plugs})
 			}).collect()),
 			"port_pattern" => port_pattern = Some(value.as_array().expect("bad value for port_pattern").iter().map(|x|{
-				new_pattern(MetaPatternBuilderArgument{cv:x,plugs:arg.plugs})
+				new_pattern(GeneralPatternBuilderArgument{cv:x,plugs:arg.plugs})
 			}).collect()),
 			"upwards_sizes" => target_sizes = Some(value.as_array().expect("bad value for up_sizes").iter().map(|x|{
 				x.as_usize().expect("bad value for up_sizes")

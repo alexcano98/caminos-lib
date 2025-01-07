@@ -1865,7 +1865,7 @@ impl<'a> Experiment<'a>
 			}
 			// const MINIMUM_RESULT_COUNT_TO_GENERATE : usize = 3usize;
 			// // I would use 1..MINIMUM_RESULT_COUNT_TO_GENERATE but
-			// // exclusive range meta_pattern syntax is experimental
+			// // exclusive range general_pattern syntax is experimental
 			// // see issue #37854 <https://github.com/rust-lang/rust/issues/37854> for more information
 			// const MAXIMUM_RESULT_COUNT_TO_SKIP : usize = MINIMUM_RESULT_COUNT_TO_GENERATE-1;
 			match results.len()

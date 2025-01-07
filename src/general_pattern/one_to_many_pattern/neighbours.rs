@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use crate::match_object_panic;
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 use crate::topology::prelude::CartesianData;
 use crate::topology::Topology;
 use crate::ConfigurationValue;
@@ -70,7 +70,7 @@ fn get_modular_neighbours_from_vector(sides: &Vec<usize>, vector_neighbours: &Ve
 
 
 /**
-Neighbours meta_pattern that selects the neighbours of a node in a space.
+Neighbours general_pattern that selects the neighbours of a node in a space.
 ```ignore
     ManhattanNeighbours{ //Iter the neighbours inside a manhattan distance. No wrap-around
         sides: [3,3],
@@ -96,7 +96,7 @@ impl GeneralPattern<usize, Vec<usize>> for ManhattanNeighbours{
 }
 
 impl ManhattanNeighbours {
-    pub fn new(arg: MetaPatternBuilderArgument) -> ManhattanNeighbours {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> ManhattanNeighbours {
         let mut distance = None;
         let mut sides = None;
         match_object_panic!(arg.cv,"ManhattanNeighbours",value,
@@ -176,7 +176,7 @@ impl GeneralPattern<usize, Vec<usize>> for KingNeighbours{
 }
 
 impl KingNeighbours{
-    pub fn new(arg: MetaPatternBuilderArgument) -> KingNeighbours {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> KingNeighbours {
         let mut sides = None;
         let mut distance = None;
         match_object_panic!(arg.cv,"KingNeighbours",value,
@@ -260,7 +260,7 @@ impl GeneralPattern<usize, Vec<usize>> for HypercubeNeighbours{
 }
 
 impl HypercubeNeighbours{
-    pub fn new(_arg: MetaPatternBuilderArgument) -> HypercubeNeighbours {
+    pub fn new(_arg: GeneralPatternBuilderArgument) -> HypercubeNeighbours {
         HypercubeNeighbours {
             neighbours: vec![]
         }
@@ -280,7 +280,14 @@ impl HypercubeNeighbours{
     }
 }
 
-///For broadcast operations
+/**
+Returns the neighbours in a binomial tree
+```ignore
+    BinomialTreeNeighbours{
+        go_up: true, //aim the parent
+    }
+```
+**/
 #[derive(Debug, Quantifiable)]
 pub struct BinomialTreeNeighbours
 {
@@ -321,7 +328,7 @@ impl GeneralPattern<usize, Vec<usize>> for BinomialTreeNeighbours{
 }
 
 impl BinomialTreeNeighbours{
-    pub fn new(arg: MetaPatternBuilderArgument) -> BinomialTreeNeighbours {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> BinomialTreeNeighbours {
         let mut go_up = None;
         match_object_panic!(arg.cv,"BinomialTreeNeighbours",value,
             "go_up" => go_up = Some(value.as_bool().expect("bad value for go_up")),
@@ -334,6 +341,14 @@ impl BinomialTreeNeighbours{
     }
 }
 
+/**
+Returns the neighbours in a binary tree
+```ignore
+    BinaryTreeNeighbours{
+        go_up: true, //aim the parent
+    }
+```
+**/
 #[derive(Debug, Quantifiable)]
 pub struct BinaryTreeNeighbours
 {
@@ -374,7 +389,7 @@ impl GeneralPattern<usize, Vec<usize>> for BinaryTreeNeighbours {
 }
 
 impl BinaryTreeNeighbours{
-    pub fn new(arg: MetaPatternBuilderArgument) -> BinaryTreeNeighbours {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> BinaryTreeNeighbours {
         let mut go_up = None;
         match_object_panic!(arg.cv,"BinaryTreeNeighbours",value,
             "go_up" => go_up = Some(value.as_bool().expect("bad value for go_up")),
@@ -387,6 +402,12 @@ impl BinaryTreeNeighbours{
     }
 }
 
+/**
+Returns all the elements as neighbours
+```ignore
+    AllNeighbours{}
+```
+**/
 #[derive(Debug, Quantifiable)]
 pub struct AllNeighbours
 {
@@ -411,15 +432,25 @@ impl GeneralPattern<usize, Vec<usize>> for AllNeighbours {
 }
 
 impl AllNeighbours{
-    pub fn new(_arg: MetaPatternBuilderArgument) -> AllNeighbours {
+    pub fn new(_arg: GeneralPatternBuilderArgument) -> AllNeighbours {
         AllNeighbours {
             neighbours: vec![],
         }
     }
 }
 
+/**
+Returns the neighbours in a grid for the given vector neighbours
+```ignore
+    GridNeighbours{
+        sides: [3,3], //sides of the grid
+        vector_neighbours: [[0,1],[1,0]], //vector neighbours
+        modular: false, //if there are wrap-around neighbours
+    }
+```
+**/
 #[derive(Debug, Quantifiable)]
-pub struct InmediateNeighbours
+pub struct ImmediateNeighbours
 {
     sides: Vec<usize>,
     vector_neighbours: Vec<Vec<i32>>,
@@ -427,7 +458,7 @@ pub struct InmediateNeighbours
     modular: bool,
 }
 
-impl GeneralPattern<usize, Vec<usize>> for InmediateNeighbours {
+impl GeneralPattern<usize, Vec<usize>> for ImmediateNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         let all_size = self.sides.clone().into_iter().reduce(|a, b| (a * b)).unwrap();
         assert_eq!(source_size,target_size);
@@ -449,20 +480,20 @@ impl GeneralPattern<usize, Vec<usize>> for InmediateNeighbours {
     }
 }
 
-impl InmediateNeighbours{
-    pub fn new(arg: MetaPatternBuilderArgument) -> InmediateNeighbours {
+impl ImmediateNeighbours {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> ImmediateNeighbours {
         let mut sides = None;
         let mut vector_neighbours = None;
         let mut modular = None;
-        match_object_panic!(arg.cv,"InmediateNeighbours",value,
+        match_object_panic!(arg.cv,"ImmediateNeighbours",value,
             "sides" => sides = Some(value.as_array().expect("bad value for sides").iter().map(|v|v.as_usize().expect("bad value in sides")).collect()),
             "vector_neighbours" => vector_neighbours = Some(value.as_array().expect("bad value for vector_neighbours").iter().map(|v|v.as_array().expect("bad value in vector_neighbours").iter().map(|v|v.as_i32().expect("bad value in vector_neighbours")).collect()).collect()),
             "modular" => modular = Some(value.as_bool().expect("bad value for modular")),
         );
-        let sides: Vec<usize> = sides.expect("There were no sides in configuration of InmediateNeighbours.");
-        let vector_neighbours: Vec<Vec<i32>> = vector_neighbours.expect("There were no vector_neighbours in configuration of InmediateNeighbours.");
-        let modular = modular.expect("There were no modular in configuration of InmediateNeighbours.");
-        InmediateNeighbours {
+        let sides: Vec<usize> = sides.expect("There were no sides in configuration of ImmediateNeighbours.");
+        let vector_neighbours: Vec<Vec<i32>> = vector_neighbours.expect("There were no vector_neighbours in configuration of ImmediateNeighbours.");
+        let modular = modular.expect("There were no modular in configuration of ImmediateNeighbours.");
+        ImmediateNeighbours {
             sides,
             vector_neighbours,
             neighbours: vec![],
@@ -471,18 +502,18 @@ impl InmediateNeighbours{
     }
 }
 
-//InmediateNeighbours CV builder
-pub struct InmediateNeighboursCVBuilder{
+//ImmediateNeighbours CV builder
+pub struct ImmediateNeighboursCVBuilder {
     pub(crate) sides: Vec<usize>,
     pub(crate) vector_neighbours: Vec<Vec<i32>>,
     pub(crate) modular: bool,
 }
 
-pub fn inmediate_neighbours_cv_builder(arg: InmediateNeighboursCVBuilder) -> ConfigurationValue {
+pub fn immediate_neighbours_cv_builder(arg: ImmediateNeighboursCVBuilder) -> ConfigurationValue {
     let sides = arg.sides.iter().map(|v| ConfigurationValue::Number(*v as f64)).collect();
     let vector_neighbours = arg.vector_neighbours.iter().map(|v| ConfigurationValue::Array(v.iter().map(|v| ConfigurationValue::Number(*v as f64)).collect())).collect();
     let boolean = if arg.modular { ConfigurationValue::True} else { ConfigurationValue::False };
-    ConfigurationValue::Object("InmediateNeighbours".to_string(),
+    ConfigurationValue::Object("ImmediateNeighbours".to_string(),
        vec![
         ("sides".to_string(), ConfigurationValue::Array(sides)),
         ("vector_neighbours".to_string(), ConfigurationValue::Array(vector_neighbours)),
@@ -495,7 +526,7 @@ pub fn inmediate_neighbours_cv_builder(arg: InmediateNeighboursCVBuilder) -> Con
 #[cfg(test)]
 mod tests {
     use rand::SeedableRng;
-    use crate::meta_pattern::GeneralPattern;
+    use crate::general_pattern::GeneralPattern;
 
     #[test]
     fn test_manhattan_neighbours_distance_1() {

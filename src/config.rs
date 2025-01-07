@@ -2043,7 +2043,7 @@ macro_rules! match_object{
 				//match name.as_ref()
 				match AsRef::<str>::as_ref(&name)
 				{
-					//"meta_pattern" => meta_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+					//"general_pattern" => general_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
 					$( $arm )*
 					"legend_name" => (),
 					//_ => panic!("Nothing to do with field {} in {}",name,$name),

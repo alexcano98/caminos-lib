@@ -3,12 +3,13 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use crate::match_object_panic;
 use crate::ConfigurationValue;
-use crate::meta_pattern::many_to_many_pattern::{new_many_to_many_pattern, ManyToManyParam, ManyToManyPattern};
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::general_pattern::many_to_many_pattern::{new_many_to_many_pattern, ManyToManyParam, ManyToManyPattern};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 use crate::topology::Topology;
 
 /**
 Pattern that iters through patterns, and the output vector of a pattern is the input vector of the next pattern.
+The other params (source and destination fields) are kept the same. Only affects the list field.
 ```ignore
     Composition {
         many_to_many_patterns:[ RandomFilter{elements_to_return: 1,}, DistanceFilter{ distance: 1,}]
@@ -39,11 +40,11 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for Composition {
 }
 
 impl Composition {
-    pub fn new(arg: MetaPatternBuilderArgument) -> Composition {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> Composition {
         let mut patterns = None;
         match_object_panic!(arg.cv,"Composition",value,
             "many_to_many_patterns" => {
-                patterns = Some(value.as_array().expect("bad value for patterns").into_iter().map(|x| new_many_to_many_pattern(MetaPatternBuilderArgument{cv:x,..arg})).collect());
+                patterns = Some(value.as_array().expect("bad value for patterns").into_iter().map(|x| new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:x,..arg})).collect());
             }
         );
         let patterns = patterns.expect("patterns not found");
@@ -52,7 +53,7 @@ impl Composition {
 }
 
 /**
-Pattern that unifies the vector images of each pattern for an element
+Pattern that performs the union operation between the output vectors of the patterns for each source element.
 ```ignore
     Sum{
         many_to_many_patterns:[],
@@ -82,11 +83,11 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for Sum {
 }
 
 impl Sum{
-    pub fn new(arg: MetaPatternBuilderArgument) -> Sum {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> Sum {
         let mut patterns = None;
         match_object_panic!(arg.cv,"Sum",value,
             "many_to_many_patterns" => {
-                patterns = Some(value.as_array().expect("bad value for patterns").into_iter().map(|x| new_many_to_many_pattern(MetaPatternBuilderArgument{cv:x,..arg})).collect());
+                patterns = Some(value.as_array().expect("bad value for patterns").into_iter().map(|x| new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:x,..arg})).collect());
             }
         );
         let patterns = patterns.expect("patterns not found");
@@ -100,10 +101,10 @@ mod tests{
     use rand::prelude::StdRng;
     use rand::SeedableRng;
     use crate::config_parser::ConfigurationValue;
-    use crate::meta_pattern::many_to_many_pattern::filters::{DistanceFilter, RandomFilter};
-    use crate::meta_pattern::many_to_many_pattern::ManyToManyParam;
-    use crate::meta_pattern::many_to_many_pattern::operations::Composition;
-    use crate::meta_pattern::GeneralPattern;
+    use crate::general_pattern::many_to_many_pattern::filters::{DistanceFilter, RandomFilter};
+    use crate::general_pattern::many_to_many_pattern::ManyToManyParam;
+    use crate::general_pattern::many_to_many_pattern::operations::Composition;
+    use crate::general_pattern::GeneralPattern;
     use crate::Plugs;
     use crate::topology::{new_topology, Topology, TopologyBuilderArgument};
 

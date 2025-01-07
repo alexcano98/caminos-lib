@@ -1,5 +1,5 @@
-use crate::meta_pattern::pattern::Pattern;
-use crate::meta_pattern::GeneralPattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::GeneralPattern;
 use std::convert::TryInto;
 use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom};
 
@@ -9,7 +9,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::topology::cartesian::CartesianData;//for CartesianTransform
 use crate::topology::{Topology};
 use crate::{match_object_panic};
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 
 
 ///Just set `destination = origin`.
@@ -37,7 +37,7 @@ impl GeneralPattern<usize, usize> for Identity
 
 impl Identity
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> Identity
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> Identity
     {
         match_object_panic!(arg.cv,"Identity",_value);
         Identity{
@@ -117,7 +117,7 @@ impl GeneralPattern<usize, usize>for LinearTransform
 
 impl LinearTransform
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> LinearTransform
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> LinearTransform
     {
         let mut source_size:Option<Vec<_>>=None;
         let mut matrix:Option<Vec<Vec<i32>>>=None;
@@ -235,7 +235,7 @@ impl GeneralPattern<usize, usize>for RandomPermutation
 
 impl RandomPermutation
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RandomPermutation
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RandomPermutation
     {
         let mut rng = None;
         match_object_panic!(arg.cv,"RandomPermutation",value,
@@ -333,7 +333,7 @@ impl GeneralPattern<usize, usize>for RandomInvolution
 
 impl RandomInvolution
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RandomInvolution
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RandomInvolution
     {
         match_object_panic!(arg.cv,"RandomInvolution",_value);
         RandomInvolution{
@@ -380,7 +380,7 @@ impl GeneralPattern<usize, usize>for FixedRandom
 
 impl FixedRandom
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> FixedRandom
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> FixedRandom
     {
         let mut allow_self = false;
         let mut rng = None;
@@ -431,7 +431,7 @@ impl GeneralPattern<usize, usize>for CartesianFactor
 
 impl CartesianFactor
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> CartesianFactor
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> CartesianFactor
     {
         let mut sides: Option<Vec<_>>=None;
         let mut factors=None;
@@ -455,7 +455,7 @@ impl CartesianFactor
 Interpretate the origin as with cartesian coordinates and apply transformations.
 May permute the dimensions if they have same side.
 May complement the dimensions.
-Order of composition is: multiplier, shift, permute, complement, project, randomize, meta_pattern. If you need another order you may [compose](Composition) several of them.
+Order of composition is: multiplier, shift, permute, complement, project, randomize, general_pattern. If you need another order you may [compose](Composition) several of them.
 
 Example configuration:
 ```ignore
@@ -493,7 +493,7 @@ pub struct CartesianTransform
     ///Indicates dimensions in which to select a random coordinate.
     ///A random roll performed in each call to `get_destination`.
     random: Option<Vec<bool>>,
-    ///Optionally, set a meta_pattern at coordinate. Use Identity for those coordinates with no operation.
+    ///Optionally, set a general_pattern at coordinate. Use Identity for those coordinates with no operation.
     patterns: Option<Vec<Box<dyn Pattern>>>,
 }
 
@@ -566,7 +566,7 @@ impl GeneralPattern<usize, usize>for CartesianTransform
 
 impl CartesianTransform
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> CartesianTransform
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> CartesianTransform
     {
         let mut sides:Option<Vec<_>>=None;
         let mut shift=None;
@@ -592,7 +592,7 @@ impl CartesianTransform
 			"random" => random=Some(value.as_array().expect("bad value for random").iter()
 				.map(|v|v.as_bool().expect("bad value in random")).collect()),
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(MetaPatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(GeneralPatternBuilderArgument{cv:pcv,..arg})).collect()),
 		);
         let sides=sides.expect("There were no sides");
         //let permute=permute.expect("There were no permute");
@@ -611,16 +611,16 @@ impl CartesianTransform
 }
 
 
-/// Extend a meta_pattern by giving it a Cartesian representation and a number of repetition periods per dimension.
+/// Extend a general_pattern by giving it a Cartesian representation and a number of repetition periods per dimension.
 /// E.g., it may translate a permutation on a 4x4 mesh into a 16x16 mesh.
 /// Or it may translate a permutation of routers of a 4x2x2 mesh into a server permutation of 8x8x8x8 by using `[8,2,4,4]` as repetitions.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct CartesianTiling
 {
-    /// The original meta_pattern.
+    /// The original general_pattern.
     pattern: Box<dyn Pattern>,
-    /// The Cartesian interpretation of the original meta_pattern.
+    /// The Cartesian interpretation of the original general_pattern.
     base_cartesian_data: CartesianData,
     /// How much to repeat at each dimension.
     repetitions: Vec<usize>,
@@ -658,19 +658,19 @@ impl GeneralPattern<usize, usize>for CartesianTiling
 
 impl CartesianTiling
 {
-    pub fn new(arg:MetaPatternBuilderArgument) -> CartesianTiling
+    pub fn new(arg: GeneralPatternBuilderArgument) -> CartesianTiling
     {
         let mut pattern = None;
         let mut sides:Option<Vec<_>>=None;
         let mut repetitions:Option<Vec<_>> = None;
         match_object_panic!(arg.cv,"CartesianTiling",value,
-			"pattern"  => pattern=Some(new_pattern(MetaPatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
 			"sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
 				.map(|v|v.as_f64().expect("bad value in sides") as usize).collect()),
 			"repetitions" => repetitions = Some(value.as_array().expect("bad value for repetitions").iter()
 				.map(|v|v.as_f64().expect("bad value in repetitions") as usize).collect()),
 		);
-        let pattern=pattern.expect("There were no meta_pattern");
+        let pattern=pattern.expect("There were no general_pattern");
         let sides=sides.expect("There were no sides");
         let repetitions=repetitions.expect("There were no repetitions");
         let n=sides.len();
@@ -728,7 +728,7 @@ impl GeneralPattern<usize, usize>for CartesianEmbedding
 
 impl CartesianEmbedding
 {
-    pub fn new(arg:MetaPatternBuilderArgument) -> CartesianEmbedding
+    pub fn new(arg: GeneralPatternBuilderArgument) -> CartesianEmbedding
     {
         let mut source_sides:Option<Vec<_>>=None;
         let mut destination_sides:Option<Vec<_>>=None;
@@ -759,7 +759,7 @@ impl CartesianEmbedding
 }
 
 /**
-Select a block in source/destination sets to send traffic according to a meta_pattern and the remainder according to another. The `uncut_sides` parameter define a large block that may be the whole set, otherwise discarding elements from the end. The `cut_sides` parameter defines a subblock embedded in the former. This defines two sets of nodes: the ones in the subblock and the rest. A meta_pattern can be provided for each of these two sets. It is possible to specify offsets and strides for the subblock.
+Select a block in source/destination sets to send traffic according to a general_pattern and the remainder according to another. The `uncut_sides` parameter define a large block that may be the whole set, otherwise discarding elements from the end. The `cut_sides` parameter defines a subblock embedded in the former. This defines two sets of nodes: the ones in the subblock and the rest. A general_pattern can be provided for each of these two sets. It is possible to specify offsets and strides for the subblock.
 
 For example, in a network with 150 servers we could do the following to see it as a `[3,10,5]` block with an `[3,4,3]` block embedded in it. The small block of 36 server selects destinations randomly inside it. The rest of the network, `150-36=114` servers also send randomly among themselves. No message is send between those two sets. The middle dimension has offset 1, so coordinates `[x,0,z]` are out of the small block. It has also stride 2, so it only includes odd `y` coordinates. More precisely, it includes those `[x,y,z]` with any `x`, `z<3`, and `y=2k+1` for `k<4`.
 ```ignore
@@ -774,7 +774,7 @@ CartesianCut{
 ```
 This same example would work for more than 150 servers, putting all that excess in the large set.
 
-Another notable example is to combine several of them. Here, we use a decomposition of the previous whole `[3,10,5]` block into two disjoint blocks of size `[3,5,5]`. The offset is chosen to make sure of both being disjoint (a packing) and covering the whole. Then we select a meta_pattern for each block. Since the two patterns are disjoint the can be [composed](Composition) to obtain a meta_pattern that follows each of the blocks.
+Another notable example is to combine several of them. Here, we use a decomposition of the previous whole `[3,10,5]` block into two disjoint blocks of size `[3,5,5]`. The offset is chosen to make sure of both being disjoint (a packing) and covering the whole. Then we select a general_pattern for each block. Since the two patterns are disjoint the can be [composed](Composition) to obtain a general_pattern that follows each of the blocks.
 ```ignore
 Composition{patterns:[
 	CartesianCut{
@@ -801,7 +801,7 @@ pub struct CartesianCut
     // start_margin: usize,
     // /// Some nodes out of the cube at the end.
     // end_margin: usize,
-    /// The source sides. Any node beyond its size goes directly to the remained meta_pattern.
+    /// The source sides. Any node beyond its size goes directly to the remained general_pattern.
     uncut_cartesian_data: CartesianData,
     /// The block we cut
     cut_cartesian_data: CartesianData,
@@ -809,9 +809,9 @@ pub struct CartesianCut
     cut_offsets: Vec<usize>,
     /// At each dimension cut 1 stripe for each `cut_stride[dim]` uncut cells. Default to 1.
     cut_strides: Vec<usize>,
-    /// The meta_pattern over the cut block.
+    /// The general_pattern over the cut block.
     cut_pattern: Box<dyn Pattern>,
-    /// The meta_pattern over the rest.
+    /// The general_pattern over the rest.
     remainder_pattern: Box<dyn Pattern>,
 }
 
@@ -863,7 +863,7 @@ impl GeneralPattern<usize, usize>for CartesianCut
 
 impl CartesianCut
 {
-    pub fn new(arg:MetaPatternBuilderArgument) -> CartesianCut
+    pub fn new(arg: GeneralPatternBuilderArgument) -> CartesianCut
     {
         let mut uncut_sides:Option<Vec<_>>=None;
         let mut cut_sides:Option<Vec<_>>=None;
@@ -956,18 +956,18 @@ impl CartesianCut
 
 /**
 Apply some other [Pattern] over a set of nodes whose indices have been remapped according to a [Pattern]-given permutation.
-A source `x` chooses as destination `map(meta_pattern(invmap(x)))`, where `map` is the given permutation, `invmap` its inverse and `meta_pattern` is the underlying meta_pattern to apply. In other words, if `meta_pattern(a)=b`, then destination of `map(a)` is set to `map(b)`. It can be seen as a [Composition] that manages building the inverse map.
+A source `x` chooses as destination `map(general_pattern(invmap(x)))`, where `map` is the given permutation, `invmap` its inverse and `general_pattern` is the underlying general_pattern to apply. In other words, if `general_pattern(a)=b`, then destination of `map(a)` is set to `map(b)`. It can be seen as a [Composition] that manages building the inverse map.
 
-Remapped nodes requires source and destination to be of the same size. The meta_pattern creating the map is called once and must result in a permutation, as to be able to make its inverse.
+Remapped nodes requires source and destination to be of the same size. The general_pattern creating the map is called once and must result in a permutation, as to be able to make its inverse.
 
 For a similar operation on other types see [RemappedServersTopology](crate::topology::operations::RemappedServersTopology).
 
 Example building a cycle in random order.
 ```ignore
 RemappedNodes{
-	/// The underlying meta_pattern to be used.
-	meta_pattern: Circulant{generators:[1]},
-	/// The meta_pattern defining the relabelling.
+	/// The underlying general_pattern to be used.
+	general_pattern: Circulant{generators:[1]},
+	/// The general_pattern defining the relabelling.
 	map: RandomPermutation,
 }
 ```
@@ -982,9 +982,9 @@ pub struct RemappedNodes
     /// Maps from outer indices to inner indices.
     /// The inverse of `from_base_map`.
     into_base_map: Vec<usize>,
-    /// The inner meta_pattern to be applied.
+    /// The inner general_pattern to be applied.
     pattern: Box<dyn Pattern>,
-    /// The meta_pattern to build the map vectors.
+    /// The general_pattern to build the map vectors.
     map: Box<dyn Pattern>,
 }
 
@@ -1023,15 +1023,15 @@ impl GeneralPattern<usize, usize>for RemappedNodes
 
 impl RemappedNodes
 {
-    pub(crate) fn new(arg:MetaPatternBuilderArgument) -> RemappedNodes
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RemappedNodes
     {
         let mut pattern = None;
         let mut map = None;
         match_object_panic!(arg.cv, "RemappedNodes", value,
-			"pattern"  => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
-			"map" => map = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"map" => map = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
-        let pattern = pattern.expect("There were no meta_pattern in configuration of RemappedNodes.");
+        let pattern = pattern.expect("There were no general_pattern in configuration of RemappedNodes.");
         let map = map.expect("There were no map in configuration of RemappedNodes.");
         RemappedNodes{
             from_base_map: vec![],
@@ -1095,7 +1095,7 @@ impl GeneralPattern<usize, usize>for AddVector
 
 impl AddVector
 {
-    pub fn new(arg:MetaPatternBuilderArgument) -> AddVector
+    pub fn new(arg: GeneralPatternBuilderArgument) -> AddVector
     {
         let mut vector = None;
         let mut sides:Option<Vec<_>>=None;

@@ -1,10 +1,10 @@
 use quantifiable_derive::Quantifiable;
 use rand::prelude::*;
 use crate::match_object_panic;
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 use crate::topology::Topology;
 use crate::ConfigurationValue;
-use crate::meta_pattern::many_to_many_pattern::ManyToManyParam;
+use crate::general_pattern::many_to_many_pattern::ManyToManyParam;
 use crate::topology::cartesian::CartesianData;
 
 /**
@@ -24,7 +24,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for IdentityFilter {
 }
 
 impl IdentityFilter {
-    pub fn new(_arg: MetaPatternBuilderArgument) -> IdentityFilter {
+    pub fn new(_arg: GeneralPatternBuilderArgument) -> IdentityFilter {
         IdentityFilter {}
     }
 
@@ -38,7 +38,9 @@ impl IdentityFilter {
 Pattern that returns random elements from a vector passed as argument.
 ```ignore
     RandomFilter {
-        elements_to_return: 1,
+        elements_to_return: 1, //number of random elements selected
+        source: true, // (Optional) if true, source is not considered.
+        destination: false, // (Optional) if true, destination is considered. Else it is considered.
     }
 ```
 **/
@@ -73,7 +75,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for RandomFilter {
 }
 
 impl RandomFilter {
-    pub fn new(arg: MetaPatternBuilderArgument) -> RandomFilter {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> RandomFilter {
         let mut elements_to_return = 1;
         let source= true;
         let destination= true;
@@ -94,7 +96,9 @@ impl RandomFilter {
 Pattern that returns elements that are at a certain distance from the origin and destination.
 ```ignore
     DistanceFilter {
-        distance: 1,
+        distance: 1, //distance
+        source: true, // (Optional) if true, the intermediates should be at distance from the origin.
+        destination: false, // (Optional) if true, the intermediates should be at distance from the destination. Else is not considered.
     }
 ```
 **/
@@ -130,7 +134,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DistanceFilter {
 }
 
 impl DistanceFilter {
-    pub fn new(arg: MetaPatternBuilderArgument) -> DistanceFilter {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> DistanceFilter {
         let mut distance = None;
         let mut source= true;
         let mut destination= true;
@@ -201,7 +205,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for SubplaneFilter {
 }
 
 impl SubplaneFilter {
-    pub fn new(arg: MetaPatternBuilderArgument) -> SubplaneFilter {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> SubplaneFilter {
         let mut sides = None;
         let mut subplanes = None;
         let mut source= true;

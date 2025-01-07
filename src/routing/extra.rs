@@ -19,10 +19,10 @@ use rand::SeedableRng;
 use crate::{match_object_panic};
 use crate::config_parser::ConfigurationValue;
 use crate::matrix::Matrix;
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
-use crate::meta_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
-use crate::meta_pattern::many_to_many_pattern::filters::{IdentityFilter, RandomFilter};
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
+use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
+use crate::general_pattern::many_to_many_pattern::filters::{IdentityFilter, RandomFilter};
+use crate::general_pattern::pattern::Pattern;
 use crate::routing::*;
 use crate::topology::prelude::*;
 //use crate::topology::{Topology,Location};
@@ -1020,11 +1020,11 @@ impl SubTopologyRouting
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
 			"logical_topology" => logical_topology = Some(new_topology(TopologyBuilderArgument{cv:value, rng, plugs: arg.plugs})),
-			"map" => map = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
+			"map" => map = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"livelock_avoidance" => livelock_avoidance = value.as_bool().expect("bad value for livelock_avoidance"),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
-			"intermediate_filter" => intermediate_filter = new_many_to_many_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
+			"intermediate_filter" => intermediate_filter = new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs}),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
 		let map = map.expect("missing physical_to_logical");
@@ -1282,8 +1282,8 @@ impl RegionRouting
 		let mut default_routing = None;
 		let mut extra_label_selection = 0;
 		match_object_panic!(arg.cv,"RegionRouting",value,
-			"physical_to_logical" => physical_to_logical = value.as_array().expect("bad value for selection_patterns").iter().map(|v|new_pattern(MetaPatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
-			"logical_to_physical" => logical_to_physical = value.as_array().expect("bad value for map_region").iter().map(|v|new_pattern(MetaPatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"physical_to_logical" => physical_to_logical = value.as_array().expect("bad value for selection_patterns").iter().map(|v|new_pattern(GeneralPatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"logical_to_physical" => logical_to_physical = value.as_array().expect("bad value for map_region").iter().map(|v|new_pattern(GeneralPatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
 			"selected_region_size" => selected_region_size = value.as_array().expect("bad value for selected_size").iter().map(|v|v.as_usize().expect("bad value in selected_size")).collect(),
 			"region_logical_topology" => region_logical_topology = value.as_array().expect("bad value for region_logical_topology").iter().map(|v|new_topology(TopologyBuilderArgument{cv:v,plugs:arg.plugs,rng: &mut StdRng::from_entropy()})).collect(),
 			"routings" => routings = value.as_array().expect("bad value for routings").iter().map(|v|new_routing(RoutingBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
@@ -1808,7 +1808,7 @@ impl CGLabel
 		let mut intermediate_selection_policy: Box<dyn ManyToManyPattern> = Box::new(RandomFilter::get_basic_random_filter()); //Select one intermediate
 		match_object_panic!(arg.cv,"CGLabel",value,
 			"balance_algorithm" => balance_algorithm = match_balance_algorithm(value),
-			"intermediate_policy" => intermediate_selection_policy = new_many_to_many_pattern(MetaPatternBuilderArgument{cv: value, plugs:arg.plugs}),
+			"intermediate_policy" => intermediate_selection_policy = new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, plugs:arg.plugs}),
 		);
 		CGLabel {
 			intermediates: vec![],

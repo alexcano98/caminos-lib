@@ -33,7 +33,7 @@ pub use crate::event::Time;
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::{Plugs};
 pub use crate::error::Error;
-use crate::meta_pattern::{new_many_to_many_pattern};
+use crate::general_pattern::{new_many_to_many_pattern};
 use crate::topology::megafly::MegaflyAD;
 use crate::topology::multistage::UpDownDerouting;
 
@@ -228,7 +228,7 @@ Shortest{
 ```
 
 As solution for those cases problematic for shortest routing, Valiant proposed a randomization scheme. Each packet to be sent from a source to a destination is routed first to a random intermediate node, and from that intermediate to destination. These randomization makes the two parts behave as if the
-traffic meta_pattern was uniform at the cost of doubling the lengths.
+traffic general_pattern was uniform at the cost of doubling the lengths.
 
 See Valiant, L. G. (1982). A scheme for fast parallel communication. SIAM journal on computing, 11(2), 350-361.
 

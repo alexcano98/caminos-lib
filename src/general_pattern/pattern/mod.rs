@@ -1,9 +1,9 @@
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{GeneralPattern, MetaPatternBuilderArgument};
-use crate::meta_pattern::pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
-use crate::meta_pattern::pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
-use crate::meta_pattern::pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
-use crate::meta_pattern::pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
+use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
+use crate::general_pattern::pattern::extra::{BinomialTree, ComponentsPattern, DebugPattern, ElementComposition, FileMap, InmediateSequencePattern, MiDebugPattern, RecursiveDistanceHalving};
+use crate::general_pattern::pattern::operations::{CandidatesSelection, Composition, DestinationSets, IndependentRegions, Inverse, Pow, ProductPattern, RoundRobin, SubApp, Sum, Switch};
+use crate::general_pattern::pattern::probabilistic::{Circulant, GloballyShufflingDestinations, GroupShufflingDestinations, Hotspots, RandomMix, RestrictedMiddleUniform, UniformDistance, UniformPattern};
+use crate::general_pattern::pattern::transformations::{AddVector, CartesianCut, CartesianEmbedding, CartesianFactor, CartesianTiling, CartesianTransform, FixedRandom, Identity, LinearTransform, RandomInvolution, RandomPermutation, RemappedNodes};
 
 pub mod extra;
 pub mod operations;
@@ -17,13 +17,13 @@ pub trait Pattern: GeneralPattern<usize, usize>{}
 impl <T> Pattern for T where T: GeneralPattern<usize, usize>{}
 
 
-/**Build a new meta_pattern. Patterns are maps between two sets which may depend on the RNG. Generally over the whole set of servers, but sometimes among routers or groups. Check the documentation of the parent Traffic/Permutation for its interpretation.
+/**Build a new general_pattern. Patterns are maps between two sets which may depend on the RNG. Generally over the whole set of servers, but sometimes among routers or groups. Check the documentation of the parent Traffic/Permutation for its interpretation.
 
 ## Roughly uniform patterns
 
 ### Uniform
 
-In the [uniform](UniformPattern) meta_pattern all elements have same probability to send to any other.
+In the [uniform](UniformPattern) general_pattern all elements have same probability to send to any other.
 ```ignore
 Uniform{
 	legend_name: "uniform",
@@ -32,7 +32,7 @@ Uniform{
 
 ### GloballyShufflingDestinations
 
-The [GloballyShufflingDestinations] is an uniform-like meta_pattern that avoids repeating the same destination. It keeps a global vector of destinations. It is shuffled and each created message gets its destination from there. Sometimes you may be selected yourself as destination.
+The [GloballyShufflingDestinations] is an uniform-like general_pattern that avoids repeating the same destination. It keeps a global vector of destinations. It is shuffled and each created message gets its destination from there. Sometimes you may be selected yourself as destination.
 
 ```ignore
 GloballyShufflingDestinations{
@@ -42,7 +42,7 @@ GloballyShufflingDestinations{
 
 ### GroupShufflingDestinations
 
-The [GroupShufflingDestinations] meta_pattern is alike [GloballyShufflingDestinations] but keeping one destination vector per each group.
+The [GroupShufflingDestinations] general_pattern is alike [GloballyShufflingDestinations] but keeping one destination vector per each group.
 
 ```ignore
 GroupShufflingDestinations{
@@ -55,23 +55,23 @@ GroupShufflingDestinations{
 ### UniformDistance
 
 In [UniformDistance] each message gets its destination sampled uniformly at random among the servers attached to neighbour routers.
-It may build a meta_pattern either of servers or switches, controlled through the `switch_level` configuration flag.
-This meta_pattern autoscales if requested a size multiple of the network size.
+It may build a general_pattern either of servers or switches, controlled through the `switch_level` configuration flag.
+This general_pattern autoscales if requested a size multiple of the network size.
 
 Example configuration:
 ```ignore
 UniformDistance{
 	///The distance at which the destination must be from the source.
 	distance: 1,
-	/// Optionally build the meta_pattern at the switches. This should be irrelevant at direct network with the same number of servers per switch.
+	/// Optionally build the general_pattern at the switches. This should be irrelevant at direct network with the same number of servers per switch.
 	//switch_level: true,
 	legend_name: "uniform among neighbours",
 }
 ```
 
 ### RestrictedMiddleUniform
-[RestrictedMiddleUniform] is a meta_pattern in which the destinations are randomly sampled from the destinations for which there are some middle router satisfying some criteria. Note this is only a meta_pattern, the actual packet route does not have to go through such middle router.
-It has the same implicit concentration scaling as UniformDistance, allowing building a meta_pattern over a multiple of the number of switches.
+[RestrictedMiddleUniform] is a general_pattern in which the destinations are randomly sampled from the destinations for which there are some middle router satisfying some criteria. Note this is only a general_pattern, the actual packet route does not have to go through such middle router.
+It has the same implicit concentration scaling as UniformDistance, allowing building a general_pattern over a multiple of the number of switches.
 
 Example configuration:
 ```ignore
@@ -86,7 +86,7 @@ RestrictedMiddleUniform{
 	distances_to_destination: [1],
 	/// Optionally, a vector with distances from source to destination, ignoring middle.
 	distances_source_to_destination: [2],
-	/// Optionally, set a meta_pattern for those sources with no legal destination.
+	/// Optionally, set a general_pattern for those sources with no legal destination.
 	else: Uniform,
 }
 ```
@@ -118,8 +118,8 @@ With [FileMap] a map is read from a file. Each element has a unique destination.
 ```ignore
 FileMap{
 	/// Note this is a string literal.
-	filename: "/path/to/meta_pattern",
-	legend_name: "A meta_pattern in my device",
+	filename: "/path/to/general_pattern",
+	legend_name: "A general_pattern in my device",
 }
 ```
 
@@ -188,7 +188,7 @@ Product{
 ```
 
 ### Components
-[Components](ComponentsPattern) divides the topology along link classes. The 'local' meta_pattern is Uniform.
+[Components](ComponentsPattern) divides the topology along link classes. The 'local' general_pattern is Uniform.
 ```ignore
 Components{
 	global_pattern: RandomPermutation,
@@ -198,7 +198,7 @@ Components{
 ```
 
 ### Composition
-The [Composition] meta_pattern allows to concatenate transformations.
+The [Composition] general_pattern allows to concatenate transformations.
 ```ignore
 Composition{
 	patterns: [  FileMap{filename: "/patterns/second"}, FileMap{filename: "/patterns/first"}  ]
@@ -208,12 +208,12 @@ Composition{
 
 
 ### Pow
-A [Pow] is composition of a `meta_pattern` with itself `exponent` times.
+A [Pow] is composition of a `general_pattern` with itself `exponent` times.
 ```ignore
 Pow{
-	meta_pattern: FileMap{filename: "/patterns/mypattern"},
+	general_pattern: FileMap{filename: "/patterns/mypattern"},
 	exponent: "3",
-	legend_name: "Apply 3 times my meta_pattern",
+	legend_name: "Apply 3 times my general_pattern",
 }
 ```
 
@@ -229,36 +229,36 @@ RandomMix{
 ```
 
 ### IndependentRegions
-With [IndependentRegions] the set of nodes is partitioned in independent regions, each with its own meta_pattern. Source and target sizes must be equal.
+With [IndependentRegions] the set of nodes is partitioned in independent regions, each with its own general_pattern. Source and target sizes must be equal.
 ```ignore
 IndependentRegions{
 	// An array with the patterns for each region.
 	patterns: [Uniform, Hotspots{destinations:[0]}],
 	// An array with the size of each region. They must add up to the total size.
 	sizes: [100, 50],
-	// Alternatively, use relative_sizes. the meta_pattern will be initialized with sizes proportional to these.
+	// Alternatively, use relative_sizes. the general_pattern will be initialized with sizes proportional to these.
 	// You must use exactly one of either `sizes` or `relative_sizes`.
 	// relative_sizes: [88, 11],
 }
 ```
 ### RemappedNodes
-[RemappedNodes] allows to apply another meta_pattern using indices that are mapped by another meta_pattern.
+[RemappedNodes] allows to apply another general_pattern using indices that are mapped by another general_pattern.
 
 Example building a cycle in random order.
 ```ignore
 RemappedNodes{
-	/// The underlying meta_pattern to be used.
-	meta_pattern: Circulant{generators:[1]},
-	/// The meta_pattern defining the relabelling.
+	/// The underlying general_pattern to be used.
+	general_pattern: Circulant{generators:[1]},
+	/// The general_pattern defining the relabelling.
 	map: RandomPermutation,
 }
 ```
 
 ### CartesianCut
 
-With [CartesianCut] you see the nodes as block with an embedded block. Then you define a meta_pattern inside the small block and another outside. See [CartesianCut] for details and examples.
+With [CartesianCut] you see the nodes as block with an embedded block. Then you define a general_pattern inside the small block and another outside. See [CartesianCut] for details and examples.
  */
-pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn Pattern>
+pub(super) fn new_pattern(arg: GeneralPatternBuilderArgument) -> Box<dyn Pattern>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -314,7 +314,7 @@ pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn Pattern>
             "BinomialTree" => Box::new(BinomialTree::new(arg)),
             "InmediateSequencePattern" => Box::new(InmediateSequencePattern::new(arg)),
             // "ManhattanNeighbours" | "KingNeighbours" => EncapsulatedPattern::new(cv_name.clone(), arg),
-            _ => panic!("Unknown meta_pattern {}",cv_name),
+            _ => panic!("Unknown general_pattern {}",cv_name),
         }
     }
     else
@@ -324,7 +324,7 @@ pub(super) fn new_pattern(arg:MetaPatternBuilderArgument) -> Box<dyn Pattern>
 }
 
 /// In case you want to build a list of patterns but some of them are optional.
-pub fn new_optional_pattern(arg:MetaPatternBuilderArgument) -> Option<Box<dyn Pattern>>
+pub fn new_optional_pattern(arg: GeneralPatternBuilderArgument) -> Option<Box<dyn Pattern>>
 {
     if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=arg.cv
     {
@@ -710,7 +710,7 @@ use super::*;
                 {
                     let cv_allow_self = if allow_self { ConfigurationValue::True } else { ConfigurationValue::False };
                     let cv = ConfigurationValue::Object("Uniform".to_string(),vec![("allow_self".to_string(),cv_allow_self)]);
-                    let arg = MetaPatternBuilderArgument{ cv:&cv, plugs:&plugs };
+                    let arg = GeneralPatternBuilderArgument { cv:&cv, plugs:&plugs };
                     let mut uniform = UniformPattern::new(arg);
                     uniform.initialize(origin_size,destination_size,Some(&*dummy_topology),&mut rng);
                     let sample_size = (origin_size+destination_size)*10;
@@ -751,7 +751,7 @@ use super::*;
             let mut unique_count = 0;
             for _ in 0..sample_size
             {
-                let arg = MetaPatternBuilderArgument{ cv:&cv, plugs:&plugs };
+                let arg = GeneralPatternBuilderArgument { cv:&cv, plugs:&plugs };
                 let mut with_self = FixedRandom::new(arg);
                 with_self.initialize(size,size,Some(&*dummy_topology),&mut rng);
                 let mut dests = vec![0;size];
@@ -775,7 +775,7 @@ use super::*;
         let cv = ConfigurationValue::Object("FixedRandom".to_string(),vec![("allow_self".to_string(),ConfigurationValue::False)]);
         for logsize in 1..10
         {
-            let arg = MetaPatternBuilderArgument{ cv:&cv, plugs:&plugs };
+            let arg = GeneralPatternBuilderArgument { cv:&cv, plugs:&plugs };
             let size = 2usize.pow(logsize);
             let mut without_self = FixedRandom::new(arg);
             without_self.initialize(size,size,Some(&*dummy_topology),&mut rng);

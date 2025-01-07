@@ -16,7 +16,7 @@ use rand::SeedableRng;
 
 use crate::{match_object_panic, Plugs};
 use crate::config_parser::ConfigurationValue;
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::topology::{new_topology, Topology, TopologyBuilderArgument};
 use crate::routing::prelude::*;
 
@@ -372,7 +372,7 @@ impl ChannelMap
 	{
 		let mut routing =None;
 		let mut map =None;
-		let mut physical_to_logical =None; //meta_pattern
+		let mut physical_to_logical =None; //general_pattern
 		let mut logical_size = None; //the size of the logical channels
 		let mut physical_size = None; //the size of the physical channels
 		match_object_panic!(arg.cv,"ChannelMap",value,
@@ -388,7 +388,7 @@ impl ChannelMap
 				}).collect()),
 				_ => panic!("bad value for map"),
 			},
-			"physical_to_logical" => physical_to_logical = Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"physical_to_logical" => physical_to_logical = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"logical_size" => logical_size = Some(value.as_f64().expect("bad value for logical_size") as usize),
 			"physical_size" => physical_size = Some(value.as_f64().expect("bad value for physical_size") as usize),
 		);

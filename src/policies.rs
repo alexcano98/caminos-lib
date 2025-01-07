@@ -8,7 +8,7 @@ see [`new_virtual_channel_policy`](fn.new_virtual_channel_policy.html) for docum
 
 */
 
-use crate::meta_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 use crate::config_parser::ConfigurationValue;
 use crate::routing::CandidateEgress;
 use crate::router::Router;
@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use rand::{Rng,rngs::StdRng,SeedableRng};
 // use ::rand::{Rng,rngs::StdRng};
-use crate::meta_pattern::{new_pattern, MetaPatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::topology::prelude::CartesianData;
 
 ///Extra information to be used by the policies of virtual channels.
@@ -3209,7 +3209,7 @@ impl VirtualChannelPolicy for CartesianSpaceLabel
 {
 	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, topology:&dyn Topology, rng: &mut StdRng) -> Vec<CandidateEgress>
 	{
-		// let mut patron = self.meta_pattern.borrow_mut();
+		// let mut patron = self.general_pattern.borrow_mut();
 		//patron.initialize(self.source_space.size, self.destination_space.size, topology, rng); //FIXME: This shouldn't be done like this
 
 		candidates.iter().map(|cand|{
@@ -3270,7 +3270,7 @@ impl CartesianSpaceLabel
 				.map(|v|v.as_usize().expect("bad value in sizes")).collect::<Vec<usize>>()),
 			"target_size" => target_size=Some(value.as_array().expect("bad value for sizes").iter()
 				.map(|v|v.as_usize().expect("bad value in sizes")).collect::<Vec<usize>>()),
-			"meta_pattern" => pattern = Some(new_pattern(MetaPatternBuilderArgument{cv: value, plugs: arg.plugs})),
+			"general_pattern" => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv: value, plugs: arg.plugs})),
 		);
 		let policies=policies.expect("There were no policies");
 		let source_size=source_size.expect("There were no sizes");
@@ -3284,7 +3284,7 @@ impl CartesianSpaceLabel
 		{
 			 CartesianData::new(&(target_size.expect("There were no sizes")))
 		}else{
-			pattern = Some(new_pattern(MetaPatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs}));
+			pattern = Some(new_pattern(GeneralPatternBuilderArgument {cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs}));
 			CartesianData::new(&source_size)
 		};
 		//dummy hamming
@@ -3294,12 +3294,12 @@ impl CartesianSpaceLabel
 		]);
 		let mut rng = StdRng::seed_from_u64(1);
 		let topo_builder = TopologyBuilderArgument{cv: &cv, plugs: arg.plugs, rng: &mut rng };
-		let mut pattern = pattern.expect("There were no meta_pattern");
+		let mut pattern = pattern.expect("There were no general_pattern");
 		let binding = new_topology(topo_builder);
   		let topology = binding.as_ref();
 
 
-		pattern.initialize(source_space.size, target_space.size, Some(topology), &mut rng);//RefCell::new(meta_pattern.unwrap());
+		pattern.initialize(source_space.size, target_space.size, Some(topology), &mut rng);//RefCell::new(general_pattern.unwrap());
 		CartesianSpaceLabel{
 			policies,
 			source_space,

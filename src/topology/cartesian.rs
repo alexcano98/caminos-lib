@@ -1,6 +1,6 @@
 
-use crate::meta_pattern::pattern::Pattern;
-use crate::meta_pattern::pattern::probabilistic::UniformPattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::probabilistic::UniformPattern;
 use std::cell::RefCell;
 use ::rand::{Rng, rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
@@ -12,7 +12,7 @@ use crate::routing::prelude::*;
 use crate::matrix::Matrix;
 use crate::{match_object_panic};
 use crate::routing::RoutingAnnotation;
-use crate::meta_pattern::*; //For Valiant
+use crate::general_pattern::*; //For Valiant
 
 //extern crate itertools;
 use itertools::Itertools;
@@ -2585,7 +2585,7 @@ pub struct Valiant4Hamming
 {
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
-	//meta_pattern to select intermideate nodes
+	//general_pattern to select intermideate nodes
 	pattern:Box<dyn Pattern>,
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
@@ -2701,7 +2701,7 @@ impl Routing for Valiant4Hamming
 		let src_coord = cartesian_data.unpack(current_router);
 		let trg_coord = cartesian_data.unpack(target_router);
 
-		//let middle_server = self.meta_pattern.get_destination(source_server,topology, rng);
+		//let middle_server = self.general_pattern.get_destination(source_server,topology, rng);
 		//let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 		let mut middle_router;
 		// =match middle_location
@@ -2868,7 +2868,7 @@ impl Valiant4Hamming
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //meta_pattern to intermideate node
+		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
 		let mut first_reserved_virtual_channels=vec![];
 		let mut second_reserved_virtual_channels=vec![];
 		let mut remove_target_dimensions_aligment = vec![];
@@ -2878,7 +2878,7 @@ impl Valiant4Hamming
 		match_object_panic!(arg.cv,"Valiant4Hamming",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-		    "meta_pattern" => pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("meta_pattern not valid for Valiant4Hamming"),
+		    "general_pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Hamming"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 				as_array().expect("bad value for first_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in first_reserved_virtual_channels") as usize).collect(),
@@ -2930,7 +2930,7 @@ pub struct AdaptiveValiantClos
 	second: Box<dyn Routing>,
 	///Whether to avoid selecting routers without attached servers. This helps to apply it to indirect networks.
 	// selection_exclude_indirect_routers: bool,
-	//meta_pattern to select intermideate nodes
+	//general_pattern to select intermideate nodes
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
 }
