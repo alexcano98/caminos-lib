@@ -2878,7 +2878,7 @@ impl Valiant4Hamming
 		match_object_panic!(arg.cv,"Valiant4Hamming",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-		    "general_pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Hamming"),
+		    "pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Hamming"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 				as_array().expect("bad value for first_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in first_reserved_virtual_channels") as usize).collect(),

@@ -3270,7 +3270,7 @@ impl CartesianSpaceLabel
 				.map(|v|v.as_usize().expect("bad value in sizes")).collect::<Vec<usize>>()),
 			"target_size" => target_size=Some(value.as_array().expect("bad value for sizes").iter()
 				.map(|v|v.as_usize().expect("bad value in sizes")).collect::<Vec<usize>>()),
-			"general_pattern" => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv: value, plugs: arg.plugs})),
+			"pattern" => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv: value, plugs: arg.plugs})),
 		);
 		let policies=policies.expect("There were no policies");
 		let source_size=source_size.expect("There were no sizes");

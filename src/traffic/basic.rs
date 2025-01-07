@@ -46,14 +46,14 @@ pub struct Homogeneous
 
 impl Traffic for Homogeneous
 {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		if origin>=self.tasks
 		{
 			//panic!("origin {} does not belong to the traffic",origin);
 			return Err(TrafficError::OriginOutsideTraffic);
 		}
-		let destination=self.pattern.get_destination(origin,Some(topology),rng);
+		let destination=self.pattern.get_destination(origin,topology,rng);
 		if origin==destination
 		{
 			return Err(TrafficError::SelfMessage);
@@ -86,7 +86,7 @@ impl Traffic for Homogeneous
 		}
 	}
 
-    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
     {
         //let message_ptr=message.as_ref() as *const Message;
         //self.generated_messages.remove(&message_ptr)
@@ -137,7 +137,7 @@ impl Homogeneous
 		let message_size=message_size.expect("There were no message_size");
 		let load=load.expect("There were no load");
 		let mut pattern=pattern.expect("There were no SimplePattern");
-		pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
+		pattern.initialize(tasks, tasks, arg.topology, arg.rng);
 		Homogeneous{
 			tasks,
 			pattern,
@@ -187,7 +187,7 @@ pub struct Burst
 
 impl Traffic for Burst
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         if origin>=self.tasks
         {
@@ -195,7 +195,7 @@ impl Traffic for Burst
             return Err(TrafficError::OriginOutsideTraffic);
         }
         self.pending_messages[origin]-=1;
-        let destination=self.pattern.get_destination(origin,Some(topology),rng);
+        let destination=self.pattern.get_destination(origin,topology,rng);
         if origin==destination
         {
             return Err(TrafficError::SelfMessage);
@@ -230,7 +230,7 @@ impl Traffic for Burst
         self.pending_messages[task]>0
     }
 
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
     {
         self.total_consumed_per_task[task] += 1;
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
@@ -292,7 +292,7 @@ impl Burst
         let message_size=message_size.expect("There were no message_size");
         let messages_per_task=messages_per_task.expect("There were no messages_per_task");
         let mut pattern=pattern.expect("There were no SimplePattern");
-        pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
+        pattern.initialize(tasks, tasks, arg.topology, arg.rng);
 
         let pending_messages = vec![messages_per_task;tasks];
 
@@ -371,7 +371,7 @@ pub struct TrafficMessages
 
 impl Traffic for TrafficMessages
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let message = self.traffic.generate_message(origin,cycle,topology,rng);
         if !message.is_err(){
@@ -403,7 +403,7 @@ impl Traffic for TrafficMessages
         }
     }
 
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         self.total_consumed += 1;
         self.total_consumed_per_task[task] += 1;
@@ -531,7 +531,7 @@ pub struct Sleep
 
 impl Traffic for Sleep
 {
-    fn generate_message(&mut self, _origin:usize, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, _origin:usize, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         return Err(TrafficError::OriginOutsideTraffic);
     }
@@ -539,7 +539,7 @@ impl Traffic for Sleep
     {
         0.0
     }
-    fn consume(&mut self, _task:usize, _message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+    fn consume(&mut self, _task:usize, _message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
     {
         false
     }
@@ -629,7 +629,7 @@ pub struct PeriodicBurst
 
 impl Traffic for PeriodicBurst
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         if origin>=self.tasks
         {
@@ -637,7 +637,7 @@ impl Traffic for PeriodicBurst
             return Err(TrafficError::OriginOutsideTraffic);
         }
         self.pending_messages[origin]-=1;
-        let destination=self.pattern.get_destination(origin,Some(topology),rng);
+        let destination=self.pattern.get_destination(origin,topology,rng);
         if origin==destination
         {
             return Err(TrafficError::SelfMessage);
@@ -666,7 +666,7 @@ impl Traffic for PeriodicBurst
             0.0
         }
     }
-    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
     {
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
         self.generated_messages.remove(&id)
@@ -761,7 +761,7 @@ impl PeriodicBurst
 
         let times_to_generate = VecDeque::from((0..((finish-offset)/period +1)).into_iter().map(|i| (i*period + offset) as Time).collect::<Vec<Time>>());
         println!("times_to_generate: {:?}", times_to_generate);
-        pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
+        pattern.initialize(tasks, tasks, arg.topology, arg.rng);
         PeriodicBurst {
             pattern,
             times_to_generate,
@@ -804,7 +804,7 @@ pub struct SubRangeTraffic
 
 impl Traffic for SubRangeTraffic
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         if origin<self.start || origin>=self.end
         {
@@ -816,7 +816,7 @@ impl Traffic for SubRangeTraffic
     {
         self.traffic.probability_per_cycle(task)
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         self.traffic.consume(task, message, cycle, topology, rng)
     }
@@ -874,7 +874,7 @@ pub struct Reactive
 
 impl Traffic for Reactive
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         if origin<self.pending_messages.len()
         {
@@ -893,7 +893,7 @@ impl Traffic for Reactive
         }
         return self.action_traffic.probability_per_cycle(task);
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         if self.action_traffic.consume(task, message, cycle, topology, rng)
         {
@@ -993,7 +993,7 @@ pub struct SendMessageToVector
 
 impl Traffic for SendMessageToVector
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let destination = self.destinations[origin].pop();
         if let Some(destination) = destination {
@@ -1029,7 +1029,7 @@ impl Traffic for SendMessageToVector
         }
     }
 
-    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
     {
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
         self.generated_messages.remove(&id)
@@ -1122,27 +1122,10 @@ pub fn build_send_message_to_vector_cv(args: SendMessageToVectorCVBuilder) -> Co
 }
 
 mod test {
-    use crate::TopologyBuilderArgument;
     use rand::prelude::StdRng;
     use rand::SeedableRng;
     use crate::config_parser::ConfigurationValue;
     use crate::Plugs;
-    use crate::topology::{new_topology, Topology};
-
-    #[allow(dead_code)]
-    fn get_hamming_topology(switches: f64) -> Box<dyn Topology>{
-        let hamming_cv = ConfigurationValue::Object("Hamming".to_string(), vec![
-            ("servers_per_router".to_string(), ConfigurationValue::Number(1.0)),
-            ("sides".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Number(switches)]),),
-        ]); //hamming CV
-        let plugs = Plugs::default();
-        let params = TopologyBuilderArgument {
-            cv: &hamming_cv,
-            rng: &mut StdRng::seed_from_u64(0),
-            plugs: &plugs,
-        };
-        new_topology(params)
-    }
 
     #[test]
     fn test_send_message_to_vector() {
@@ -1161,7 +1144,7 @@ mod test {
             cv: &cv,
             rng: &mut rng,
             plugs: &Plugs::default(),
-            topology: &*get_hamming_topology(switches),
+            topology: None,
         };
 
         //Starts the traffic
@@ -1176,7 +1159,7 @@ mod test {
             }
 
             for i in 0..switches as usize {
-                let message = t.generate_message(i, 0, &*get_hamming_topology(switches), &mut rng).unwrap();
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
                 messages.push(message);
             }
         }
@@ -1188,7 +1171,7 @@ mod test {
             }
 
             for i in 0..switches as usize {
-                let message = t.generate_message(i, 0, &*get_hamming_topology(switches), &mut rng).unwrap();
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
                 messages.push(message);
             }
         }
@@ -1202,7 +1185,7 @@ mod test {
         assert_eq!(t.is_finished(), false);
         //consume all messages
         for i in 0..messages.len() {
-            assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, &*get_hamming_topology(switches), &mut rng), true);
+            assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
         }
         assert_eq!(t.is_finished(), true);
     }

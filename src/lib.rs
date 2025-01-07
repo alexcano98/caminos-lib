@@ -421,7 +421,7 @@ impl Server
 			self.statistics.track_message_delay(cycle-message.creation_cycle,cycle);
 			statistics.track_message_delay(cycle-message.creation_cycle,cycle);
 			self.consumed_phits.remove(&message_ptr);
-			if !traffic.consume(self.index, &*message, cycle, topology, rng)
+			if !traffic.consume(self.index, &*message, cycle, Some(topology), rng)
 			{
 				panic!("The traffic could not consume its own message.");
 			}
@@ -966,7 +966,7 @@ impl<'a> Simulation<'a>
 		let traffic=new_traffic(TrafficBuilderArgument{
 			cv:traffic,
 			plugs,
-			topology:topology.as_ref(),
+			topology:Some(topology.as_ref()),
 			rng:&mut rng,
 		});
 		let num_tasks = traffic.number_tasks();
@@ -1207,7 +1207,7 @@ impl<'a> Simulation<'a>
 				if self.shared.traffic.should_generate(iserver,self.shared.cycle,&mut self.mutable.rng)
 				{
 					if server.stored_messages.len()<self.server_queue_size {
-						match self.shared.traffic.generate_message(iserver,self.shared.cycle,self.shared.network.topology.as_ref(),&mut self.mutable.rng)
+						match self.shared.traffic.generate_message(iserver,self.shared.cycle,Some(self.shared.network.topology.as_ref()),&mut self.mutable.rng)
 						{
 							Ok(message) =>
 							{

@@ -282,7 +282,7 @@ pub struct HomogeneousTrafficBuilder
 pub fn create_homogeneous_traffic(arg: HomogeneousTrafficBuilder) -> ConfigurationValue
 {
     ConfigurationValue::Object("HomogeneousTraffic".to_string(), vec![
-        ("general_pattern".to_string(), arg.pattern),
+        ("pattern".to_string(), arg.pattern),
         ("servers".to_string(), ConfigurationValue::Number(arg.servers as f64)),
         ("load".to_string(), ConfigurationValue::Number(arg.load)),
         ("message_size".to_string(), ConfigurationValue::Number(arg.message_size as f64))])
@@ -301,7 +301,7 @@ pub struct BurstTrafficBuilder
 /// Creates a Configuration Value with the parameters for the Burst traffic general_pattern
 pub fn create_burst_traffic(arg: BurstTrafficBuilder) -> ConfigurationValue
 {
-    ConfigurationValue::Object("Burst".to_string(), vec![("general_pattern".to_string(), arg.pattern ),
+    ConfigurationValue::Object("Burst".to_string(), vec![("pattern".to_string(), arg.pattern ),
                                                          ("servers".to_string(), ConfigurationValue::Number(arg.servers as f64)),
                                                          ("messages_per_server".to_string(), ConfigurationValue::Number(arg.messages_per_server as f64)),
                                                          ("message_size".to_string(), ConfigurationValue::Number(arg.message_size as f64))])
@@ -321,7 +321,7 @@ pub struct PeriodicBurstTrafficBuilder
 /// Creates a Configuration Value with the parameters for the Burst traffic general_pattern
 pub fn create_periodic_burst_traffic(arg:PeriodicBurstTrafficBuilder) -> ConfigurationValue
 {
-    ConfigurationValue::Object("PeriodicBurst".to_string(), vec![("general_pattern".to_string(), arg.pattern ),
+    ConfigurationValue::Object("PeriodicBurst".to_string(), vec![("pattern".to_string(), arg.pattern ),
                                                          ("tasks".to_string(), ConfigurationValue::Number(arg.tasks as f64)),
                                                          ("messages_per_task_per_period".to_string(), ConfigurationValue::Number(arg.messages_per_task_per_period as f64)),
                                                          ("message_size".to_string(), ConfigurationValue::Number(arg.message_size as f64)),

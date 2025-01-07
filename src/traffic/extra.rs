@@ -58,7 +58,7 @@ pub struct TrafficManager
 
 impl Traffic for TrafficManager
 {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		if origin>=self.tasks
 		{
@@ -109,7 +109,7 @@ impl Traffic for TrafficManager
 		self.available_messages_to_send[task] > 0 && self.traffic.should_generate(task, cycle, rng)
 	}
 
-	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
 	{
 		self.credits[task] += self.credits_per_received_message;
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
@@ -189,8 +189,8 @@ impl TrafficManager
 		let mut initial_credits=initial_credits.expect("There were no initial_credits");
 
 		let available_messages_to_send = vec![0;tasks];
-		initial_credits.initialize(tasks, tasks, Some(arg.topology), arg.rng);
-		let credits = (0..tasks).map(|i| initial_credits.get_destination(i, Some(arg.topology), arg.rng)).collect::<Vec<usize>>();
+		initial_credits.initialize(tasks, tasks, arg.topology, arg.rng);
+		let credits = (0..tasks).map(|i| initial_credits.get_destination(i, arg.topology, arg.rng)).collect::<Vec<usize>>();
 
 		TrafficManager {
 			tasks,
@@ -245,7 +245,7 @@ pub struct MessageSizeModifier {
 }
 
 impl Traffic for MessageSizeModifier {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		let message = self.traffic.generate_message(origin, cycle, topology, rng)?;
 		let mut payload = Vec::with_capacity(message.payload().len() + 4);
@@ -272,7 +272,7 @@ impl Traffic for MessageSizeModifier {
 	{
 		self.traffic.probability_per_cycle(task)
 	}
-	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
 	{
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
 		let sub_message_payload = &message.payload()[16..];
@@ -558,22 +558,7 @@ mod tests {
 		use crate::config_parser::ConfigurationValue;
 		use crate::general_pattern::pattern::extra::get_candidates_selection;
 		use crate::Plugs;
-		use crate::topology::{new_topology, Topology};
 		use crate::traffic::new_traffic;
-
-		fn get_hamming_topology(switches: f64) -> Box<dyn Topology>{
-			let hamming_cv = ConfigurationValue::Object("Hamming".to_string(), vec![
-				("servers_per_router".to_string(), ConfigurationValue::Number(1.0)),
-				("sides".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Number(switches)]),),
-			]); //hamming CV
-			let plugs = Plugs::default();
-			let params = TopologyBuilderArgument {
-				cv: &hamming_cv,
-				rng: &mut StdRng::seed_from_u64(0),
-				plugs: &plugs,
-			};
-			new_topology(params)
-		}
 
 		#[test]
 		fn test_traffic_manager() {
@@ -605,7 +590,7 @@ mod tests {
 				cv: &traffic_manager,
 				rng: &mut rng,
 				plugs: &Plugs::default(),
-				topology: &*get_hamming_topology(switches),
+				topology: None,
 			};
 
 			//Starts the traffic
@@ -620,7 +605,7 @@ mod tests {
 				}
 
 				for i in 0..switches as usize {
-					let message = t.generate_message(i, 0, &*get_hamming_topology(switches), &mut rng).unwrap();
+					let message = t.generate_message(i, 0, None, &mut rng).unwrap();
 					messages.push(message);
 				}
 
@@ -630,7 +615,7 @@ mod tests {
 				}
 
 				for i in 0..messages.len() {
-					assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, &*get_hamming_topology(switches), &mut rng), true);
+					assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
 				}
 			}
 
@@ -645,7 +630,7 @@ mod tests {
 				}
 
 				for i in 0..switches as usize {
-					let message = t.generate_message(i, 0, &*get_hamming_topology(switches), &mut rng).unwrap();
+					let message = t.generate_message(i, 0, None, &mut rng).unwrap();
 					messages.push(message);
 				}
 
@@ -655,7 +640,7 @@ mod tests {
 				}
 
 				for i in 0..messages.len() {
-					assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, &*get_hamming_topology(switches), &mut rng), true);
+					assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
 				}
 			}
 

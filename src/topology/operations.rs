@@ -129,7 +129,7 @@ impl RemappedServersTopology
 		let mut pattern = None;
 		match_object_panic!(arg.cv, "RemappedServers", value,
 			"topology" => topology = Some(new_topology(TopologyBuilderArgument{cv:value,rng:&mut arg.rng,..arg})),
-			"general_pattern" => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern" => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
 		 let topology = topology.expect("There were no topology in configuration of RemappedServersTopology.");
 		let n = topology.num_servers();

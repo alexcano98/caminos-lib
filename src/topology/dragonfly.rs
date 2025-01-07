@@ -1024,7 +1024,7 @@ impl Valiant4Dragonfly
 		match_object_panic!(arg.cv,"Valiant4Dragonfly",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-			"general_pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Dragonfly"),
+			"pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Dragonfly"),
 			"distance_middle_destination" => distance_middle_destination=value.as_f64().expect("bad value for distance_middle_destination") as usize,
 			// "exclude_h_groups"=> exclude_h_groups=value.as_bool().expect("bad value for exclude_h_groups"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
@@ -1283,7 +1283,7 @@ impl PAR
 		match_object_panic!(arg.cv,"PAR",_value,
 			// "first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			// "second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-			// "general_pattern" => general_pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for PAR"),
+			// pattern => general_pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for PAR"),
 			// // "exclude_h_groups"=> exclude_h_groups=value.as_bool().expect("bad value for exclude_h_groups"),
 			// "first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 			// 	as_array().expect("bad value for first_reserved_virtual_channels").iter()

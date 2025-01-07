@@ -41,7 +41,7 @@ pub struct Sequence
 
 impl Traffic for Sequence
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         // while self.traffics[self.current_traffic].is_finished()
         // {
@@ -59,7 +59,7 @@ impl Traffic for Sequence
             0.0
         }
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         self.traffics[self.current_traffic].consume(task, message, cycle, topology, rng)
     }
@@ -167,7 +167,7 @@ pub struct TaskSequence
 
 impl Traffic for TaskSequence
 {
-    fn generate_message(&mut self, origin: usize, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError>
+    fn generate_message(&mut self, origin: usize, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError>
     {
         let current_traffic = self.task_current_traffic[origin];
         let m = self.traffics[current_traffic].generate_message(origin, cycle, topology, rng);
@@ -198,7 +198,7 @@ impl Traffic for TaskSequence
     {
         self.traffics[self.task_current_traffic[task]].probability_per_cycle(task)
     }
-    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         let current_traffic = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload")) as usize;
         let other_payload = &message.payload()[16..];
@@ -299,7 +299,7 @@ pub struct MessageTaskSequence
 
 impl Traffic for MessageTaskSequence
 {
-    fn generate_message(&mut self, origin: usize, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
+    fn generate_message(&mut self, origin: usize, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
         let messages_sent = &mut self.messages_sent[origin];
         let messages_to_send_per_traffic = &self.messages_to_send_per_traffic;
 
@@ -350,7 +350,7 @@ impl Traffic for MessageTaskSequence
         0.0
     }
 
-    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> bool {
+    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool {
         let messages_consumed = &mut self.messages_consumed[task];
         let [id,index ] = bytemuck::try_cast::<[u8;32],[u128;2]>(message.payload()[0..32].try_into().expect("This should be here!")).expect("MessageTaskSequence: bad payload in consume");
         let mut down_message = ReferredPayload::from(message);
@@ -532,7 +532,7 @@ pub struct MultimodalBurst
 
 impl Traffic for MultimodalBurst
 {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		if origin>=self.tasks
 		{
@@ -562,7 +562,7 @@ impl Traffic for MultimodalBurst
 		}
 		// Build the message
 		let (ref pattern,_total_messages,message_size,_step_size) = self.provenance[provenance_index];
-		let destination=pattern.get_destination(origin,Some(topology),rng);
+		let destination=pattern.get_destination(origin,topology,rng);
 		if origin==destination
 		{
 			return Err(TrafficError::SelfMessage);
@@ -591,7 +591,7 @@ impl Traffic for MultimodalBurst
 		}
 		0.0
 	}
-	fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+	fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
 	{
 		//let message_ptr=message.as_ref() as *const Message;
 		//self.generated_messages.remove(&message_ptr)
@@ -668,7 +668,7 @@ impl MultimodalBurst
 		let mut provenance=provenance.expect("There were no provenance");
 		for (pattern,_total_messages,_message_size,_step_size) in provenance.iter_mut()
 		{
-			pattern.initialize(tasks, tasks, Some(arg.topology), arg.rng);
+			pattern.initialize(tasks, tasks, arg.topology, arg.rng);
 		}
 		let each_pending = provenance.iter().map(|(_pattern,total_messages,_message_size,step_size)|(*total_messages,*step_size)).collect();
 		MultimodalBurst{
@@ -709,7 +709,7 @@ pub struct TimeSequenced
 
 impl Traffic for TimeSequenced
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let mut offset = cycle;
         let mut traffic_index = 0;
@@ -726,7 +726,7 @@ impl Traffic for TimeSequenced
         //Can we do better here?
         1.0
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         for traffic in self.traffics.iter_mut()
         {

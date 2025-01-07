@@ -48,7 +48,7 @@ pub struct MessageBarrier
 
 impl Traffic for MessageBarrier
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let message = self.traffic.generate_message(origin,cycle,topology,rng);
         // if !message.is_err(){
@@ -85,7 +85,7 @@ impl Traffic for MessageBarrier
         self.total_sent_per_task[task] < self.messages_per_task_to_wait && self.traffic.should_generate(task, cycle, rng)
     }
 
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         self.total_consumed += 1;
         self.total_consumed_per_task[task] += 1;
