@@ -284,7 +284,7 @@ impl HypercubeNeighbours{
 Returns the neighbours in a binomial tree
 ```ignore
     BinomialTreeNeighbours{
-        go_up: true, //aim the parent
+        go_up: true, //aim the parent, its a reduce.
     }
 ```
 **/
@@ -304,23 +304,35 @@ impl GeneralPattern<usize, Vec<usize>> for BinomialTreeNeighbours{
         //calculate the neighbours
         for i in 0..source_size{
             //get the index of the first 1 in the binary representation of i
-            let mut index = -1;
+            let mut index = dimensions;
             for j in 0..dimensions{
                 if i & (1 << j) != 0{
-                    index = j as i32;
+                    index = j;
                     break;
                 }
             }
-            for i in ((index+1) as u32)..dimensions{
-                let neighbour = (i ^ (1 << index)) as usize;
-                if self.go_up{
-                    self.neighbours[i as usize].push(neighbour);
-                } else {
-                    self.neighbours[neighbour].push(i as usize);
+
+            for shift in 0..index{
+                let neighbour = i ^ (1 << shift);
+                // let parity = i % 2; //(i >> shift) % 2;
+                if i % 2 == 0{
+                    self.neighbours[i].push(neighbour);
                 }
             }
+            self.neighbours[i].reverse();
         }
-        println!("{:?}", self.neighbours);
+
+        if self.go_up{
+            //transpose the neighbours
+            let mut new_neighbours = vec![vec![]; source_size];
+            for i in 0..source_size{
+                for j in self.neighbours[i].clone(){
+                    new_neighbours[j].push(i);
+                }
+            }
+            self.neighbours = new_neighbours;
+        }
+        // println!("{:?}", self.neighbours);
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
         self.neighbours[param].clone()
@@ -358,29 +370,37 @@ pub struct BinaryTreeNeighbours
 
 impl GeneralPattern<usize, Vec<usize>> for BinaryTreeNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
-        //panic if source size is not a power of 2
-        // assert!(source_size.is_power_of_two());
+
         assert_eq!(source_size, target_size);
         self.neighbours = vec![vec![]; source_size];
-        // let dimensions = source_size.ilog2();
         //calculate the neighbours
         for i in 0..source_size {
-            let son = i << 1;
+            // let offset_exp = i.ilog2() +1;
+            // let offset = 1 << offset_exp;
+            // if offset >= source_size {
+            //     break;
+            // }
+            let son = (i << 1) + 1;
+            let son_2 = (i + 1) << 1;
+
             if son < source_size {
-                if self.go_up {
-                    self.neighbours[i].push(son);
-                } else {
-                    self.neighbours[son].push(i);
-                }
+                self.neighbours[i].push(son);
             }
 
-            if son ^ 1 < source_size {
-                if self.go_up {
-                    self.neighbours[i].push(son ^ 1);
-                } else {
-                    self.neighbours[son ^ 1].push(i);
+            if son_2 < source_size {
+                self.neighbours[i].push(son_2);
+            }
+        }
+
+        if self.go_up {
+            //transpose the neighbours
+            let mut new_neighbours = vec![vec![]; source_size];
+            for i in 0..source_size {
+                for j in self.neighbours[i].clone() {
+                    new_neighbours[j].push(i);
                 }
             }
+            self.neighbours = new_neighbours;
         }
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
@@ -758,7 +778,7 @@ mod tests {
         for (index, vector) in neighbours.iter().enumerate() {
             //check if the vectors are the same, no matter the order
             assert_eq!(vector.len(), nei[index].len());
-            for (i, value) in vector.iter().enumerate(){
+            for (_i, value) in vector.iter().enumerate(){
                 assert!(nei[index].contains(value));
             }
         }
@@ -787,7 +807,7 @@ mod tests {
         for (index, vector) in neighbours.iter().enumerate() {
             //check if the vectors are the same, no matter the order
             assert_eq!(vector.len(), expected[index].len());
-            for (i, value) in vector.iter().enumerate(){
+            for (_i, value) in vector.iter().enumerate(){
                 assert!(expected[index].contains(value));
             }
         }
@@ -807,7 +827,7 @@ mod tests {
         for (index, vector) in neighbours.iter().enumerate() {
             //check if the vectors are the same, no matter the order
             assert_eq!(vector.len(), expected[index].len());
-            for (i, value) in vector.iter().enumerate(){
+            for (_i, value) in vector.iter().enumerate(){
                 assert!(expected[index].contains(value));
             }
         }
@@ -815,23 +835,111 @@ mod tests {
 
     #[test]
     fn test_binomial_tree_neighbours(){
+        //go down -> BROADCAST
         let mut binomial_tree = super::BinomialTreeNeighbours{
             neighbours: vec![],
-            go_up: true,
+            go_up: false,
         };
         binomial_tree.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
         let expected = vec![
-            vec![1, 2, 4],
-            vec![3, 5],
-            vec![6],
-            vec![7],
-            vec![5],
-            vec![6],
+            vec![4, 2, 1],
+            vec![],
+            vec![3],
+            vec![],
+            vec![6, 5],
+            vec![],
             vec![7],
             vec![],
         ];
         for i in 0..8{
             assert_eq!(binomial_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
         }
+
+        //go up -> REDUCE
+        let mut binomial_tree = super::BinomialTreeNeighbours{
+            neighbours: vec![],
+            go_up: true,
+        };
+        binomial_tree.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+        let expected = vec![
+            vec![],
+            vec![0],
+            vec![0],
+            vec![2],
+            vec![0],
+            vec![4],
+            vec![4],
+            vec![6],
+        ];
+        for i in 0..8{
+            assert_eq!(binomial_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
+        }
+    }
+
+    #[test]
+    fn test_binary_tree_neighbours(){
+        //go down -> BROADCAST
+        let mut binary_tree = super::BinaryTreeNeighbours{
+            neighbours: vec![],
+            go_up: false,
+        };
+        binary_tree.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+        let expected = vec![
+            vec![1, 2], //0
+            vec![3, 4], //1
+            vec![5, 6], //2
+            vec![7], //3
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        ];
+        for i in 0..8{
+            assert_eq!(binary_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
+        }
+
+        binary_tree.initialize(16, 16, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+        let expected = vec![
+            vec![1, 2], //0
+            vec![3, 4], //1
+            vec![5, 6], //2
+            vec![7, 8], //3
+            vec![9, 10], //4
+            vec![11, 12], //5
+            vec![13, 14], //6
+            vec![15], //7
+            vec![], //8
+            vec![], //9
+            vec![], //10
+            vec![], //11
+            vec![], //12
+            vec![], //13
+            vec![], //14
+            vec![], //15
+        ];
+        for i in 0..16{
+            assert_eq!(binary_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
+        }
+
+        //go up -> REDUCE
+        let mut binary_tree = super::BinaryTreeNeighbours{
+            neighbours: vec![],
+            go_up: true,
+        };
+        binary_tree.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+        let expected = vec![
+            vec![],
+            vec![0],
+            vec![0],
+            vec![1],
+            vec![1],
+            vec![2],
+            vec![2],
+            vec![3],
+        ];
+        for i in 0..8{
+            assert_eq!(binary_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
+        }
+
     }
 }

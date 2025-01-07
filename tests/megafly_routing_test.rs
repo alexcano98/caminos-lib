@@ -96,7 +96,7 @@ fn test_megafly_routing()
     };
 
 
-    let cycles = 1;
+    let _cycles = 1;
     let maximum_packet_size=16;
 
     let topology = create_megafly_topology(megafly_builder);
@@ -107,7 +107,7 @@ fn test_megafly_routing()
 
     let simulation_builder = SimulationBuilder{
         random_seed: 1,
-        warmup: 20000,
+        warmup: 1000,
         measured: 1000,
         topology,
         traffic,

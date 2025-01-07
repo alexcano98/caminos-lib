@@ -1122,13 +1122,14 @@ pub fn build_send_message_to_vector_cv(args: SendMessageToVectorCVBuilder) -> Co
 }
 
 mod test {
-    use rand::prelude::StdRng;
-    use rand::SeedableRng;
-    use crate::config_parser::ConfigurationValue;
-    use crate::Plugs;
 
-    #[test]
+#[test]
     fn test_send_message_to_vector() {
+        use crate::StdRng;
+        use crate::config_parser::ConfigurationValue;
+        use crate::Plugs;
+        use rand::SeedableRng;
+
         let switches = 4.0;
         let mut rng = StdRng::seed_from_u64(0);
         let one_to_many_pattern = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);

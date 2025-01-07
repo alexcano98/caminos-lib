@@ -315,6 +315,7 @@ pub struct MegaflyAD
 	global_pattern_per_hop: Vec<Vec<Option<Box<dyn Pattern>>>>,
 	consume_same_channel: bool,
 	set_global_minimal_channel: bool,
+	cartesian_data_indirect: CartesianData,
 }
 
 impl Routing for MegaflyAD
@@ -340,19 +341,14 @@ impl Routing for MegaflyAD
 			unreachable!();
 		}
 
-		// let binding = routing_info.auxiliar.borrow();
-		// let aux = binding.as_ref().unwrap().downcast_ref::<Vec<usize>>().unwrap();
-		// let vc_local = aux[0] + aux[1] * 2;
-		// let vc_global = aux[1];
-		// let _meta=routing_info.meta.as_ref().unwrap();
 		let visited_routers = routing_info.visited_routers.as_ref().unwrap();
 		let source_router = visited_routers[0];
 		let selections = routing_info.selections.as_ref().unwrap();
 
-		let cartesian_data = topology.cartesian_data().expect("cartesian data not available"); //BEAWARE THAT DF+ IS AN INDIRECT NETWORK
-		let current_coord = cartesian_data.unpack(current_router);
-		let target_coord = cartesian_data.unpack(target_router);
-		let source_coord = cartesian_data.unpack(source_router);
+		// let cartesian_data = topology.cartesian_data().expect("cartesian data not available"); //BEAWARE THAT DF+ IS AN INDIRECT NETWORK
+		let current_coord = self.cartesian_data_indirect.unpack(current_router);
+		let target_coord = self.cartesian_data_indirect.unpack(target_router);
+		let source_coord = self.cartesian_data_indirect.unpack(source_router);
 
 		let num_ports=topology.ports(current_router);
 		let mut r=Vec::with_capacity(num_ports*num_virtual_channels);
@@ -367,7 +363,7 @@ impl Routing for MegaflyAD
 
 		for NeighbourRouterIteratorItem{link_class: next_link_class,port_index,neighbour_router:neighbour_router_index,..} in topology.neighbour_router_iter(current_router)
 		{
-			let neighbour_coord = cartesian_data.unpack(neighbour_router_index);
+			let neighbour_coord = self.cartesian_data_indirect.unpack(neighbour_router_index);
 			let next_distance = topology.distance(neighbour_router_index, target_router);
 
 			let minimal = if next_distance < distance
@@ -386,43 +382,6 @@ impl Routing for MegaflyAD
 							if self.minimal_to_deroute[0] == 0 && minimal == 1{
 								continue;
 							}
-
-							// if pos_target_group {
-							// 		if let Some(ref general_pattern) = self.source_group_pattern[0][0]
-							// 		{
-							// 			let port = if let Some(ref general_pattern) = self.source_group_pattern[0][1]
-							// 			{
-							// 				general_pattern.get_destination(port_index, topology, _rng)
-							// 			} else {
-							// 				port_index
-							// 			};
-							//
-							// 			let destination = general_pattern.get_destination(index_pair, topology, _rng);
-							// 			if destination != port {
-							// 				continue;
-							// 			}
-							// 		}
-							// }
-
-
-							// if minimal == 1
-							// {
-							// 	if let Some(ref general_pattern) = self.local_pattern_per_hop[0][0]
-							// 	{
-							// 		let port = if let Some(ref general_pattern) = self.local_pattern_per_hop[0][1]
-							// 		{
-							// 			general_pattern.get_destination(port_index, topology, _rng)
-							// 		} else {
-							// 			port_index
-							// 		};
-							//
-							// 		let destination = general_pattern.get_destination(index_pair, topology, _rng);
-							// 		if destination != port {
-							// 			continue;
-							// 		}
-							// 	}
-							// }
-
 							r.extend(self.first_allowed_virtual_channels.iter().map(|v| CandidateEgress{port:port_index,virtual_channel:*v,label:minimal,..Default::default()}));
 						}
 						1 => { //down
@@ -645,6 +604,10 @@ impl Routing for MegaflyAD
 	fn initialize(&mut self, topology:&dyn Topology, _rng: &mut StdRng)
 	{
 		let cartesian_data = topology.cartesian_data().expect("cartesian data not available"); //BEAWARE THAT DF+ IS AN INDIRECT NETWORK
+		if self.source_group_pattern.len() == 0
+		{
+			self.source_group_pattern = vec![vec![None,None],vec![None,None]];
+		}
 		for i in 0..self.source_group_pattern.len()
 		{
 			if let Some(ref mut pattern) = self.source_group_pattern[i][0]
@@ -655,6 +618,10 @@ impl Routing for MegaflyAD
 			{
 				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], Some(topology), _rng);
 			}
+		}
+		if self.intermediate_group_pattern.len() == 0
+		{
+			self.intermediate_group_pattern = vec![vec![None,None],vec![None,None]];
 		}
 		for i in 0..self.intermediate_group_pattern.len()
 		{
@@ -667,6 +634,10 @@ impl Routing for MegaflyAD
 				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], Some(topology), _rng);
 			}
 		}
+		if self.destination_group_pattern.len() == 0
+		{
+			self.destination_group_pattern = vec![vec![None,None],vec![None,None]];
+		}
 		for i in 0..self.destination_group_pattern.len()
 		{
 			if let Some(ref mut pattern) = self.destination_group_pattern[i][0]
@@ -677,6 +648,10 @@ impl Routing for MegaflyAD
 			{
 				pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], Some(topology), _rng);
 			}
+		}
+		if self.global_pattern_per_hop.len() == 0
+		{
+			self.global_pattern_per_hop = vec![vec![None,None],vec![None,None]];
 		}
 		for i in 0..self.global_pattern_per_hop.len()
 		{
@@ -689,17 +664,7 @@ impl Routing for MegaflyAD
 				pattern.initialize(cartesian_data.sides[1], cartesian_data.sides[1], Some(topology), _rng);
 			}
 		}
-		// if let Some(ref mut general_pattern) = self.intermediate_source_minimal_pattern
-		// {
-		// 	general_pattern.initialize(topology.num_servers(), topology.num_servers(), topology, _rng);
-		// }
-		// if let Some(ref mut general_pattern) = self.intermediate_target_minimal_pattern
-		// {
-		// 	general_pattern.initialize(topology.num_servers(), topology.num_servers(), topology, _rng);
-		// }
-		// let cartesian_data = topology.cartesian_data().expect("cartesian data not available"); //BEAWARE THAT DF+ IS AN INDIRECT NETWORK
-		// self.intermediate_leaf_switch_pattern.initialize(cartesian_data.sides[0], cartesian_data.sides[0], topology, _rng);
-
+		self.cartesian_data_indirect = CartesianData::new(&[cartesian_data.sides[0], cartesian_data.sides[1], 2]);
 	}
 	fn performed_request(&self, _requested:&CandidateEgress, _routing_info:&RefCell<RoutingInfo>, _topology:&dyn Topology, _current_router:usize, _target_router:usize, _target_server:Option<usize>, _num_virtual_channels:usize, _rng:&mut StdRng)
 	{
@@ -710,12 +675,6 @@ impl MegaflyAD
 {
 	pub fn new(arg: RoutingBuilderArgument) -> MegaflyAD
 	{
-		// //let mut order=None;
-		// //let mut servers_per_router=None;
-		// let mut first=None;
-		// let mut second=None;
-		// let mut general_pattern: Box<Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
-		// // let mut exclude_h_groups=false;
 		let mut first_allowed_virtual_channels =vec![0];
 		let mut second_allowed_virtual_channels =vec![1];
 		let mut minimal_to_deroute=vec![0, 0, 1];
@@ -725,9 +684,7 @@ impl MegaflyAD
 		let mut global_pattern_per_hop= vec![];
 		let mut consume_same_channel = false;
 		let mut set_global_minimal_channel = false;
-		// let mut intermediate_source_minimal_pattern=None;
-		// let mut intermediate_target_minimal_pattern=None;
-		// let mut intermediate_leaf_switch_pattern :Box<Pattern> = new_pattern(MetaPatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs});
+
 		match_object_panic!(arg.cv,"MegaflyAD",value,
 
 			"first_allowed_virtual_channels" => first_allowed_virtual_channels=value.
@@ -738,10 +695,6 @@ impl MegaflyAD
 				.map(|v|v.as_f64().expect("bad value in second_reserved_virtual_channels") as usize).collect(),
 			"minimal_to_deroute" => minimal_to_deroute=value.as_array().expect("bad value for minimal_to_deroute").iter()
 				.map(|v|v.as_f64().expect("bad value in minimal_to_deroute") as usize).collect(),
-			// "local_pattern_per_hop" => local_pattern_per_hop=value.as_array().expect("bad value for local_pattern_per_hop").iter()
-			// 	.map(|v|v.as_array().expect("bad value for local_pattern_per_hop").iter()
-			// 	.map(|p|new_optional_pattern(MetaPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
-			// ).collect(),
 			"source_group_pattern" => source_group_pattern=value.as_array().expect("bad value for source_group_pattern").iter()
 				.map(|v|v.as_array().expect("bad value for source_group_pattern").iter()
 				.map(|p|new_optional_pattern(GeneralPatternBuilderArgument{cv:p,plugs:arg.plugs})).collect()
@@ -760,9 +713,6 @@ impl MegaflyAD
 			).collect(),
 			"consume_same_channel" => consume_same_channel=value.as_bool().expect("bad value for consume_same_channel"),
 			"set_global_minimal_channel" => set_global_minimal_channel=value.as_bool().expect("bad value for set_global_minimal_channel"),
-			// "intermediate_source_minimal_pattern" => intermediate_source_minimal_pattern=new_optional_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
-			// "intermediate_target_minimal_pattern" => intermediate_target_minimal_pattern=new_optional_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
-			// "intermediate_leaf_switch_pattern" => intermediate_leaf_switch_pattern=new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs}),
 		);
 
 		MegaflyAD{
@@ -775,6 +725,7 @@ impl MegaflyAD
 			global_pattern_per_hop,
 			consume_same_channel,
 			set_global_minimal_channel,
+			cartesian_data_indirect: CartesianData::new(&[0, 0]),
 		}
 	}
 }

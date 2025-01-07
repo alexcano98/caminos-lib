@@ -513,20 +513,152 @@ pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> Conf
 
 #[cfg(test)]
 mod tests {
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+    use crate::Plugs;
     use crate::traffic::collectives::{get_all2all, get_all_reduce_optimal, get_all_reduce_ring};
+    use crate::traffic::new_traffic;
 
     #[test]
     fn test_allreduce_optimal() {
-        let cv = get_all_reduce_optimal(64, 128, None);
+        let tasks = 64;
+        let data_size = 128;
+        let cv = get_all_reduce_optimal(tasks, data_size, None);
+        let mut rng = StdRng::seed_from_u64(0);
         println!("All reduce optimal");
         println!("{}", cv.format_terminal());
+
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+        let mut t = new_traffic(traffic_builder);
+
+        let iterations = 6; //6 +6
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size /(2 << iteration));
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+
+        assert_eq!(t.is_finished(), false);
+
+        for iteration in 0..iterations // extract all messages for all-gather
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size /(2 << (iterations - iteration - 1)));
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(), true);
     }
 
     #[test]
     fn test_allreduce_ring() {
-        let cv = get_all_reduce_ring(64, 128);
+        let tasks = 64;
+        let data_size = 128;
+        let cv = get_all_reduce_ring(tasks, data_size);
+        let mut rng = StdRng::seed_from_u64(0);
         println!("All reduce ring");
         println!("{}", cv.format_terminal());
+
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+
+        let mut t = new_traffic(traffic_builder);
+        let iterations = tasks -1;
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size / (tasks) );
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+
+        assert_eq!(t.is_finished(), false);
+
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size / (tasks) );
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(), true);
     }
 
     #[test]

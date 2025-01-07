@@ -542,7 +542,6 @@ mod tests {
 		println!("{}", traffic.format_terminal());
 	}
 
-
 	#[test]
 	fn test_all2all_linear() {
 		let task_space = vec![10, 10];
@@ -550,101 +549,192 @@ mod tests {
 		let traffic = get_all2all_linear(task_space, message_size);
 		println!("{}", traffic.format_terminal());
 	}
+	use rand::prelude::StdRng;
+	use rand::SeedableRng;
+	use crate::config_parser::ConfigurationValue;
+	use crate::general_pattern::pattern::extra::get_candidates_selection;
+	use crate::Plugs;
+	use crate::traffic::new_traffic;
 
-	mod test {
-		use crate::TopologyBuilderArgument;
-		use rand::prelude::StdRng;
-		use rand::SeedableRng;
-		use crate::config_parser::ConfigurationValue;
-		use crate::general_pattern::pattern::extra::get_candidates_selection;
-		use crate::Plugs;
-		use crate::traffic::new_traffic;
+	#[test]
+	fn test_traffic_manager() {
+		let switches = 4.0;
+		let mut rng = StdRng::seed_from_u64(0);
+		let one_to_many_pattern = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);
+		let cv_builder = super::SendMessageToVectorCVBuilder {
+			tasks: 4,
+			one_to_many_pattern,
+			message_size: 16,
+			rounds: 2,
+		};
+		let cv = super::build_send_message_to_vector_cv(cv_builder);
 
-		#[test]
-		fn test_traffic_manager() {
-			let switches = 4.0;
-			let mut rng = StdRng::seed_from_u64(0);
-			let one_to_many_pattern = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);
-			let cv_builder = super::SendMessageToVectorCVBuilder {
-				tasks: 4,
-				one_to_many_pattern,
-				message_size: 16,
-				rounds: 2,
-			};
-			let cv = super::build_send_message_to_vector_cv(cv_builder);
-
-			let initial_credits =  get_candidates_selection(ConfigurationValue::Object("Identity".to_string(), vec![]), switches as usize);
-			let traffic_manager_builder = super::BuildTrafficManagerCVArgs{
-				tasks: 4,
-				credits_to_activate: 1,
-				messages_per_transition: 1,
-				credits_per_received_message: 1,
-				traffic: cv,
-				initial_credits,
-			};
-			let traffic_manager = super::get_traffic_manager(traffic_manager_builder);
-			println!("{}",traffic_manager.format_terminal() );
+		let initial_credits =  get_candidates_selection(ConfigurationValue::Object("Identity".to_string(), vec![]), switches as usize);
+		let traffic_manager_builder = super::BuildTrafficManagerCVArgs{
+			tasks: 4,
+			credits_to_activate: 1,
+			messages_per_transition: 1,
+			credits_per_received_message: 1,
+			traffic: cv,
+			initial_credits,
+		};
+		let traffic_manager = super::get_traffic_manager(traffic_manager_builder);
+		println!("{}",traffic_manager.format_terminal() );
 
 
-			let traffic_builder = super::TrafficBuilderArgument{
-				cv: &traffic_manager,
-				rng: &mut rng,
-				plugs: &Plugs::default(),
-				topology: None,
-			};
+		let traffic_builder = super::TrafficBuilderArgument{
+			cv: &traffic_manager,
+			rng: &mut rng,
+			plugs: &Plugs::default(),
+			topology: None,
+		};
 
-			//Starts the traffic
-			let mut t = new_traffic(traffic_builder);
-			assert_eq!(t.number_tasks(), switches as usize);
-			for _ in 0..(switches as usize -1) // extract all messages
-			{
-				let mut messages = vec![];
+		//Starts the traffic
+		let mut t = new_traffic(traffic_builder);
+		assert_eq!(t.number_tasks(), switches as usize);
+		for _ in 0..(switches as usize -1) // extract all messages
+		{
+			let mut messages = vec![];
 
-				for i in 0..switches as usize {
-					assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
-				}
-
-				for i in 0..switches as usize {
-					let message = t.generate_message(i, 0, None, &mut rng).unwrap();
-					messages.push(message);
-				}
-
-				//now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
-				for i in 0..(switches as usize) {
-					assert_eq!(t.should_generate(i, 0, &mut rng), false);
-				}
-
-				for i in 0..messages.len() {
-					assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
-				}
+			for i in 0..switches as usize {
+				assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
 			}
 
-			assert_eq!(t.is_finished(), false);
-
-			for _ in 0..(switches as usize -1) // extract all messages
-			{
-				let mut messages = vec![];
-
-				for i in 0..switches as usize {
-					assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
-				}
-
-				for i in 0..switches as usize {
-					let message = t.generate_message(i, 0, None, &mut rng).unwrap();
-					messages.push(message);
-				}
-
-				//now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
-				for i in 0..(switches as usize) {
-					assert_eq!(t.should_generate(i, 0, &mut rng), false);
-				}
-
-				for i in 0..messages.len() {
-					assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
-				}
+			for i in 0..switches as usize {
+				let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+				messages.push(message);
 			}
 
-			assert_eq!(t.is_finished(), true);
+			//now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+			for i in 0..(switches as usize) {
+				assert_eq!(t.should_generate(i, 0, &mut rng), false);
+			}
+
+			for i in 0..messages.len() {
+				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+			}
 		}
+
+		assert_eq!(t.is_finished(), false);
+
+		for _ in 0..(switches as usize -1) // extract all messages
+		{
+			let mut messages = vec![];
+
+			for i in 0..switches as usize {
+				assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+			}
+
+			for i in 0..switches as usize {
+				let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+				messages.push(message);
+			}
+
+			//now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+			for i in 0..(switches as usize) {
+				assert_eq!(t.should_generate(i, 0, &mut rng), false);
+			}
+
+			for i in 0..messages.len() {
+				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+			}
+		}
+
+		assert_eq!(t.is_finished(), true);
+	}
+
+	#[test]
+	fn test_message_size_modifier() {
+		let switches = 4.0;
+		let mut rng = StdRng::seed_from_u64(0);
+		let one_to_many_pattern = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);
+		let cv_builder = super::SendMessageToVectorCVBuilder {
+			tasks: 4,
+			one_to_many_pattern,
+			message_size: 16,
+			rounds: 2,
+		};
+		let cv = super::build_send_message_to_vector_cv(cv_builder);
+
+		let initial_credits = get_candidates_selection(ConfigurationValue::Object("Identity".to_string(), vec![]), switches as usize);
+		let traffic_manager_builder = super::BuildTrafficManagerCVArgs {
+			tasks: 4,
+			credits_to_activate: 1,
+			messages_per_transition: 1,
+			credits_per_received_message: 1,
+			traffic: cv,
+			initial_credits,
+		};
+		let traffic_manager = super::get_traffic_manager(traffic_manager_builder);
+
+		let message_sizes = vec![16, 32, 64, 128, 256, 512];
+		let message_size_modifier = super::get_message_size_modifier(super::BuildMessageSizeModifierCVArgs {
+			tasks: 4,
+			traffic: traffic_manager,
+			message_sizes: message_sizes.clone(),
+		});
+		println!("{}", message_size_modifier.format_terminal());
+
+		let traffic_builder = super::TrafficBuilderArgument {
+			cv: &message_size_modifier,
+			rng: &mut rng,
+			plugs: &Plugs::default(),
+			topology: None,
+		};
+
+		//Starts the traffic
+		let mut t = new_traffic(traffic_builder);
+		assert_eq!(t.number_tasks(), switches as usize);
+		for iteration in 0..(switches as usize -1) // extract all messages
+		{
+			let mut messages = vec![];
+
+			for i in 0..switches as usize {
+				assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+			}
+
+			for i in 0..switches as usize {
+				let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+				assert_eq!(message.size, message_sizes[iteration]);
+				messages.push(message);
+			}
+
+			//now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+			for i in 0..(switches as usize) {
+				assert_eq!(t.should_generate(i, 0, &mut rng), false);
+			}
+
+			for i in 0..messages.len() {
+				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+			}
+		}
+
+		assert_eq!(t.is_finished(), false);
+
+		for iteration in 0..(switches as usize -1) // extract all messages
+		{
+			let mut messages = vec![];
+
+			for i in 0..switches as usize {
+				assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+			}
+
+			for i in 0..switches as usize {
+				let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+				assert_eq!(message.size, message_sizes[iteration + (switches as usize -1)]);
+				messages.push(message);
+			}
+
+			//now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+			for i in 0..(switches as usize) {
+				assert_eq!(t.should_generate(i, 0, &mut rng), false);
+			}
+
+			for i in 0..messages.len() {
+				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+			}
+		}
+
+		assert_eq!(t.is_finished(), true);
 	}
 }
