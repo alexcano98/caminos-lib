@@ -12,6 +12,7 @@ mod sequences;
 mod extra;
 mod basic;
 mod operations;
+mod schedulers;
 
 use crate::traffic::collectives::MPICollective;
 use crate::AsMessage;
@@ -79,7 +80,7 @@ pub trait Traffic : Quantifiable + Debug
 	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool;
 	///Indicates if the traffic is not going to generate any more messages.
 	///Should be true if and only if the state of all tasks is `Finished`.
-	fn is_finished(&self) -> bool;
+	fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool;
 	///Returns true if a task should generate a message this cycle
 	///Should coincide with having the `Generating` state for deterministic traffics.
 	fn should_generate(&mut self, _task:usize, _cycle:Time, _rng: &mut StdRng) -> bool
@@ -90,7 +91,7 @@ pub trait Traffic : Quantifiable + Debug
 		// r<p
 	}
 	///Indicates the state of the task within the traffic.
-	fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>;
+	fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>;
 
 	/// Indicates the number of tasks in the traffic.
 	/// A task is a process that generates traffic.

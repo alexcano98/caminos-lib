@@ -93,7 +93,7 @@ impl Traffic for Homogeneous
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
         self.generated_messages.remove(&id)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
         false
     }
@@ -109,7 +109,7 @@ impl Traffic for Homogeneous
             random<rate
         }
     }
-	fn task_state(&self, _task:usize, _cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, _task:usize, _cycle:Time) -> Option<TaskTrafficState>
 	{
 		Some(Generating)
 	}
@@ -236,7 +236,7 @@ impl Traffic for Burst
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
         self.generated_messages.remove(&id)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
         if !self.generated_messages.is_empty()
         {
@@ -251,7 +251,7 @@ impl Traffic for Burst
         }
         true
     }
-    fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
     {
         if self.pending_messages[task]>0 {
             Some(Generating)
@@ -409,14 +409,14 @@ impl Traffic for TrafficMessages
         self.total_consumed_per_task[task] += 1;
         self.traffic.consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
         // if self.num_messages <= 0 {
         // 	panic!("TrafficCredit is finished but it should not be.");
         // }
         self.num_messages <= self.total_sent && self.total_sent == self.total_consumed
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         if self.num_messages > self.total_sent && (self.messages_per_task.is_none() || self.messages_per_task.as_ref().unwrap()[task] > 0){
             self.traffic.task_state(task, cycle)
@@ -543,7 +543,7 @@ impl Traffic for Sleep
     {
         false
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
         self.finished
     }
@@ -555,7 +555,7 @@ impl Traffic for Sleep
         }
         false
     }
-    fn task_state(&self, _task:usize, _cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, _task:usize, _cycle:Time) -> Option<TaskTrafficState>
     {
         Some(TaskTrafficState::UnspecifiedWait)
     }
@@ -671,7 +671,7 @@ impl Traffic for PeriodicBurst
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
         self.generated_messages.remove(&id)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
         let times_to_generate = &self.times_to_generate;
 
@@ -713,13 +713,13 @@ impl Traffic for PeriodicBurst
         }
         self.pending_messages[task] > 0
     }
-    fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
     {
         if self.pending_messages[task]>0 {
             Some(TaskTrafficState::Generating)
         } else {
             //We do not know whether someone is sending us data.
-            if self.is_finished() { Some(TaskTrafficState::Finished) } else { Some(UnspecifiedWait) }
+            if self.is_finished(None) { Some(TaskTrafficState::Finished) } else { Some(UnspecifiedWait) }
             // Sometimes it could be Finished, but it is not worth computing...
             // TaskTrafficState::UnspecifiedWait
         }
@@ -820,11 +820,11 @@ impl Traffic for SubRangeTraffic
     {
         self.traffic.consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.traffic.is_finished()
+        self.traffic.is_finished(rng)
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         self.traffic.task_state(task,cycle)
     }
@@ -917,9 +917,10 @@ impl Traffic for Reactive
         }
         self.reaction_traffic.consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        if !self.action_traffic.is_finished() || !self.reaction_traffic.is_finished()
+        let rng = rng.expect("Reactive::is_finished should be called with rng");
+        if !self.action_traffic.is_finished(Some(rng)) || !self.reaction_traffic.is_finished(Some(rng))
         {
             return false;
         }
@@ -932,7 +933,7 @@ impl Traffic for Reactive
         }
         return true;
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         use TaskTrafficState::*;
         let action_state = self.action_traffic.task_state(task,cycle).expect("TODO! the none case");
@@ -945,7 +946,7 @@ impl Traffic for Reactive
         {
             return Some(Finished)
         }
-        if self.is_finished() { Some(Finished) } else { Some(UnspecifiedWait) }
+        if self.is_finished(None) { Some(Finished) } else { Some(UnspecifiedWait) }
     }
 
     fn number_tasks(&self) -> usize {
@@ -1035,12 +1036,12 @@ impl Traffic for SendMessageToVector
         self.generated_messages.remove(&id)
     }
 
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
         self.destinations.iter().all(|d| d.is_empty()) && self.generated_messages.is_empty()
     }
 
-    fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
     {
         if self.destinations[task].is_empty() {
             Some(FinishedGenerating)
@@ -1183,11 +1184,11 @@ mod test {
             // assert_eq!(t.task_state(i, 0).unwrap(), super::TaskTrafficState::FinishedGenerating);
         }
 
-        assert_eq!(t.is_finished(), false);
+        assert_eq!(t.is_finished(Some(&mut rng)), false);
         //consume all messages
         for i in 0..messages.len() {
             assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
         }
-        assert_eq!(t.is_finished(), true);
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
     }
 }

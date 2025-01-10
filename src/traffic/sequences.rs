@@ -63,9 +63,9 @@ impl Traffic for Sequence
     {
         self.traffics[self.current_traffic].consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        return self.current_traffic>=self.traffics.len() || (self.current_traffic==self.traffics.len()-1 && self.traffics[self.current_traffic].is_finished())
+        return self.current_traffic>=self.traffics.len() || (self.current_traffic==self.traffics.len()-1 && self.traffics[self.current_traffic].is_finished(rng))
     }
     fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool
     {
@@ -74,7 +74,7 @@ impl Traffic for Sequence
             return false;
         }
 
-        while self.current_traffic < self.traffics.len() && self.traffics[self.current_traffic].is_finished()
+        while self.current_traffic < self.traffics.len() && self.traffics[self.current_traffic].is_finished(Some(rng))
         {
             self.current_traffic += 1;
         }
@@ -86,7 +86,7 @@ impl Traffic for Sequence
             self.traffics[self.current_traffic].should_generate(task,cycle,rng)
         }
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         self.traffics[self.current_traffic].task_state(task,cycle)
         // if self.current_traffic>=self.traffics.len()
@@ -104,7 +104,7 @@ impl Traffic for Sequence
     }
 
     fn number_tasks(&self) -> usize {
-        // every traffic has the same number of tasks
+        // every traffic ha&mut selfe number of tasks
         self.traffics[0].number_tasks()
     }
 }
@@ -208,9 +208,10 @@ impl Traffic for TaskSequence
 
         self.traffics[self.task_current_traffic[task]].consume(task, &message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.task_current_traffic.iter().all(|&current_traffic| self.traffics[current_traffic].is_finished())
+        let rng = rng.expect("TaskSequence: rng is required");
+        self.task_current_traffic.clone().iter().all(|&current_traffic| self.traffics[current_traffic].is_finished(Some(rng)))
     }
 
     fn should_generate(&mut self, task: usize, cycle: Time, rng: &mut StdRng) -> bool
@@ -234,7 +235,7 @@ impl Traffic for TaskSequence
         false
     }
 
-    fn task_state(&self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
+    fn task_state(&mut self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
         self.traffics[self.task_current_traffic[task]].task_state(task, cycle)
     }
 
@@ -366,7 +367,7 @@ impl Traffic for MessageTaskSequence
         }
     }
 
-    fn is_finished(&self) -> bool {
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool {
 
         if self.generated_messages.len() > 0
         {
@@ -407,7 +408,7 @@ impl Traffic for MessageTaskSequence
         false
     }
 
-    fn task_state(&self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
+    fn task_state(&mut self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
         for i in 0..self.traffics.len(){
             if self.messages_sent[task][i] < self.messages_to_send_per_traffic[i]{
                 return self.traffics[i].task_state(task, cycle);
@@ -598,7 +599,7 @@ impl Traffic for MultimodalBurst
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
 		self.generated_messages.remove(&id)
 	}
-	fn is_finished(&self) -> bool
+	fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
 	{
 		if !self.generated_messages.is_empty()
 		{
@@ -616,7 +617,7 @@ impl Traffic for MultimodalBurst
 		}
 		true
 	}
-	fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
 	{
 		if self.pending[task].iter().any(|(total_remaining,_step_remaining)| *total_remaining > 0 ) {
 			Some(TaskTrafficState::Generating)
@@ -737,12 +738,13 @@ impl Traffic for TimeSequenced
         }
         return false;
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
+        let rng = rng.expect("TimeSequenced: rng is required");
         //This is a bit silly for a time sequence
-        for traffic in self.traffics.iter()
+        for traffic in self.traffics.iter_mut()
         {
-            if !traffic.is_finished()
+            if !traffic.is_finished(Some(rng))
             {
                 return false;
             }
@@ -764,7 +766,7 @@ impl Traffic for TimeSequenced
             false
         }
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         let mut offset = cycle;
         let mut traffic_index = 0;

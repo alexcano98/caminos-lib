@@ -155,9 +155,9 @@ impl Traffic for TrafficMap
     }
 
 
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.application.is_finished()
+        self.application.is_finished(rng)
     }
 
     fn should_generate(&mut self, task: usize, cycle: Time, rng: &mut StdRng) -> bool {
@@ -168,7 +168,7 @@ impl Traffic for TrafficMap
         }).unwrap_or(false)
     }
 
-    fn task_state(&self, task: usize, cycle: Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task: usize, cycle: Time) -> Option<TaskTrafficState>
     {
         let task_app = self.from_machine_to_app[task];
         if let Some(app) = task_app
@@ -323,11 +323,12 @@ impl Traffic for Sum
         sub_message.payload = sub_payload;
         self.list[index].consume(task, &sub_message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
+        let rng = rng.expect("RNG is required for TrafficSum");
         for traffic in self.finish_when.iter()
         {
-            if !self.list[*traffic].is_finished()
+            if !self.list[*traffic].is_finished(Some(rng))
             {
                 return false;
             }
@@ -348,7 +349,7 @@ impl Traffic for Sum
         let mut indexes = (0..self.list.len()).collect::<Vec<usize>>();
         indexes.shuffle(rng);
 
-        for index in indexes.iter(){
+        for index in indexes.iter(){ //Ask all the traffics if the task should generate.
             if self.list[*index].should_generate(task,cycle,rng){
                 self.index_to_generate[task].push_back(*index);
             }
@@ -362,7 +363,7 @@ impl Traffic for Sum
 
         }else{
 
-            for (i,traffic) in self.list.iter().enumerate()
+            for (i,traffic) in self.list.iter_mut().enumerate()
             {
                 if let Some(state) = traffic.task_state(task,cycle)
                 {
@@ -373,10 +374,10 @@ impl Traffic for Sum
 
         self.index_to_generate[task].len() > 0
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         let mut task_state = None;
-        for (_i,traffic) in self.list.iter().enumerate()
+        for (_i,traffic) in self.list.iter_mut().enumerate()
         {
             if let Some(state) = traffic.task_state(task,cycle)
             {
@@ -524,11 +525,11 @@ impl Traffic for ProductTraffic
 		}
 		true
 	}
-	fn is_finished(&self) -> bool
+	fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
 	{
-		self.block_traffic.is_finished()
+		self.block_traffic.is_finished(rng)
 	}
-	fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
 	{
 		let local=task % self.block_size;
 		self.block_traffic.task_state(local,cycle)
@@ -649,11 +650,11 @@ impl Traffic for BoundedDifference
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
 		self.generated_messages.remove(&id)
 	}
-	fn is_finished(&self) -> bool
+	fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
 	{
 		false
 	}
-	fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
 	{
 		if self.allowance[task]>0 {
 			Some(Generating)
@@ -764,11 +765,11 @@ impl Traffic for Shifted
         }
         true
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.traffic.is_finished()
+        self.traffic.is_finished(rng)
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         self.traffic.task_state(task-self.shift,cycle)
     }
@@ -864,9 +865,10 @@ impl Traffic for Replica
         }
         true
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.block_traffic.iter().all(|t|t.is_finished ())
+        let rng = rng.expect("RNG is required for Replica");
+        self.block_traffic.iter_mut().all(|t|t.is_finished (Some(rng)))
     }
 
     fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool {
@@ -875,7 +877,7 @@ impl Traffic for Replica
         self.block_traffic[block].should_generate(local, cycle, rng)
     }
 
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         let block=task/self.block_tasks;
         let local=task%self.block_tasks;

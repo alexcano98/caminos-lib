@@ -1017,7 +1017,7 @@ impl<'a> Simulation<'a>
 				self.statistics.reset(self.shared.cycle,&mut self.shared.network);
 				self.shared.routing.reset_statistics(self.shared.cycle);
 			}
-			if self.shared.traffic.is_finished()
+			if self.shared.traffic.is_finished(Some(&mut self.mutable.rng))
 			{
 				println!("Traffic consumed before cycle {}",self.shared.cycle);
 				break;

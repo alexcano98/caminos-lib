@@ -97,11 +97,11 @@ impl Traffic for MessageBarrier
         }
         self.traffic.consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.traffic.is_finished()
+        self.traffic.is_finished(rng)
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         if self.total_sent_per_task[task] < self.messages_per_task_to_wait {
             self.traffic.task_state(task, cycle)
@@ -562,7 +562,7 @@ mod tests {
             }
         }
 
-        assert_eq!(t.is_finished(), false);
+        assert_eq!(t.is_finished(Some(&mut rng)), false);
 
         for iteration in 0..iterations // extract all messages for all-gather
         {
@@ -587,7 +587,7 @@ mod tests {
                 assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
             }
         }
-        assert_eq!(t.is_finished(), true);
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
     }
 
     #[test]
@@ -633,7 +633,7 @@ mod tests {
             }
         }
 
-        assert_eq!(t.is_finished(), false);
+        assert_eq!(t.is_finished(Some(&mut rng)), false);
 
         for iteration in 0..iterations // extract all messages for reduce-scatter
         {
@@ -658,7 +658,7 @@ mod tests {
                 assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
             }
         }
-        assert_eq!(t.is_finished(), true);
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
     }
 
     #[test]
