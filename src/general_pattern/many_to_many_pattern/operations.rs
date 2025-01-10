@@ -128,7 +128,7 @@ mod tests{
         let mut rng = StdRng::seed_from_u64(0);
         let binding = get_hamming_topology(4.0);
         let topo= Some(binding.as_ref());
-        let param = ManyToManyParam { origin: Some(0), destination: Some(1), list: (0..4).collect() };
+        let param = ManyToManyParam { origin: Some(0), destination: Some(1), list: (0..4).collect(), ..Default::default() };
 
         let mut composition_0 = Composition {
             patterns: vec![

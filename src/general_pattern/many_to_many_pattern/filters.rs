@@ -232,6 +232,7 @@ impl SubplaneFilter {
 
 #[cfg(test)]
 mod tests {
+    use std::default::Default;
     use super::*;
     use rand::SeedableRng;
 
@@ -240,13 +241,13 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let mut uniform = RandomFilter {elements_to_return: 1, source: true, destination: true };
         uniform.initialize(0, 10, None, &mut rng);
-        let param = ManyToManyParam { origin: Some(0), destination: Some(1), list: (0..10).collect() };
+        let param = ManyToManyParam { origin: Some(0), destination: Some(1), list: (0..10).collect(), ..Default::default() };
         let destination = uniform.get_destination(param, None, &mut rng);
         assert_eq!(destination.len(), 1);
 
         let mut uniform = RandomFilter { elements_to_return: 3, source: true, destination: true };
         uniform.initialize(0, 10, None, &mut rng);
-        let param = ManyToManyParam { origin: Some(0), destination: Some(3), list: (0..10).collect() };
+        let param = ManyToManyParam { origin: Some(0), destination: Some(3), list: (0..10).collect(), ..Default::default() };
         let destination = uniform.get_destination(param, None, &mut rng);
         assert_eq!(destination.len(), 3);
     }
@@ -256,7 +257,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
         let mut subplane = SubplaneFilter::get_basic_sub_plane_filter(vec![10,10,10], vec![vec![0,1,1], vec![1,0,1], vec![1,1,0]]);
         subplane.initialize(1000, 1000, None, &mut rng);
-        let param = ManyToManyParam { origin: Some(0), destination: Some(1), list: (0..1000).collect() };
+        let param = ManyToManyParam { origin: Some(0), destination: Some(1), list: (0..1000).collect(), ..Default::default() };
         let destination = subplane.get_destination(param, None, &mut rng);
         assert_eq!(destination.len(), 954);
     }

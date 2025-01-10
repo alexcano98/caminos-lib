@@ -1,15 +1,18 @@
 pub mod filters;
 mod operations;
+mod resource_selection;
 
 use crate::config_parser::ConfigurationValue;
 use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 
-#[derive(Clone)]
+#[allow(dead_code)]
+#[derive(Clone, Default)]
 pub struct ManyToManyParam{
     pub(crate) origin: Option<usize>,
-    // pub(crate) current: Option<usize>, //is it important?
+    pub(crate) current: Option<usize>, //is it important?
     pub(crate) destination: Option<usize>,
     pub(crate) list: Vec<usize>,
+    pub(crate) extra: Option<usize>,
 }
 
 /// A 'ManyToManyPattern' is a pattern that takes a ManyToManyParam, and returns a list of natural numbers.

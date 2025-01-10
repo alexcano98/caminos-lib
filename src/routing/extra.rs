@@ -8,6 +8,7 @@ Extra implementations of routing operations
 
 */
 
+use std::default::Default;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::convert::{TryFrom};
@@ -479,7 +480,7 @@ impl Routing for Stubborn
 		if let Some(ref sel)=routing_info.selections
 		{
 			//return vec![CandidateEgress{port:sel[0] as usize,virtual_channel:sel[1] as usize,label:sel[2],..Default::default()}]
-			return Ok(RoutingNextCandidates{candidates:vec![CandidateEgress{port:sel[0] as usize,virtual_channel:sel[1] as usize,label:sel[2],..Default::default()}],idempotent:false});
+			return Ok(RoutingNextCandidates{candidates:vec![CandidateEgress{port:sel[0] as usize,virtual_channel:sel[1] as usize,label:sel[2], ..Default::default()}],idempotent:false});
 		}
 		//return self.routing.next(&routing_info.meta.as_ref().unwrap()[0].borrow(),topology,current_router,target_server,num_virtual_channels,rng)
 		//return self.routing.next(&routing_info.meta.as_ref().unwrap()[0].borrow(),topology,current_router,target_server,num_virtual_channels,rng).into_iter().map(|candidate|CandidateEgress{annotation:Some(RoutingAnnotation{values:vec![candidate.label],meta:vec![candidate.annotation]}),..candidate}).collect()
@@ -915,7 +916,7 @@ impl Routing for SubTopologyRouting
 
 		//possible intermediates:
 		let vec = (0..topology.num_routers()).filter(|&i| i != current_router && i != target_router).collect();
-		let many_to_many_param = ManyToManyParam{ origin: Some(current_router), destination: Some(target_router), list: vec};
+		let many_to_many_param = ManyToManyParam{ origin: Some(current_router), destination: Some(target_router), list: vec, ..Default::default() };
 		let intermediate: Vec<i32> = self.intermediate_filter.get_destination(many_to_many_param, Some(topology), rng).iter().map(|&i| i as i32).collect();
 		// println!("Intermediate: {:?}", intermediate.clone());
 		bri.selections = Some(intermediate);
@@ -1464,7 +1465,7 @@ impl Routing for CGLabel
 
 	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
 		//select a random intermediate router to go to
-		let many_to_many_pattern_args = ManyToManyParam{ origin: Some(current_router), destination: Some(target_router), list: self.intermediates[current_router][target_router].clone()};
+		let many_to_many_pattern_args = ManyToManyParam{ origin: Some(current_router), destination: Some(target_router), list: self.intermediates[current_router][target_router].clone(), ..Default::default() };
 		let intermediates = self.intermediate_filter.get_destination(many_to_many_pattern_args, Some(topology), rng);
 		//try into of intermediate from usize to i32
 		let intermediates = Some(intermediates.iter().map(|&a|a as i32).collect());
