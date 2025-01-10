@@ -116,6 +116,10 @@ impl Traffic for TrafficManager
 		let sub_message_payload = &message.payload()[16..];
 		let mut inner_message = ReferredPayload::from(message);
 		inner_message.payload = sub_message_payload;
+		if  inner_message.destination != task
+		{
+			panic!("Message {} was not sent to task {}",id,task);
+		}
 		if self.generated_messages.remove(&id)
 		{
 			self.traffic.consume(task, &inner_message, cycle, topology, rng)
@@ -611,7 +615,7 @@ mod tests {
 			}
 
 			for i in 0..messages.len() {
-				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+				assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
 			}
 		}
 
@@ -636,7 +640,7 @@ mod tests {
 			}
 
 			for i in 0..messages.len() {
-				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+				assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
 			}
 		}
 
@@ -705,7 +709,7 @@ mod tests {
 			}
 
 			for i in 0..messages.len() {
-				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+				assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
 			}
 		}
 
@@ -731,7 +735,7 @@ mod tests {
 			}
 
 			for i in 0..messages.len() {
-				assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+				assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
 			}
 		}
 

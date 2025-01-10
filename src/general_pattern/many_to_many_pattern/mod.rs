@@ -34,6 +34,9 @@ pub fn new_many_to_many_pattern(arg: GeneralPatternBuilderArgument) -> Box<dyn M
             "SubplaneFilter" => Box::new(filters::SubplaneFilter::new(arg)),
             "Composition" => Box::new(operations::Composition::new(arg)),
             "Sum" => Box::new(operations::Sum::new(arg)),
+            "ConsecutiveSelection" => Box::new(resource_selection::ConsecutiveSelection::new(arg)),
+            "RandomSelection" => Box::new(resource_selection::RandomSelection::new(arg)),
+            "RowSelection" => Box::new(resource_selection::RowSelection::new(arg)),
             _ => panic!("Unknown many_to_many_pattern {}", cv_name),
         }
     } else {

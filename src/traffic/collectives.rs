@@ -558,7 +558,7 @@ mod tests {
             }
 
             for i in 0..messages.len() {
-                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
             }
         }
 
@@ -584,7 +584,7 @@ mod tests {
             }
 
             for i in 0..messages.len() {
-                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
             }
         }
         assert_eq!(t.is_finished(Some(&mut rng)), true);
@@ -629,7 +629,7 @@ mod tests {
             }
 
             for i in 0..messages.len() {
-                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
             }
         }
 
@@ -655,7 +655,7 @@ mod tests {
             }
 
             for i in 0..messages.len() {
-                assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
             }
         }
         assert_eq!(t.is_finished(Some(&mut rng)), true);
@@ -666,6 +666,38 @@ mod tests {
         let cv = get_all2all(64, 128, 2);
         println!("All2All");
         println!("{}", cv.format_terminal());
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+
+        let mut t = new_traffic(traffic_builder);
+        let rounds = 2;
+        let tasks = 64;
+        let data_size = 128;
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..rounds // extract all messages
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                for _ in 0..(tasks -1){
+                    assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+                    let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                    assert_eq!(message.size, (data_size / (tasks-1))/rounds );
+                    messages.push(message);
+                }
+            }
+            assert_eq!(t.is_finished(Some(&mut rng)), false);
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
     }
 }
 

@@ -276,6 +276,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
 			"Wavefront" | "All2AllLinear" => MiniApp::new(cv_name.clone(), arg),
 			"MessageSizeModifier" => Box::new(extra::MessageSizeModifier::new(arg)),
+			"FIFOScheduler" => Box::new(schedulers::FIFOScheduler::new(arg)),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}

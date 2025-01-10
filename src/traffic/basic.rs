@@ -1030,9 +1030,13 @@ impl Traffic for SendMessageToVector
         }
     }
 
-    fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
     {
         let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
+        if  message.destination() != task
+        {
+            panic!("Message {} was not sent to task {}",id,task);
+        }
         self.generated_messages.remove(&id)
     }
 
@@ -1187,7 +1191,7 @@ mod test {
         assert_eq!(t.is_finished(Some(&mut rng)), false);
         //consume all messages
         for i in 0..messages.len() {
-            assert_eq!(t.consume(messages[i].origin, &*messages[i], 0, None, &mut rng), true);
+            assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
         }
         assert_eq!(t.is_finished(Some(&mut rng)), true);
     }
