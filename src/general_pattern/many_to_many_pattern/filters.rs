@@ -230,6 +230,37 @@ impl SubplaneFilter {
 }
 
 
+/**
+Pattern that returns the lowest element
+```ignore
+    Min {}
+```
+**/
+#[derive(Quantifiable, Debug)]
+pub struct MinFilter {}
+impl GeneralPattern<ManyToManyParam, Vec<usize>> for MinFilter {
+    fn initialize(&mut self, _source_size: usize, _target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {}
+
+    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
+        if param.list.len() == 0{
+            vec![]
+        }else {
+            vec![param.list.iter().min().unwrap().clone()]
+        }
+    }
+}
+
+impl MinFilter {
+    pub fn new(_arg: GeneralPatternBuilderArgument) -> MinFilter {
+        MinFilter {}
+    }
+
+    pub fn get_basic_identity_filter() -> MinFilter {
+        MinFilter {}
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::default::Default;
@@ -261,4 +292,14 @@ mod tests {
         let destination = subplane.get_destination(param, None, &mut rng);
         assert_eq!(destination.len(), 954);
     }
+    #[test]
+    fn test_min_filter(){
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut min = MinFilter{};
+        min.initialize(100, 100, None, &mut rng);
+        let param = ManyToManyParam { list: (0..10).collect(), ..Default::default() };
+        assert_eq!(vec![0], min.get_destination(param, None, &mut rng) );
+
+    }
+
 }
