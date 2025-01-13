@@ -202,6 +202,7 @@ Pattern which partitions the network in Ltiles
 
 #[derive(Quantifiable, Debug)]
 pub struct LTileSelection {
+    servers_per_switch: usize,
     n: usize,
     origins: Vec<Vec<usize>>,
     vectors_from_origin: Vec<Vec<usize>>,
@@ -213,8 +214,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         assert_eq!(source_size, target_size);
         //check that is a square number
-        let n = (source_size as f64).sqrt() as usize;
-        assert_eq!(source_size, (n as f64).powi(2) as usize);
+        let n_switches = source_size/self.servers_per_switch;
+        let n = (n_switches as f64).sqrt() as usize;
+        assert_eq!(n_switches, (n as f64).powi(2) as usize);
         self.n = n;
         self.cartesian_data = CartesianData::new(&vec![n, n]);
         //put the (x,x) dots in the origins until  (n,n)
@@ -223,26 +225,29 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
         for i in 0..n{
             origins.push(vec![i, i]);
         }
-        for i in 0..(n/2 -1){
+        self.origins = origins;
+        for i in 0..(n/2){
             vectors_from_origin.push(vec![i, 0]);
         }
 
-        for i in 1..(n/2){
+        for i in 1..(n/2 +1){
             vectors_from_origin.push(vec![0, i]);
         }
+        self.vectors_from_origin = vectors_from_origin;
     }
 
     fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
 
-        'outer: for i in list.into_iter(){
-            let point = self.cartesian_data.unpack(i);
+        'outer: for server in list.into_iter(){
+            let switch = server / self.servers_per_switch;
+            let point = self.cartesian_data.unpack(switch);
             for j in 0..self.origins.len(){
                 for v in 0..self.vectors_from_origin.len(){
                     let new_point = self.origins[j].iter().zip(self.vectors_from_origin[v].iter()).map(|(a, b)| (a + b) % self.n ).collect::<Vec<usize>>();
                     if new_point == point{
-                        points_to_origins[j].push(i);
+                        points_to_origins[j].push(server);
                         continue 'outer;
                     }
                 }
@@ -260,13 +265,20 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
        //return the selected points sorted
         let mut ret = points_to_origins[point].clone();
         ret.sort_by(|a, b| a.cmp(b));
-        ret
+        //return the first extra elements
+        ret.into_iter().take(param.extra.unwrap()).collect()
     }
 }
 
 impl LTileSelection {
-    pub fn new(_arg: GeneralPatternBuilderArgument) -> LTileSelection {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> LTileSelection {
+        let mut servers_per_switch = None;
+        match_object_panic!(arg.cv,"LTileSelection",value,
+            "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
+        );
+        let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
         LTileSelection {
+            servers_per_switch,
             n: 0,
             origins: vec![],
             vectors_from_origin: vec![],
@@ -278,6 +290,7 @@ impl LTileSelection {
 #[cfg(test)]
 mod test {
     use crate::general_pattern::many_to_many_pattern::filters::{IdentityFilter, MinFilter};
+    use crate::topology::prelude::CartesianData;
 
     #[test]
     fn test_consecutive_selection(){
@@ -493,5 +506,55 @@ mod test {
         };
         let selected = random_selection.get_destination(param, None, &mut rng);
         assert_eq!(selected.len(), 3);
+    }
+
+    #[test]
+    fn test_ltile_selection(){
+        use crate::general_pattern::many_to_many_pattern::resource_selection::LTileSelection;
+        use crate::general_pattern::GeneralPattern;
+        use crate::general_pattern::many_to_many_pattern::ManyToManyParam;
+
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut ltile_selection = LTileSelection{
+            servers_per_switch: 8,
+            n: 0,
+            origins: vec![],
+            vectors_from_origin: vec![],
+            cartesian_data: CartesianData::new(&vec![]),
+        };
+        ltile_selection.initialize(512, 512, None, &mut rng);
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            extra: Some(3),
+        };
+        let selected = ltile_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![0, 1, 2]);
+
+        let list = (0..512).collect::<Vec<usize>>();
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list,
+            extra: Some(64),
+        };
+        let selected = ltile_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 64, 65, 66, 67, 68, 69, 70, 71, 128, 129, 130, 131, 132, 133, 134, 135, 192, 193, 194, 195, 196, 197, 198, 199, 256, 257, 258, 259, 260, 261, 262, 263]);
+
+        // let mut list = (0..512).collect::<Vec<usize>>();
+        // list.retain(|a| !selected.contains(a));
+        // let param = ManyToManyParam{
+        //     origin: None,
+        //     current: None,
+        //     destination: None,
+        //     list,
+        //     extra: Some(64),
+        // };
+        // let selected = ltile_selection.get_destination(param, None, &mut rng);
+        // assert_eq!(selected, vec![32, 33, 34, 35, 36, 37, 38, 39, 96, 97, 98, 99, 100, 101, 102, 103, 160, 161, 162, 163, 164, 165, 166, 167, 224, 225, 226, 227, 228, 229, 230, 231, 288, 289, 290, 291, 292, 293, 294, 295, 352, 353, 354, 355, 356, 357, 358, 359, 416, 417, 418, 419, 420, 421, 422, 423, 480, 481, 482, 483, 484, 485, 486, 487]);
     }
 }
