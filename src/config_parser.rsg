@@ -137,6 +137,15 @@ impl Display for Expr
 			&Expr::Ident(ref s) => write!(f,"{}",s),
 			&Expr::Member(ref expr,ref s) => write!(f,"{}.{}",expr,s),
 			&Expr::Name(ref expr) => write!(f,"@{}",expr),
+			&Expr::Array(ref list) =>
+            {
+                write!(f,"[")?;
+                for elem in list.iter()
+                {
+                    write!(f,"{},",elem)?;
+                }
+                write!(f,"]")
+            },
 			_ => write!(f,"fix this expr <{:?}>",self),
 		}
 	}

@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::Path;
 use std::rc::Rc;
 use crate::ConfigurationValue;
 use quantifiable_derive::Quantifiable;
@@ -6,6 +7,7 @@ use rand::prelude::StdRng;
 use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
 use crate::general_pattern::prelude::Pattern;
 use crate::{match_object_panic, AsMessage, Message, Time};
+use crate::config::evaluate;
 use crate::general_pattern::{new_many_to_many_pattern, new_pattern, GeneralPatternBuilderArgument};
 use crate::measures::TrafficStatistics;
 use crate::packet::ReferredPayload;
@@ -229,8 +231,26 @@ impl FIFOScheduler{
         // let mut tasks_per_server = 1; //default value
 
         match_object_panic!(arg.cv,"FIFOScheduler",value,
+            "extra_number" => (),
             "servers" => total_servers = Some(value.as_usize().expect("bad value for servers")),
-			"traffics" => traffics = Some(value.as_array().expect("bad value for traffics").iter().map(|v| new_traffic(TrafficBuilderArgument{cv: v, rng: arg.rng, ..arg})).collect()),
+			"traffics" => traffics = {
+                if let ConfigurationValue::Array(a ) = value{
+
+                    Some(a.iter().map(|v| new_traffic(TrafficBuilderArgument{cv: v, rng: arg.rng, ..arg})).collect())
+
+                } else if let ConfigurationValue::Expression(expr) = value{
+
+                    if let Ok(ConfigurationValue::Array(lista)) = evaluate(expr, arg.cv, Path::new(&""))
+                    {
+                        Some(lista.iter().map(|a| new_traffic(TrafficBuilderArgument{cv: a, rng: arg.rng, ..arg})).collect())
+                    }else{
+                        panic!("bad expression for traffics")
+                    }
+
+                } else{
+                    panic!("bad value for traffics")
+                }
+            },
             "resource_selection" => resource_selection = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
             "task_mapping" => task_mapping = Some(new_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
             // "tasks_per_server" => tasks_per_server = value.as_usize().expect("bad value for tasks_per_server"),
@@ -289,6 +309,7 @@ mod tests {
     use rand::prelude::StdRng;
     use rand::SeedableRng;
     use crate::config_parser::ConfigurationValue;
+    use crate::config_parser::Token::Expression;
     use crate::traffic::collectives::get_all2all;
     use crate::traffic::schedulers::FIFOScheduler;
     use crate::traffic::{Traffic, TrafficBuilderArgument};
