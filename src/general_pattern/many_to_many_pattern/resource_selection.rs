@@ -287,8 +287,98 @@ impl LTileSelection {
     }
 }
 
+
+/**
+Pattern which partitions the network in Diagonals
+```ignore
+    DiagonalSelection {}
+```
+**/
+
+#[derive(Quantifiable, Debug)]
+pub struct DiagonalSelection {
+    servers_per_switch: usize,
+    n: usize,
+    origins: Vec<Vec<usize>>,
+    cartesian_data: CartesianData,
+}
+
+impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
+    fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
+        assert_eq!(source_size, target_size);
+        //check that is a square number
+        let n_switches = source_size/self.servers_per_switch;
+        let n = (n_switches as f64).sqrt() as usize;
+        assert_eq!(n_switches, (n as f64).powi(2) as usize);
+        self.n = n;
+        self.cartesian_data = CartesianData::new(&vec![n, n]);
+
+        let mut origins = vec![];
+        for i in 0..n{
+            origins.push(vec![i, 0]);
+        }
+        self.origins = origins;
+    }
+
+    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
+        let list = param.list.clone();
+        let mut points_to_origins = vec![vec![]; self.origins.len()];
+        let diagonal_vector = vec![1; self.origins[0].len()];
+
+        'outer: for server in list.into_iter(){
+            let switch = server / self.servers_per_switch;
+            let point = self.cartesian_data.unpack(switch);
+            //apply up to n-1 times the diagonal vector to each origin to get the point where the server is
+            for j in 0..self.origins.len(){
+                let mut new_point = self.origins[j].clone();
+                for _ in 0..self.n{
+                    new_point = new_point.iter().zip(diagonal_vector.iter()).map(|(a, b)| (a + b) % self.n ).collect::<Vec<usize>>();
+                    if new_point == point{
+                        points_to_origins[j].push(server);
+                        continue 'outer;
+                    }
+                }
+            }
+
+        }
+        //Return the elements with the origin point with the most elements
+        let mut point = 0;
+        let mut elements = points_to_origins[0].len();
+        for i in 1..points_to_origins.len(){
+            if points_to_origins[i].len() > elements{
+                point = i;
+                elements = points_to_origins[i].len();
+            }
+        }
+        //return the selected points sorted
+        let mut ret = points_to_origins[point].clone();
+        ret.sort_by(|a, b| a.cmp(b));
+        //return the first extra elements
+        ret.into_iter().take(param.extra.unwrap()).collect()
+    }
+}
+
+impl DiagonalSelection {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> DiagonalSelection {
+        let mut servers_per_switch = None;
+        match_object_panic!(arg.cv,"DiagonalSelection",value,
+            "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
+        );
+        let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
+        DiagonalSelection {
+            servers_per_switch,
+            n: 0,
+            origins: vec![],
+            cartesian_data: CartesianData::new(&vec![]),
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod test {
+    use rand::SeedableRng;
+    use crate::general_pattern::GeneralPattern;
     use crate::general_pattern::many_to_many_pattern::filters::{IdentityFilter, MinFilter};
     use crate::topology::prelude::CartesianData;
 
@@ -545,16 +635,62 @@ mod test {
         let selected = ltile_selection.get_destination(param, None, &mut rng);
         assert_eq!(selected, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 64, 65, 66, 67, 68, 69, 70, 71, 128, 129, 130, 131, 132, 133, 134, 135, 192, 193, 194, 195, 196, 197, 198, 199, 256, 257, 258, 259, 260, 261, 262, 263]);
 
-        // let mut list = (0..512).collect::<Vec<usize>>();
-        // list.retain(|a| !selected.contains(a));
-        // let param = ManyToManyParam{
-        //     origin: None,
-        //     current: None,
-        //     destination: None,
-        //     list,
-        //     extra: Some(64),
-        // };
-        // let selected = ltile_selection.get_destination(param, None, &mut rng);
-        // assert_eq!(selected, vec![32, 33, 34, 35, 36, 37, 38, 39, 96, 97, 98, 99, 100, 101, 102, 103, 160, 161, 162, 163, 164, 165, 166, 167, 224, 225, 226, 227, 228, 229, 230, 231, 288, 289, 290, 291, 292, 293, 294, 295, 352, 353, 354, 355, 356, 357, 358, 359, 416, 417, 418, 419, 420, 421, 422, 423, 480, 481, 482, 483, 484, 485, 486, 487]);
+        let mut list = (0..512).collect::<Vec<usize>>();
+        list.retain(|a| !selected.contains(a));
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list,
+            extra: Some(64),
+        };
+        let selected = ltile_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 136, 137, 138, 139, 140, 141, 142, 143, 200, 201, 202, 203, 204, 205, 206, 207, 264, 265, 266, 267, 268, 269, 270, 271, 328, 329, 330, 331, 332, 333, 334, 335]);
+    }
+
+    #[test]
+    fn test_diagonal_selection(){
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut diagonal_selection = crate::general_pattern::many_to_many_pattern::resource_selection::DiagonalSelection{
+            servers_per_switch: 8,
+            n: 0,
+            origins: vec![],
+            cartesian_data: CartesianData::new(&vec![]),
+        };
+        diagonal_selection.initialize(512, 512, None, &mut rng);
+        let list = (0..512).collect::<Vec<usize>>();
+        let param = crate::general_pattern::many_to_many_pattern::ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list,
+            extra: Some(3),
+        };
+        let selected = diagonal_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![0, 1, 2]);
+
+        let mut list = (0..512).collect::<Vec<usize>>();
+        list.retain(|a| !selected.contains(a));
+        let param = crate::general_pattern::many_to_many_pattern::ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list: list.clone(),
+            extra: Some(3),
+        };
+        let selected = diagonal_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![8, 9, 10]);
+
+        let param = crate::general_pattern::many_to_many_pattern::ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list,
+            extra: Some(64),
+        };
+        let selected = diagonal_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![8, 9, 10, 11, 12, 13, 14, 15, 80, 81, 82, 83, 84, 85, 86, 87, 152, 153, 154, 155, 156, 157, 158, 159, 224, 225, 226, 227, 228, 229, 230, 231, 296, 297, 298, 299, 300, 301, 302, 303, 368, 369, 370, 371, 372, 373, 374, 375, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455]);
+
+
     }
 }
