@@ -2025,9 +2025,10 @@ pub fn config_relaxed_cmp(a:&ConfigurationValue, b:&ConfigurationValue) -> bool
 			//na==nb && xa==xb,
 			if na != nb { return false; }
 			//do we want to enforce order of the fields?
-			for ( (ka,va),(kb,vb) ) in
-				xa.iter().filter(|(key,_)| !ignore(key) ).zip(
-				xb.iter().filter(|(key,_)| !ignore(key)  ) )
+			let xa_filter = xa.iter().filter(|(key,_)| !ignore(key) ).collect::<Vec<&(String, ConfigurationValue)>>();
+			let xb_filter = xb.iter().filter(|(key,_)| !ignore(key) ).collect::<Vec<&(String, ConfigurationValue)>>();
+			if xa_filter.len() != xb_filter.len() { return false; }
+			for ( (ka,va),(kb,vb) ) in xa_filter.iter().zip(xb_filter.iter())
 			{
 				if ka != kb { return false; }
 				if !config_relaxed_cmp(va,vb) { return false; }
