@@ -82,6 +82,7 @@ pub struct BlockSelection
     pub(crate) block_size: usize,
     pub(crate) selection_inside_block: Box<dyn ManyToManyPattern>,
     pub(crate) number_of_blocks: usize,
+    pub(crate) random_block_selection: bool,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
@@ -111,7 +112,13 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
         }
         //select the block with most elements to allocate the elements
         let mut ordered_blocks = block_occupation.iter().enumerate().collect::<Vec<_>>();
-        ordered_blocks.sort_by(|a, b| if a.1 != b.1 {b.1.len().cmp(&a.1.len())} else {a.0.cmp(&b.0)});
+        if self.random_block_selection{
+            //discard full blocks
+            // ordered_blocks.retain(|a| a.1.len() < self.block_size);
+            ordered_blocks.shuffle(rng);
+        }else {
+            ordered_blocks.sort_by(|a, b| if a.1 != b.1 {b.1.len().cmp(&a.1.len())} else {a.0.cmp(&b.0)});
+        }
         let mut partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
         let mut selected = vec![];
         let mut last =1; //just a random number
@@ -147,13 +154,15 @@ impl BlockSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> BlockSelection {
         let mut block_size = None;
         let mut selection_inside_block: Option<Box<dyn ManyToManyPattern>> = Some(Box::new( IdentityFilter{}));
+        let mut random_block_selection = false;
         match_object_panic!(arg.cv,"BlockSelection",value,
             "block_size" => block_size= Some(value.as_usize().unwrap()),
             "selection_inside_block" => selection_inside_block = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, ..arg})),
+            "random_block_selection" => random_block_selection = value.as_bool().unwrap(),
         );
         let block_size = block_size.expect("distance is required");
         let selection_inside_block = selection_inside_block.unwrap();
-        BlockSelection { block_size, selection_inside_block, number_of_blocks: 0 }
+        BlockSelection { block_size, selection_inside_block, number_of_blocks: 0, random_block_selection }
     }
 }
 
@@ -415,6 +424,7 @@ mod test {
             block_size: 2,
             selection_inside_block: Box::new(IdentityFilter{}),
             number_of_blocks: 0,
+            random_block_selection: false,
         };
         block_selection.initialize(1000, 1000, None, &mut rng);
         let param = ManyToManyParam{
@@ -442,6 +452,7 @@ mod test {
             block_size: 2,
             selection_inside_block: Box::new(MinFilter{}),
             number_of_blocks: 0,
+            random_block_selection: false,
         };
         let param = ManyToManyParam{
             origin: None,
@@ -467,6 +478,7 @@ mod test {
             block_size: 64,
             selection_inside_block: Box::new(IdentityFilter{}),
             number_of_blocks: 0,
+            random_block_selection: false,
         };
         block_selection.initialize(512, 512, None, &mut rng);
         let param = ManyToManyParam{
@@ -485,6 +497,7 @@ mod test {
             block_size: 64,
             selection_inside_block: Box::new(MinFilter{}),
             number_of_blocks: 0,
+            random_block_selection: false,
         };
         block_selection.initialize(512, 512, None, &mut rng);
         let param = ManyToManyParam{
@@ -505,8 +518,10 @@ mod test {
                 block_size: 64,
                 selection_inside_block: Box::new(MinFilter{}),
                 number_of_blocks: 0,
+                random_block_selection: false,
             }),
             number_of_blocks: 0,
+            random_block_selection: false,
         };
 
         block_selection.initialize(512, 512, None, &mut rng);
@@ -528,8 +543,10 @@ mod test {
                 block_size: 64,
                 selection_inside_block: Box::new(MinFilter{}),
                 number_of_blocks: 0,
+                random_block_selection: false,
             }),
             number_of_blocks: 0,
+            random_block_selection: false,
         };
 
         block_selection.initialize(512, 512, None, &mut rng);
@@ -574,6 +591,51 @@ mod test {
         assert_eq!(selected, vec![32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127]);
         assert_eq!(64, selected.len());
 
+    }
+
+    #[test]
+    fn test_random_block_selection(){
+        use crate::general_pattern::many_to_many_pattern::resource_selection::BlockSelection;
+        use crate::general_pattern::GeneralPattern;
+        use crate::general_pattern::many_to_many_pattern::ManyToManyParam;
+
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        let mut block_selection = BlockSelection {
+            block_size: 2,
+            selection_inside_block: Box::new(IdentityFilter{}),
+            number_of_blocks: 0,
+            random_block_selection: true,
+        };
+        block_selection.initialize(1000, 1000, None, &mut rng);
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,],
+            extra: Some(2),
+        };
+        let selected = block_selection.get_destination(param, None, &mut rng);
+        println!("{:?}", selected);
+        assert_eq!(selected.len(), 2);
+
+        let mut block_selection = BlockSelection {
+            block_size: 5,
+            selection_inside_block: Box::new(IdentityFilter{}),
+            number_of_blocks: 0,
+            random_block_selection: true,
+        };
+        block_selection.initialize(1000, 1000, None, &mut rng);
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            extra: Some(5),
+        };
+        let selected = block_selection.get_destination(param, None, &mut rng);
+        println!("{:?}", selected);
+        assert_eq!(selected.len(), 5);
     }
 
 
