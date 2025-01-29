@@ -1389,6 +1389,7 @@ pub struct CGLabel
 	intermediates: Vec<Vec<Vec<usize>>>,
 	intermediate_filter: Box<dyn ManyToManyPattern>,
 	balance_algorithm: BalanceAlgorithm,
+	weight_repetition: bool,
 }
 impl Routing for CGLabel
 {
@@ -1409,29 +1410,6 @@ impl Routing for CGLabel
 			unreachable!();
 		}
 		let mut candidates = vec![];
-
-			// IntermediateSelectionPolicy::All => {
-			// 	if routing_info.hops == 0{
-			// 		//Go to intermediate
-			// 		for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
-			// 		{
-			// 			if self.intermediates[current_router][target_router].contains(&neighbour_router)
-			// 			{
-			// 				candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress::new(port_index,vc)));
-			// 			}
-			// 		}
-			// 	} else {
-			// 		//Go to destination
-			// 		for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
-			// 		{
-			// 			if neighbour_router == target_router
-			// 			{
-			// 				candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress::new(port_index,vc)));
-			// 				break;
-			// 			}
-			// 		}
-			// 	}
-			// },
 
 			match routing_info.selections.as_ref()
 			{
@@ -1570,9 +1548,6 @@ impl Routing for CGLabel
 						let port = (j -i +n) % n -1;
 						let test = (a*i + b*j) % n;
 						*weight_matrix.get_mut(i, j) = (port * n + test ) as i32;
-						// let port = (j + i + 1) % n;
-						// let w_p= (j + i) % n;
-						// *weight_matrix.get_mut(i, port) = (j * n + w_p) as i32;
 					}
 				}
 			}
@@ -1583,27 +1558,28 @@ impl Routing for CGLabel
 		}
 
 		//check that no weight is repeated and maximum weight is n*(n-1)-1
-		let mut weights = vec![0; n*(n-1)];
-		for i in 0..n
-		{
-			for j in 0..n
+		if !self.weight_repetition{
+			let mut weights = vec![0; n*(n-1)];
+			for i in 0..n
 			{
-				if i == j { continue; }
-				let w = *weight_matrix.get(i, j);
-				if w >= (n * (n - 1)) as i32
+				for j in 0..n
 				{
-					println!("i={},j={},w={}",i,j,w);
-					panic!("Weight is too high");
+					if i == j { continue; }
+					let w = *weight_matrix.get(i, j);
+					if w >= (n * (n - 1)) as i32
+					{
+						println!("i={},j={},w={}",i,j,w);
+						panic!("Weight is too high");
+					}
+					if weights[w as usize] != 0
+					{
+						println!("i={},j={},w={}",i,j,w);
+						panic!("Weight is repeated");
+					}
+					weights[w as usize] = 1;
 				}
-				if weights[w as usize] != 0
-				{
-					println!("i={},j={},w={}",i,j,w);
-					panic!("Weight is repeated");
-				}
-				weights[w as usize] = 1;
 			}
 		}
-
 
 		for i in 0..n
 		{
@@ -1807,14 +1783,17 @@ impl CGLabel
 	{
 		let mut balance_algorithm= BalanceAlgorithm::RINR;
 		let mut intermediate_selection_policy: Box<dyn ManyToManyPattern> = Box::new(RandomFilter::get_basic_random_filter()); //Select one intermediate
+		let mut weight_repetition = false;
 		match_object_panic!(arg.cv,"CGLabel",value,
 			"balance_algorithm" => balance_algorithm = match_balance_algorithm(value),
 			"intermediate_policy" => intermediate_selection_policy = new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, plugs:arg.plugs}),
+			"weight_repetition" => weight_repetition = value.as_bool().expect("bad value for weight_repetition"),
 		);
 		CGLabel {
 			intermediates: vec![],
 			intermediate_filter: intermediate_selection_policy,
 			balance_algorithm,
+			weight_repetition,
 		}
 	}
 }
