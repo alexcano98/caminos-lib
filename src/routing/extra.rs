@@ -1327,6 +1327,7 @@ pub enum BalanceAlgorithm
 	RINR,
 	BRINR,
 	Alex(usize, usize),
+	XOR,
 }
 
 //match enum BalanceAlgorithm and the inner values from ConfigurationValue object
@@ -1346,6 +1347,7 @@ fn match_balance_algorithm(object: &ConfigurationValue) -> BalanceAlgorithm
 				);
 				BalanceAlgorithm::Alex(a, b)
 			},
+			"XOR" => BalanceAlgorithm::XOR,
 			_ => {
 				panic!("Unknown balance algorithm");
 			}
@@ -1374,11 +1376,8 @@ IEEE, 2021.
 ```ignore
 	CGLabel{
 		balance_algorithm: Boomgate,
-		intermediate_selection_policy: Pattern{
-			many_to_many_pattern: RandomFilter{
-				allow_source_destination: false,
-				elements_to_return: 1, //1 intermediate
-			},
+		intermediate_selection_policy: RandomFilter{
+			elements_to_return: 1,
 		}, //Select one intermediate randomly
 	}
 ```
@@ -1548,6 +1547,21 @@ impl Routing for CGLabel
 						let port = (j -i +n) % n -1;
 						let test = (a*i + b*j) % n;
 						*weight_matrix.get_mut(i, j) = (port * n + test ) as i32;
+					}
+				}
+			}
+			BalanceAlgorithm::XOR => {
+				//panic if n is not a power of 2
+				if n & (n-1) != 0
+				{
+					panic!("n must be a power of 2");
+				}
+				for i in 0..n
+				{
+					for j in 0..n
+					{
+						if i == j { continue; }
+						*weight_matrix.get_mut(i, j) = (i ^ j) as i32;
 					}
 				}
 			}
