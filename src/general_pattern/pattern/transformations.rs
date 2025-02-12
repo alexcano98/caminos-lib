@@ -72,11 +72,11 @@ LinearTransform{
 pub struct LinearTransform
 {
     ///The Cartesian interpretation for the source vector
-    source_size: CartesianData,
+    pub(crate) source_size: CartesianData,
     ///A matrix of integers.
-    matrix: Vec<Vec<i32>>,
+    pub(crate) matrix: Vec<Vec<i32>>,
     ///The Cartesian interpretation for the destination vector
-    target_size: CartesianData,
+    pub(crate) target_size: CartesianData,
 }
 
 impl GeneralPattern<usize, usize>for LinearTransform

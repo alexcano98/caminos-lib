@@ -319,7 +319,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0);
 
         let all2all_tasks= 8;
-        let all2allcv = get_all2all(all2all_tasks, 128, 1);
+        let all2allcv = get_all2all(all2all_tasks, 128, 1, None);
 
         let servers = 32;
         let cv = super::create_fifo_scheduler_cv(super::FIFOSchedulerBuilderCV{

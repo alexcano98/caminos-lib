@@ -311,13 +311,15 @@ impl MPICollective
                 let mut tasks = None;
                 let mut data_size = None;
                 let mut rounds = 1;
+                let mut start_pattern = None;
                 match_object_panic!(arg.cv,"All2All",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
                     "rounds" => rounds = value.as_usize().expect("bad value for rounds") as usize,
+                    "start_pattern" => start_pattern = Some(value.clone()),
 				);
 
-                Some(get_all2all(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), rounds))
+                Some(get_all2all(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), rounds, start_pattern))
             },
 
             _ => panic!("Unknown traffic type: {}", traffic),
@@ -479,7 +481,7 @@ fn get_all_reduce_ring(tasks: usize, data_size: usize) -> ConfigurationValue
     ring_iteration(tasks, data_size, 2)
 }
 
-pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> ConfigurationValue
+pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize, start_pattern: Option<ConfigurationValue>) -> ConfigurationValue
 {
     let total_messages = (tasks -1) * rounds;
     if rounds == 0 {
@@ -487,10 +489,14 @@ pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> Conf
     }
     let message_size = (data_size/tasks)/rounds;
 
-    let hypercube_neighbours = ConfigurationValue::Object("AllNeighbours".to_string(), vec![]);
+    let all_neighbours = if let Some(start_pattern) = start_pattern {
+        ConfigurationValue::Object("AllNeighbours".to_string(), vec![("pattern_first_neighbour".to_string(), start_pattern)])
+    }else {
+        ConfigurationValue::Object("AllNeighbours".to_string(), vec![])
+    };
     let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
         tasks,
-        one_to_many_pattern: hypercube_neighbours,
+        one_to_many_pattern: all_neighbours,
         message_size,
         rounds,
     };
@@ -515,6 +521,7 @@ pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize) -> Conf
 mod tests {
     use rand::prelude::StdRng;
     use rand::SeedableRng;
+    use crate::general_pattern::pattern::{get_linear_transform, BuildLinearTransformCV};
     use crate::Plugs;
     use crate::traffic::collectives::{get_all2all, get_all_reduce_optimal, get_all_reduce_ring};
     use crate::traffic::new_traffic;
@@ -663,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_all2all() {
-        let cv = get_all2all(64, 128, 2);
+        let cv = get_all2all(64, 128, 2, None);
         println!("All2All");
         println!("{}", cv.format_terminal());
 
@@ -698,6 +705,69 @@ mod tests {
             }
         }
         assert_eq!(t.is_finished(Some(&mut rng)), true);
+    }
+
+    #[test]
+    fn test_all2all_cg(){
+        let tasks = 16;
+        let rounds = 1;
+        let message_size = 16;
+        let linear_transform_builder = BuildLinearTransformCV{
+            source_size: vec![4usize, 4usize],
+            matrix: vec![vec![0, 1], vec![1, 1]],
+            target_size: vec![4usize, 4usize],
+        };
+        let linear_transform_cfg = get_linear_transform(linear_transform_builder);
+        let cv = get_all2all(tasks, message_size * tasks, rounds, Some(linear_transform_cfg));
+        let results = vec![
+            vec![ 1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15], //0
+            vec![ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,  0,  2,  3,  4], //1
+            vec![ 9, 10, 11, 12, 13, 14, 15,  0,  1,  3,  4,  5,  6,  7,  8], //2
+            vec![13, 14, 15,  0,  1,  2,  4,  5,  6,  7,  8,  9, 10, 11, 12], //3
+
+            vec![  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,  0,  1,  2,  3,  5], //4
+            vec![ 10, 11, 12, 13, 14, 15,  0,  1,  2,  3,  4,  6,  7,  8,  9], //5
+            vec![ 14, 15,  0,  1,  2,  3,  4,  5,  7,  8,  9, 10, 11, 12, 13], //6
+            vec![  2,  3,  4,  5,  6,  8,  9, 10, 11, 12, 13, 14, 15,  0,  1], //7
+
+            vec![ 11, 12, 13, 14, 15,  0,  1,  2,  3,  4,  5,  6,  7,  9, 10], //8
+            vec![ 15,  0,  1,  2,  3,  4,  5,  6,  7,  8, 10, 11, 12, 13, 14], //9
+            vec![  3,  4,  5,  6,  7,  8,  9, 11, 12, 13, 14, 15,  0,  1,  2], //10
+            vec![  7,  8,  9, 10, 12, 13, 14, 15,  0,  1,  2,  3,  4,  5,  6], //11
+
+            vec![  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 13, 14, 15], //12
+            vec![  4,  5,  6,  7,  8,  9, 10, 11, 12, 14, 15,  0,  1,  2,  3], //13
+            vec![  8,  9, 10, 11, 12, 13, 15,  0,  1,  2,  3,  4,  5,  6,  7], //14
+            vec![ 12, 13, 14,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11], //15
+        ];
+        let mut t = new_traffic(super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut StdRng::seed_from_u64(0),
+            plugs: &Plugs::default(),
+            topology: None,
+        });
+        assert_eq!(t.number_tasks(), 16);
+        for iteration in 0..rounds{
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut StdRng::seed_from_u64(0)), true);
+            }
+            let mut messages = vec![];
+            for i in 0..tasks {
+                let start = (i * 8) % tasks;
+                let mut destinations = vec![];
+                for _ in 1..tasks {
+                    let message = t.generate_message(i, 0, None, &mut StdRng::seed_from_u64(0)).unwrap();
+                    assert_eq!(message.size, message_size);
+                    destinations.push(message.destination);
+                    messages.push(message);
+                }
+                assert_eq!(destinations, results[i]);
+            }
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut StdRng::seed_from_u64(0)), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut StdRng::seed_from_u64(0))), true);
     }
 }
 

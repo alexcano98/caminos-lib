@@ -6,6 +6,7 @@ use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
 use crate::topology::prelude::CartesianData;
 use crate::topology::Topology;
 use crate::ConfigurationValue;
+use crate::general_pattern::pattern::{new_pattern, Pattern};
 
 ///Auxiliar function
 fn extend_vectors(vectors: Vec<Vec<i32>>, value: i32) -> Vec<Vec<i32>>
@@ -431,20 +432,35 @@ Returns all the elements as neighbours
 #[derive(Debug, Quantifiable)]
 pub struct AllNeighbours
 {
+    pattern_first_neighbour: Option<Box<dyn Pattern>>,
     neighbours: Vec<Vec<usize>>,
 }
 
 impl GeneralPattern<usize, Vec<usize>> for AllNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         assert_eq!(source_size,target_size);
-
-        self.neighbours = vec![vec![]; source_size];
-        for i in 0..source_size {
-            for j in 1..source_size {
-                self.neighbours[i].push((i + j) % source_size);
+        if self.pattern_first_neighbour.is_none(){
+            self.neighbours = vec![vec![]; source_size];
+            for i in 0..source_size {
+                for j in 1..source_size {
+                    self.neighbours[i].push((i + j) % source_size);
+                }
+            }
+        }else {
+            self.pattern_first_neighbour.as_mut().unwrap().initialize(source_size, target_size, None, _rng);
+            let pattern = self.pattern_first_neighbour.as_ref().unwrap();
+            self.neighbours = vec![vec![]; source_size];
+            for i in 0..source_size {
+                let to_start = pattern.get_destination(i, None, _rng);
+                let mut next = 0;
+                for j in 1..source_size {
+                    if (to_start + j) % source_size == i {
+                        next = 1;
+                    }
+                    self.neighbours[i].push((to_start + j + next) % source_size);
+                }
             }
         }
-
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
         self.neighbours[param].clone()
@@ -452,8 +468,13 @@ impl GeneralPattern<usize, Vec<usize>> for AllNeighbours {
 }
 
 impl AllNeighbours{
-    pub fn new(_arg: GeneralPatternBuilderArgument) -> AllNeighbours {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> AllNeighbours {
+        let mut start_pattern = None;
+        match_object_panic!(arg.cv,"AllNeighbours",value,
+            "pattern_first_neighbour" => start_pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
+        );
         AllNeighbours {
+            pattern_first_neighbour: start_pattern,
             neighbours: vec![],
         }
     }
@@ -547,6 +568,8 @@ pub fn immediate_neighbours_cv_builder(arg: ImmediateNeighboursCVBuilder) -> Con
 mod tests {
     use rand::SeedableRng;
     use crate::general_pattern::GeneralPattern;
+    use crate::general_pattern::pattern::transformations::LinearTransform;
+    use crate::topology::cartesian::CartesianData;
 
     #[test]
     fn test_manhattan_neighbours_distance_1() {
@@ -941,5 +964,34 @@ mod tests {
             assert_eq!(binary_tree.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), expected[i]);
         }
 
+    }
+
+    #[test]
+    fn test_all_neighbours_cg(){
+        let mut all_neighbours = super::AllNeighbours{
+            pattern_first_neighbour: Some(Box::new(LinearTransform{
+                source_size: CartesianData::new(&vec![3, 3]),
+                matrix: vec![vec![0, 1], vec![1, 1]],
+                target_size: CartesianData::new(&vec![3, 3])
+            })),
+            neighbours: vec![],
+        };
+        all_neighbours.initialize(9, 9, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+        //print them
+        let result = vec![
+            vec![1, 2, 3, 4, 5, 6, 7, 8], //0
+            vec![4, 5, 6, 7, 8, 0, 2, 3], //1
+            vec![7, 8, 0, 1, 3, 4, 5, 6], //2
+            vec![5, 6, 7, 8, 0, 1, 2, 4], //3
+            vec![8, 0, 1, 2, 3, 5, 6, 7], //4
+            vec![2, 3, 4, 6, 7, 8, 0, 1], //5
+            vec![0, 1, 2, 3, 4, 5, 7, 8], //6
+            vec![3, 4, 5, 6, 8, 0, 1, 2], //7
+            vec![6, 7, 0, 1, 2, 3, 4, 5], //8
+        ];
+        for i in 0..9{
+            assert_eq!(all_neighbours.get_destination(i, None, &mut rand::prelude::StdRng::seed_from_u64(0)), result[i]);
+            println!("{}: {:?}",i, result[i]);
+        }
     }
 }

@@ -483,7 +483,7 @@ fn get_all2all_linear(task_space: Vec<usize>, message_size: usize) -> Configurat
 		let specific_all2alls = specific_all2alls_side.iter().product();
 		let specific_all2alls_cartesian_data = CartesianData::new(&specific_all2alls_side);
 		for i in 0..specific_all2alls {
-			let all2all = super::collectives::get_all2all(task_space[k], message_size * task_space[k], 1);
+			let all2all = super::collectives::get_all2all(task_space[k], message_size * task_space[k], 1, None);
 			let cartesian_data_graphs = specific_all2alls_cartesian_data.unpack(i);
 			let mut shift_vector = cartesian_data_graphs.clone();
 			shift_vector.insert(k, 0);
