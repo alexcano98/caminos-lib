@@ -203,7 +203,8 @@ impl RandomSelection {
 
 
 /**
-Pattern which partitions the network in Ltiles
+Pattern which partitions the network in Ltiles.
+Specific for a 2D network.
 ```ignore
     LTile {}
 ```

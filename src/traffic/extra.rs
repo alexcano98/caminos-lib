@@ -19,17 +19,17 @@ use crate::traffic::{build_traffic_map_cv, build_traffic_sum_cv, new_traffic, Bu
 use crate::traffic::basic::{build_send_message_to_vector_cv, SendMessageToVectorCVBuilder};
 
 /**
-Traffic which allow tasks to generate messages when they have enough credits.
-After generating the messages, the credits are consumed.
-A task gain credits when it consumes messages, and an initial amount of credits per task can be set.
+Traffic which allows a task from a traffic to generate a message when it has enough credits.
+After generating the message, 'credits_to_activate' credits are consumed.
+A task gains credits when it consumes messages, and each task has set an initial number of credits.
 ```ignore
-TrafficManager{
-	SimplePattern: RandomPermutation, //specify the SimplePattern of the communication
-	tasks: 1000, //specify the number of tasks
-	credits_to_activate: 10, //specify the number of credits needed to generate messages
-	messages_per_transition: 1, //specify the number of messages each task can sent when consuming credits
-	credits_per_received_message: 1, //specify the number of credits to gain when a message is received
-	initial_credits: Hotspots{destinations: [1]}, //specify the initial amount of credits per task
+TrafficManager{ //Step by step All2All
+	tasks: 16,
+	traffic: All2All{...},
+	credits_to_activate: 1,
+	credits_per_received_message: 1,
+	messages_per_transition: 1,
+	initial_credits: Identity{},
 }
 ```
  **/
@@ -234,6 +234,17 @@ pub fn get_traffic_manager(args: BuildTrafficManagerCVArgs) -> ConfigurationValu
 	ConfigurationValue::Object("TrafficManager".to_string(), arg_vec)
 }
 
+
+/**
+Traffic which modifies the size of the messages sent by a task.
+```ignore
+MessageSizeModifier{
+	tasks: 7,
+	traffic: All2All{...},
+	message_sizes: [16, 32, 64, 128, 256, 512], //6 different sizes of messages
+}
+```
+ **/
 #[derive(Debug, Quantifiable)]
 pub struct MessageSizeModifier {
 	/// The traffic to modify

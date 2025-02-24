@@ -183,7 +183,16 @@ pub fn build_message_barrier_cv(args: BuildMessageBarrierCVArgs) -> Configuratio
 
 
 /**
-MPI collectives implementations based on TrafficCredit
+MPI collectives implementations based on TrafficManager.
+Some of the implementations are from:
+
+    Thakur, Rajeev, Rolf Rabenseifner, and William Gropp.
+    "Optimization of collective communication operations in MPICH."
+    The International Journal of High Performance Computing Applications 19.1 (2005): 49-66.
+
+For each collective there can be different algorithms.
+For instance, for AllReduce there is a Ring or a Hypercube (Rabenseifner) algorithm.
+Depending on the implementation, the number of messages and the size of them can vary.
 
 ```ignore
 AllGather{
@@ -208,13 +217,23 @@ ScatterReduce{
 AllReduce{
     tasks: 64,
     data_size: 1000, //The total data size to all-reduce.
-    algorithm: Hypercube, //natural order iterating
+    algorithm: Hypercube, //Rabenseifner algorithm
 }
 
 All2All{
     tasks: 64,
     data_size: 1000, //The total data size to all2all. Each task sends a data slice of size data_size/tasks to all the other tasks.
     rounds: 2, //Optional, the number of rounds to send all the data.
+}
+
+All2All{
+    tasks: 16,
+    data_size: 1000, //The total data size to all2all. Each task sends a data slice of size data_size/tasks to all the other tasks.
+    start_pattern: LinearTransform{ //Optional, to start sending to a different task, and not the next one. Then go +1 from there.
+            source_size: [4, 4],
+            matrix: [[0, 1], [1, 1]],
+            target_size: [4, 4],
+        },
 }
 ```
  **/
@@ -224,7 +243,6 @@ pub enum MPICollectiveAlgorithm
 {
     Hypercube(Option<ConfigurationValue>), //order in which to iterate the Hypercube neighbours
     Ring,
-    // Optimal(Option<ConfigurationValue>),
 }
 
 fn parse_algorithm_from_cv(configuration_value: &ConfigurationValue) -> MPICollectiveAlgorithm

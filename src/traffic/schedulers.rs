@@ -24,7 +24,7 @@ pub trait Scheduler: Traffic{
 
 /**
 Allocates a list of traffics in the network following a FIFO order.
-If there are not enough resources to allocate the traffic, it waits until the resources are available.
+If there are not enough resources to allocate the traffic, it waits until other traffic finishes and leaves the resources available.
 ```ignore
 FIFOScheduler{
     servers: 32,

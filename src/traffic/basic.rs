@@ -976,7 +976,25 @@ impl Reactive
     }
 }
 
+/**
+Each task send a message to a vector of destinations. The list of destinations is passed as OneToManyPattern.
+Can be used to create a Stencil traffic, having neighbours as destinations.
+Thus, we can refer to 'SendMessageToVector' as 'Stencil'.
+```ignore
+SendMessageToVector{
+    tasks: 100,
+    one_to_many_pattern: KingNeighbours{...}, //Moore neighbours
+    message_size: 16,
+}
 
+Stencil{
+    tasks: 100,
+    one_to_many_pattern: ManhattanNeighbours{...}, //Von Neumann neighbours
+    rounds: 3, //Go three times over the neighbours.
+    message_size: 16,
+}
+```
+ **/
 #[derive(Debug, Quantifiable)]
 pub struct SendMessageToVector
 {
