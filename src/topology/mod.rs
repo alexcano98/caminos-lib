@@ -567,7 +567,7 @@ pub trait Topology : Quantifiable + std::fmt::Debug
 		for router_index in 0..n
 		{
 			let deg = self.degree(router_index);
-			let mut router_port_count = 0;
+			// let mut router_port_count = 0;
 			for port_index in 0..self.ports(router_index)
 			{
 				let (neighbour_location, link_class) = self.neighbour(router_index, port_index);
@@ -586,7 +586,7 @@ pub trait Topology : Quantifiable + std::fmt::Debug
 						router_port: neighbour_port,
 					} =>
 					{
-						router_port_count += 1;
+						// router_port_count += 1;
 						if let Some(bound) = amount_link_classes
 						{
 							if link_class+1==bound
