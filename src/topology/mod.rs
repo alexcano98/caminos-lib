@@ -15,6 +15,7 @@ pub mod projective;
 pub mod slimfly;
 pub mod multistage;
 pub mod megafly;
+mod tree;
 
 use std::fs::File;
 use ::rand::{rngs::StdRng};
@@ -31,6 +32,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::matrix::Matrix;
 use crate::quantify::Quantifiable;
 use crate::Plugs;
+use crate::topology::tree::Tree;
 
 /// Some things most uses of the topology module will use.
 pub mod prelude
@@ -947,6 +949,7 @@ pub fn new_topology(arg:TopologyBuilderArgument) -> Box<dyn Topology>
 			"RemappedServers" => Box::new(operations::RemappedServersTopology::new(arg)),
 			"AsCartesianTopology" => Box::new(AsCartesianTopology::new(arg)),
 			"RandomLinkFaults" => Box::new(operations::RandomLinkFaults::new(arg)),
+			"Tree" => Box::new(Tree::new(arg)),
 			_ => panic!("Unknown topology {}",cv_name),
 		}
 	}
