@@ -1085,6 +1085,7 @@ pub struct GeneralDOR
 	// selected_region_size: Vec<usize>,
 	region_logical_topology: Vec<Box<dyn Topology>>, // should be extracted from the topology...
 	routings: Vec<Box<dyn Routing>>,
+	order: Vec<usize>,
 }
 
 impl Routing for GeneralDOR
@@ -1111,7 +1112,7 @@ impl Routing for GeneralDOR
 		let cartesian_data = topology.cartesian_data().expect("DOR requires a Cartesian topology");
 		let up_current = cartesian_data.unpack(current_router);
 		let up_target = cartesian_data.unpack(target_router);
-		let dim = (0..up_current.len()).find(|&i| up_current[i] != up_target[i]).expect("There should be a dimension");
+		let dim = *self.order.iter().find(|&i| up_current[*i] != up_target[*i]).expect("There should be a dimension");
 
 		let current_logical = up_current[dim];
 		let target_logical = up_target[dim];
@@ -1120,14 +1121,14 @@ impl Routing for GeneralDOR
 		let next_candidates = self.routings[dim].next(selected_bri, self.region_logical_topology[dim].as_ref(), current_logical, target_logical, target_server, num_virtual_channels, rng)?;
 
 		let mut final_candidates = vec![];
-		for CandidateEgress{port, virtual_channel, label, annotation, router_allows, estimated_remaining_hops} in next_candidates.candidates
+		for CandidateEgress{port, virtual_channel, label, annotation, router_allows, estimated_remaining_hops} in next_candidates.clone().candidates
 		{
 			let Location::RouterPort {router_index: next_router, router_port:_port_logical} = self.region_logical_topology[dim].neighbour(current_logical, port).0 else { panic!("There should be a port")};
 			let next_physical = cartesian_data.pack(&up_current.iter().enumerate().map(|(i, &v)| if i == dim {next_router} else {v}).collect::<Vec<usize>>());
 			let physical_port = topology.neighbour_router_iter(current_router).find(|item| item.neighbour_router == next_physical).expect("port not found").port_index;
 			final_candidates.push(CandidateEgress{port:physical_port, virtual_channel, label, annotation, router_allows, estimated_remaining_hops});
 		}
-
+		// println!("GeneralDOR: current_router={} target_router={} dim={} current_logical={} target_logical={} selected_bri={:?} next_candidates={:?} final_candidates={:?}", current_router, target_router, dim, current_logical, target_logical, selected_bri, &next_candidates.candidates, final_candidates);
 
 		Ok(RoutingNextCandidates{candidates: final_candidates, idempotent: false})
 	}
@@ -1192,13 +1193,17 @@ impl GeneralDOR
 		// let mut selected_region_size = vec![];
 		let mut region_logical_topology = vec![];
 		let mut routings = vec![];
+		let mut order = None;
 		match_object_panic!(arg.cv,"GeneralDOR",value,
 			// "physical_to_logical" => physical_to_logical = value.as_array().expect("bad value for selection_patterns").iter().map(|v|new_pattern(PatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
 			// "logical_to_physical" => logical_to_physical = value.as_array().expect("bad value for map_region").iter().map(|v|new_pattern(PatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
 			// "selected_region_size" => selected_region_size = value.as_array().expect("bad value for selected_size").iter().map(|v|v.as_usize().expect("bad value in selected_size")).collect(),
 			"region_logical_topology" => region_logical_topology = value.as_array().expect("bad value for region_logical_topology").iter().map(|v|new_topology(TopologyBuilderArgument{cv:v,plugs:arg.plugs,rng: &mut StdRng::from_entropy()})).collect(),
 			"routings" => routings = value.as_array().expect("bad value for routings").iter().map(|v|new_routing(RoutingBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"order" => order = Some(value.as_array().expect("bad value for order").iter().map(|v|v.as_usize().expect("bad value in order")).collect()),
 		);
+
+		let order = order.unwrap_or(routings.iter().enumerate().map(|(i, _)| i).collect());
 		//Check that the sizes are correct
 		// if physical_to_logical.len() != selected_region_size.len() {
 		// 	panic!("The number of selection_patterns and selected_size must be the same.");
@@ -1217,6 +1222,7 @@ impl GeneralDOR
 		GeneralDOR {
 			region_logical_topology,
 			routings,
+			order,
 		}
 	}
 }
