@@ -391,44 +391,47 @@ pub struct MiniApp {}
 
 impl MiniApp {
 
-    pub fn new(traffic: String, arg:TrafficBuilderArgument) -> Box<dyn Traffic> {
+	pub fn new(traffic: String, arg:TrafficBuilderArgument) -> Box<dyn Traffic> {
 
-        let traffic_cv = match traffic.as_str() {
+		let traffic_cv = match traffic.as_str() {
 
-            "Wavefront" => {
-                let mut task_space = None;
-                let mut message_size = None;
+			"Wavefront" => {
+				let mut task_space = None;
+				let mut message_size = None;
 
-                match_object_panic!(arg.cv, "Wavefront", value,
+				match_object_panic!(arg.cv, "Wavefront", value,
                     "task_space" => task_space = Some(value.as_array().expect("Bad task_space value").iter().map(|v| v.as_f64().expect("Bad task_space value") as usize).collect()),
                     "message_size" => message_size = Some(value.as_f64().expect("Bad data_size value") as usize),
                 );
 
-                let task_space = task_space.expect("task_space is required");
-                let message_size = message_size.expect("message_size is required");
+				let task_space = task_space.expect("task_space is required");
+				let message_size = message_size.expect("message_size is required");
 
-                get_wavefront(task_space, message_size)
-            },
+				get_wavefront(task_space, message_size)
+			},
 
 			"All2AllLinear" => {
 				let mut task_space = None;
 				let mut message_size = None;
+				let mut rounds = None;
 
 				match_object_panic!(arg.cv, "All2AllLinear", value,
 					"task_space" => task_space = Some(value.as_array().expect("Bad task_space value").iter().map(|v| v.as_f64().expect("Bad task_space value") as usize).collect()),
 					"message_size" => message_size = Some(value.as_f64().expect("Bad data_size value") as usize),
+					"rounds" => rounds = Some(value.as_f64().expect("Bad rounds value") as usize),
 				);
 
 				let task_space = task_space.expect("task_space is required");
 				let message_size = message_size.expect("message_size is required");
+				let rounds = rounds.unwrap_or(1);
 
-				get_all2all_linear(task_space, message_size)
+				get_all2all_linear(task_space, message_size, rounds)
 			}
 
-            _ => panic!("Unknown traffic type: {}", traffic),
-        };
-        new_traffic(TrafficBuilderArgument{cv: &traffic_cv, ..arg})
-    }
+			_ => panic!("Unknown traffic type: {}", traffic),
+		};
+		new_traffic(TrafficBuilderArgument{cv: &traffic_cv, ..arg})
+	}
 
 }
 
@@ -483,7 +486,7 @@ fn get_wavefront(task_space: Vec<usize>, message_size:usize) -> ConfigurationVal
 }
 
 
-fn get_all2all_linear(task_space: Vec<usize>, message_size: usize) -> ConfigurationValue {
+fn get_all2all_linear(task_space: Vec<usize>, message_size: usize, rounds: usize) -> ConfigurationValue {
 	let mut traffics_for_sequence = vec![];
 	let total_tasks:usize = task_space.iter().product();
 
@@ -494,7 +497,7 @@ fn get_all2all_linear(task_space: Vec<usize>, message_size: usize) -> Configurat
 		let specific_all2alls = specific_all2alls_side.iter().product();
 		let specific_all2alls_cartesian_data = CartesianData::new(&specific_all2alls_side);
 		for i in 0..specific_all2alls {
-			let all2all = super::collectives::get_all2all(task_space[k], message_size * task_space[k], 1, None);
+			let all2all = super::collectives::get_all2all(task_space[k], message_size * task_space[k], rounds, None);
 			let cartesian_data_graphs = specific_all2alls_cartesian_data.unpack(i);
 			let mut shift_vector = cartesian_data_graphs.clone();
 			shift_vector.insert(k, 0);
@@ -561,7 +564,7 @@ mod tests {
 	fn test_all2all_linear() {
 		let task_space = vec![10, 10];
 		let message_size = 16;
-		let traffic = get_all2all_linear(task_space, message_size);
+		let traffic = get_all2all_linear(task_space, message_size, );
 		println!("{}", traffic.format_terminal());
 	}
 	use rand::prelude::StdRng;
