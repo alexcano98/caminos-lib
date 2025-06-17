@@ -1050,8 +1050,11 @@ impl SubTopologyRouting
 
 /**
 Routing that selects a routing based on the current and next candidate routers.
-If the pair of routers belongs to the same region, the routing is selected from the region routing. If not, the default routing is selected.
-Main use is to mark faulty regions and use a different routing for them.
+If the current router and a candidate from the default_routing belong to the same region,
+the routing assigned to that region is executed.
+If not, the default routing is selected.
+The routing assigned to a region can return candidates from that region which are not in the default routing function.
+
 # Example
 ```ignore
 RegionRouting{
