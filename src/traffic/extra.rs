@@ -564,7 +564,7 @@ mod tests {
 	fn test_all2all_linear() {
 		let task_space = vec![10, 10];
 		let message_size = 16;
-		let traffic = get_all2all_linear(task_space, message_size, );
+		let traffic = get_all2all_linear(task_space, message_size, 1);
 		println!("{}", traffic.format_terminal());
 	}
 	use rand::prelude::StdRng;

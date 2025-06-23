@@ -384,6 +384,80 @@ impl DiagonalSelection {
     }
 }
 
+/**
+    Pattern which is composed of two patterns.
+    The first one selects a block of elements, and the second pattern selects a number of elements inside that block.
+    It repeatedly calls the block_selection pattern until it has selected the required number of elements.
+    ```ignore
+        IterBlockSelection{
+            block_size: 8,
+            block_selection: DiagonalSelection{servers_per_switch: 8},
+            selection_inside_block: MinFilter{}, // select the lowest at each diagonal.
+        }
+**/
+
+#[derive(Quantifiable, Debug)]
+pub struct IterBlockSelection {
+    pub(crate) block_size: usize,
+    pub(crate) block_selection: Box<dyn ManyToManyPattern>,
+    pub(crate) selection_inside_block: Box<dyn ManyToManyPattern>,
+}
+
+impl GeneralPattern<ManyToManyParam, Vec<usize>> for IterBlockSelection {
+    fn initialize(&mut self, source_size: usize, target_size: usize, topology: Option<&dyn Topology>, rng: &mut StdRng) {
+        assert_eq!(source_size, target_size);
+        self.block_selection.initialize(source_size, target_size, topology, rng);
+        self.selection_inside_block.initialize(source_size, target_size, topology, rng);
+    }
+
+    fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+        let mut available_servers = param.list.clone();
+        let to_select = param.extra.unwrap();
+        let mut selected_servers = vec![];
+
+        while to_select > selected_servers.len(){
+            let block_param = ManyToManyParam {
+                list: available_servers.clone(),
+                extra: Some(self.block_size),
+                ..param
+            };
+            let mut block = self.block_selection.get_destination(block_param, topology, rng);
+            if block.is_empty() {
+                return vec![];
+            }
+            let inside_param = ManyToManyParam {
+                list: block.clone(),
+                ..param
+            };
+            let servers_to_select = self.selection_inside_block.get_destination(inside_param, topology, rng);
+            //remove from servers the selected servers
+            available_servers.retain(|a| !servers_to_select.contains(a));
+            selected_servers.extend(servers_to_select);
+        }
+        //sort the selected servers
+        selected_servers.sort_by(|a, b| a.cmp(b));
+        return selected_servers.into_iter().take(to_select).collect();
+    }
+}
+
+impl IterBlockSelection {
+    pub fn new(arg: GeneralPatternBuilderArgument) -> IterBlockSelection {
+        let mut block_size = None;
+        let mut block_selection: Option<Box<dyn ManyToManyPattern>> = Some(Box::new(IdentityFilter{}));
+        let mut selection_inside_block: Option<Box<dyn ManyToManyPattern>> = Some(Box::new(IdentityFilter{}));
+        match_object_panic!(arg.cv,"IterBlockSelection",value,
+            "block_size" => block_size= Some(value.as_usize().unwrap()),
+            "block_selection" => block_selection = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, ..arg})),
+            "selection_inside_block" => selection_inside_block = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, ..arg})),
+        );
+        let block_size = block_size.expect("block_size is required");
+        let block_selection = block_selection.unwrap();
+        let selection_inside_block = selection_inside_block.unwrap();
+        IterBlockSelection { block_size, block_selection, selection_inside_block }
+    }
+}
+
+
 
 #[cfg(test)]
 mod test {
@@ -753,7 +827,65 @@ mod test {
         };
         let selected = diagonal_selection.get_destination(param, None, &mut rng);
         assert_eq!(selected, vec![8, 9, 10, 11, 12, 13, 14, 15, 80, 81, 82, 83, 84, 85, 86, 87, 152, 153, 154, 155, 156, 157, 158, 159, 224, 225, 226, 227, 228, 229, 230, 231, 296, 297, 298, 299, 300, 301, 302, 303, 368, 369, 370, 371, 372, 373, 374, 375, 440, 441, 442, 443, 444, 445, 446, 447, 448, 449, 450, 451, 452, 453, 454, 455]);
+    }
 
+    #[test]
+    fn test_iter_block_selection(){
+        use crate::general_pattern::many_to_many_pattern::resource_selection::IterBlockSelection;
+        use crate::general_pattern::GeneralPattern;
+        use crate::general_pattern::many_to_many_pattern::ManyToManyParam;
 
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut iter_block_selection = IterBlockSelection {
+            block_size: 4,
+            block_selection: Box::new(crate::general_pattern::many_to_many_pattern::resource_selection::BlockSelection {
+                block_size: 2,
+                selection_inside_block: Box::new(crate::general_pattern::many_to_many_pattern::filters::IdentityFilter{}),
+                number_of_blocks: 0,
+                random_block_selection: false,
+            }),
+            selection_inside_block: Box::new(crate::general_pattern::many_to_many_pattern::filters::MinFilter{}),
+        };
+        iter_block_selection.initialize(1000, 1000, None, &mut rng);
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            extra: Some(3),
+        };
+        let selected = iter_block_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn test_iter_block_selection_2(){
+        use crate::general_pattern::many_to_many_pattern::resource_selection::IterBlockSelection;
+        use crate::general_pattern::GeneralPattern;
+        use crate::general_pattern::many_to_many_pattern::ManyToManyParam;
+
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut iter_block_selection = IterBlockSelection {
+            block_size: 4,
+            block_selection: Box::new(crate::general_pattern::many_to_many_pattern::resource_selection::BlockSelection {
+                block_size: 4,
+                selection_inside_block: Box::new(IdentityFilter{}),
+                number_of_blocks: 0, //it will be initialized later...
+                random_block_selection: false,
+            }),
+            selection_inside_block: Box::new(MinFilter{}),
+        };
+        iter_block_selection.initialize(1000, 1000, None, &mut rng);
+        let param = ManyToManyParam{
+            origin: None,
+            current: None,
+            destination: None,
+            list: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            extra: Some(7),
+        };
+        let selected = iter_block_selection.get_destination(param, None, &mut rng);
+        assert_eq!(selected, vec![0, 1, 4, 5, 8, 12, 16]);
     }
 }
