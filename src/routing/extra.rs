@@ -806,7 +806,6 @@ pub struct SubTopologyRouting
 	logical_routing: Box<dyn Routing>,
 	opportunistic_hops: bool,
 	livelock_avoidance: bool,
-	intermediate_filter: Box<dyn ManyToManyPattern>,
 }
 
 impl Routing for SubTopologyRouting
@@ -887,12 +886,9 @@ impl Routing for SubTopologyRouting
 					let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
 					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
 
-				}else if let Some(intermediates) = routing_info.selections.as_ref() { //the allowed non-minimal routes
-
-					if (new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b})) &&  intermediates.contains(&(physical_neighbour as i32)) {
-						let label= new_weight-weight;
-						candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
-					}
+				}else if new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b}){ // non-minimal routes
+					let label= new_weight-weight;
+					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
 				}
 			}
 		}
@@ -913,13 +909,6 @@ impl Routing for SubTopologyRouting
 
 		let mut bri = routing_info.borrow_mut();
 		bri.meta = Some(vec![ RefCell::new(RoutingInfo::new())]);
-
-		//possible intermediates:
-		let vec = (0..topology.num_routers()).filter(|&i| i != current_router && i != target_router).collect();
-		let many_to_many_param = ManyToManyParam{ origin: Some(current_router), destination: Some(target_router), list: vec, ..Default::default() };
-		let intermediate: Vec<i32> = self.intermediate_filter.get_destination(many_to_many_param, Some(topology), rng).iter().map(|&i| i as i32).collect();
-		// println!("Intermediate: {:?}", intermediate.clone());
-		bri.selections = Some(intermediate);
 
 		let bri_sub = &bri.meta.as_ref().unwrap()[0];
 		self.logical_routing.initialize_routing_info(bri_sub, self.logical_topology.as_ref(), logical_current, logical_target, None, rng);
@@ -957,18 +946,6 @@ impl Routing for SubTopologyRouting
 		}else {
 			panic!("!!")
 		}
-
-		if let Some(intermediate) = routing_info.selections.as_ref() { //SHOULD CHECK WHICH INTERMEDIATES ARE NEARER TO THE CURRENT.
-			if intermediate.contains(&(current_router as i32)) || logical_hop || current_router == target_router{
-				routing_info.selections = None;
-			} else {
-				//print all details
-				println!("Current router: {}, Target router: {}, Logical current: {}, Logical target: {}", current_router, target_router, logical_current, logical_target);
-				println!("{:?}", intermediate);
-				println!("{:?}", routing_info);
-				panic!("Should be run in a Complete graph");
-			}
-		}
 	}
 
 	fn initialize(&mut self, topology: &dyn Topology, rng: &mut StdRng) {
@@ -999,7 +976,6 @@ impl Routing for SubTopologyRouting
 		// println!("logical_topology_connections={:?}",self.logical_topology_connections);
 
 		self.logical_routing.initialize(self.logical_topology.as_ref(), rng);
-		self.intermediate_filter.initialize(topology.num_routers(), topology.num_routers(), Some(topology), rng);
 	}
 
 	fn statistics(&self, _cycle: Time) -> Option<ConfigurationValue> {
@@ -1016,7 +992,6 @@ impl SubTopologyRouting
 		let mut logical_routing = None;
 		let mut opportunistic_hops = false;
 		let mut livelock_avoidance = false;
-		let mut intermediate_filter: Box<dyn ManyToManyPattern> = Box::new(IdentityFilter::get_basic_identity_filter());
 		//new rng for the subtopology
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
@@ -1025,7 +1000,6 @@ impl SubTopologyRouting
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"livelock_avoidance" => livelock_avoidance = value.as_bool().expect("bad value for livelock_avoidance"),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
-			"intermediate_filter" => intermediate_filter = new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs}),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
 		let map = map.expect("missing physical_to_logical");
@@ -1043,7 +1017,6 @@ impl SubTopologyRouting
 			logical_routing,
 			opportunistic_hops,
 			livelock_avoidance,
-			intermediate_filter,
 		}
 	}
 }
