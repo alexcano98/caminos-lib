@@ -58,6 +58,10 @@ pub struct FIFOScheduler
     next_traffic: usize,
     ///For each task, the index of the traffic that is generating messages.
     index_to_generate: Vec<VecDeque<usize>>,
+    ///Statistics for the traffic
+    statistics: TrafficStatistics,
+    ///Indicate the traffics that should be finished to finish the traffic.
+    finish_when: Vec<usize>,
 }
 
 
@@ -73,6 +77,9 @@ impl Traffic for FIFOScheduler{
         let i_bytes = bytemuck::bytes_of(&index_convert);
         payload.extend_from_slice(&i_bytes);
         payload.extend_from_slice(message.payload());
+
+        self.statistics.track_created_message(cycle, message.size, Some( index_traffic ));
+
 
         Ok(Rc::new(Message{
             origin,
@@ -96,6 +103,8 @@ impl Traffic for FIFOScheduler{
         let index=  *bytemuck::try_from_bytes::<u32>(&message.payload()[0..4]).expect("Bad index in message for TrafficSum.") as usize;
         let sub_payload = &message.payload()[4..];
 
+        self.statistics.track_consumed_message(cycle, cycle - message.creation_cycle(), message.size(), Some(index));
+
         if task != message.destination(){
             panic!("Task {} is not the destination of the message", task);
         }
@@ -116,7 +125,16 @@ impl Traffic for FIFOScheduler{
             self.active_traffics.retain(|t| !finished.contains(t));
             while self.allocate_next(rng){}
         }
-        self.active_traffics.is_empty()
+
+        if self.finish_when.len() < self.traffics.len() {
+            if self.finish_when.iter().all(|&t| self.traffics[t].is_finished(Some(rng))) {
+                true
+            }else {
+                false
+            }
+        }else {
+            self.active_traffics.is_empty()
+        }
     }
 
     fn should_generate(&mut self, task: usize, _cycle: Time, _rng: &mut StdRng) -> bool {
@@ -163,11 +181,7 @@ impl Traffic for FIFOScheduler{
     }
 
     fn get_statistics(&self) -> Option<TrafficStatistics> {
-        if self.traffics.len() == 1{
-            self.traffics[0].get_statistics()
-        }else {
-            None
-        }
+        Some(self.statistics.clone())
     }
 
 }
@@ -232,6 +246,7 @@ impl FIFOScheduler{
         let mut traffics: Option<Vec<Box<dyn Traffic>>> =None;
         let mut resource_selection = None;
         let mut task_mapping = None;
+        let mut finish_when = None;
         // let mut tasks_per_server = 1; //default value
 
         match_object_panic!(arg.cv,"FIFOScheduler",value,
@@ -257,6 +272,7 @@ impl FIFOScheduler{
             },
             "resource_selection" => resource_selection = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
             "task_mapping" => task_mapping = Some(new_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
+            "finish_when" => finish_when = Some(value.as_array().expect("bad value for finish_when").iter().map(|v| v.as_usize().expect("bad value for finish_when")).collect()),
             // "tasks_per_server" => tasks_per_server = value.as_usize().expect("bad value for tasks_per_server"),
 		);
         let total_servers = total_servers.expect("servers is required");
@@ -270,6 +286,16 @@ impl FIFOScheduler{
         let next_traffic = 0;
         let index_to_generate = vec![VecDeque::new(); total_servers];
 
+        let tasks = total_servers;
+        let temporal_step = 1000;
+        let box_size = 1000;
+        let list_statistics = traffics.iter().map(|_| TrafficStatistics::new(tasks,temporal_step, box_size, None)).collect();
+        let statistics = TrafficStatistics::new(tasks,temporal_step, box_size, Some(list_statistics));
+        let finish_when = match finish_when {
+            Some(f) => f,
+            None => (0..traffics.len()).collect(),
+        };
+
         let mut sched = FIFOScheduler{
             total_servers,
             traffics,
@@ -281,6 +307,8 @@ impl FIFOScheduler{
             active_traffics,
             next_traffic,
             index_to_generate,
+            statistics,
+            finish_when,
         };
         let rng = arg.rng;
         while sched.allocate_next(rng){}
