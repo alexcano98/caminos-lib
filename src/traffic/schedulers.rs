@@ -163,7 +163,11 @@ impl Traffic for FIFOScheduler{
     }
 
     fn get_statistics(&self) -> Option<TrafficStatistics> {
-        None
+        if self.traffics.len() == 1{
+            self.traffics[0].get_statistics()
+        }else {
+            None
+        }
     }
 
 }
