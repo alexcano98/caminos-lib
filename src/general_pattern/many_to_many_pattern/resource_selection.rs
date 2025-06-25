@@ -421,7 +421,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for IterBlockSelection {
                 extra: Some(self.block_size),
                 ..param
             };
-            let mut block = self.block_selection.get_destination(block_param, topology, rng);
+            let block = self.block_selection.get_destination(block_param, topology, rng);
             if block.is_empty() {
                 return vec![];
             }

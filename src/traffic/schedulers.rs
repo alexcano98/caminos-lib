@@ -127,7 +127,7 @@ impl Traffic for FIFOScheduler{
         }
 
         if self.finish_when.len() < self.traffics.len() {
-            if self.finish_when.iter().all(|&t| self.traffics[t].is_finished(Some(rng))) {
+            if self.finish_when.clone().iter().all(|&t| self.traffics[t].is_finished(Some(rng))) {
                 true
             }else {
                 false
