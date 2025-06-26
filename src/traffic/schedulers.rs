@@ -321,18 +321,25 @@ pub struct FIFOSchedulerBuilderCV{
     pub traffics: Vec<ConfigurationValue>,
     pub resource_selection: ConfigurationValue,
     pub task_mapping: ConfigurationValue,
+    //optional
+    pub finish_when: Option<Vec<usize>>,
     // pub tasks_per_server: usize,
 }
 
 #[allow(dead_code)]
 pub fn create_fifo_scheduler_cv(args: FIFOSchedulerBuilderCV) -> ConfigurationValue{
-    ConfigurationValue::Object("FIFOScheduler".to_string(), vec![
+    let mut vec = vec![
         ("servers".to_string(), ConfigurationValue::Number(args.servers as f64)),
         ("traffics".to_string(), ConfigurationValue::Array(args.traffics)),
         ("resource_selection".to_string(), args.resource_selection),
         ("task_mapping".to_string(), args.task_mapping),
-        // ("tasks_per_server".to_string(), args.tasks_per_server),
-    ])
+    ];
+
+    if let Some(finish_when) = args.finish_when {
+        vec.push(("finish_when".to_string(), ConfigurationValue::Array(finish_when.into_iter().map(|v| ConfigurationValue::Number(v as f64)).collect())));
+    }
+
+    ConfigurationValue::Object("FIFOScheduler".to_string(), vec)
 }
 
 
@@ -359,6 +366,7 @@ mod tests {
             traffics: vec![all2allcv.clone(), all2allcv],
             resource_selection: ConfigurationValue::Object("RandomSelection".to_string(), vec![]),
             task_mapping: ConfigurationValue::Object("Identity".to_string(), vec![]),
+            finish_when: None,
         });
 
         let mut scheduler = FIFOScheduler::new(TrafficBuilderArgument{
@@ -389,5 +397,41 @@ mod tests {
         }
 
         assert_eq!(scheduler.is_finished(Some(&mut rng)), true);
+    }
+
+    #[test]
+    fn test_fifo_scheduler_2(){
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let all2all_tasks= 32;
+        let all2allcv = get_all2all(all2all_tasks, 128, 1, None);
+
+        let servers = 32; //With 33 the test will pass!!! But need to be fixed.
+        let cv = super::create_fifo_scheduler_cv(super::FIFOSchedulerBuilderCV{
+            servers,
+            traffics: vec![all2allcv.clone(), all2allcv],
+            resource_selection: ConfigurationValue::Object("ConsecutiveSelection".to_string(), vec![]),
+            task_mapping: ConfigurationValue::Object("Identity".to_string(), vec![]),
+            finish_when: Some(vec![0]),
+
+        });
+
+        let mut scheduler = FIFOScheduler::new(TrafficBuilderArgument{
+            cv: &cv,
+            plugs: &Default::default(),
+            topology: None,
+            rng: &mut rng,
+        });
+
+        for i in 0..(all2all_tasks-1){ //the same number of messages for each task
+            assert_eq!(scheduler.is_finished(Some(&mut rng)), false);
+            for i in 0..servers{
+                if scheduler.should_generate(i, 0, &mut rng){
+                    scheduler.generate_message(i, 0, None, &mut rng).unwrap();
+                }
+            }
+        }
+
+        assert_eq!(scheduler.is_finished(Some(&mut rng)), false);
     }
 }
