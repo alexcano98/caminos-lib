@@ -22,7 +22,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::matrix::Matrix;
 use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
-use crate::general_pattern::many_to_many_pattern::filters::{IdentityFilter, RandomFilter};
+use crate::general_pattern::many_to_many_pattern::filters::{RandomFilter};
 use crate::general_pattern::pattern::Pattern;
 use crate::routing::*;
 use crate::topology::prelude::*;
@@ -902,7 +902,7 @@ impl Routing for SubTopologyRouting
 		Ok(RoutingNextCandidates { candidates, idempotent: logical_candidates.idempotent })
 	}
 
-	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
+	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, _topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
 		let logical_current = self.physical_to_logical[current_router];
 		let logical_target = self.physical_to_logical[target_router];
 		routing_info.borrow_mut().visited_routers=Some(vec![current_router]);
@@ -927,7 +927,7 @@ impl Routing for SubTopologyRouting
 		let (previous_physical_router_loc, _link_class) = topology.neighbour(current_router, current_port);
 
 		//TODO: Reduce the complexity of this operation. It can be O(1) instead of O(degree) but a new method is needed in the trait.
-		let mut logical_hop = false;
+		// let mut logical_hop = false;
 		if let Location::RouterPort{router_index: previous_physical_router,..} = previous_physical_router_loc {
 			let prev_logical_router = self.physical_to_logical[previous_physical_router];
 			if let Some(a) = self.logical_topology.neighbour_router_iter(logical_current)
@@ -937,7 +937,7 @@ impl Routing for SubTopologyRouting
 				let sub_routing_info = &routing_info.meta.as_ref().unwrap()[0];
 				sub_routing_info.borrow_mut().hops += 1;
 				self.logical_routing.update_routing_info(sub_routing_info, self.logical_topology.as_ref(), logical_current, logical_port, logical_target, None, rng);
-				logical_hop = true;
+				// logical_hop = true;
 			}else{
 				let routing_info_sub = RefCell::new(RoutingInfo::new());
 				routing_info.meta = Some(vec![routing_info_sub]);
