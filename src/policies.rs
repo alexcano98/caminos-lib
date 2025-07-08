@@ -315,7 +315,6 @@ pub fn new_virtual_channel_policy(arg:VCPolicyBuilderArgument) -> Box<dyn Virtua
 			"OccupancyFunction" => Box::new(OccupancyFunction::new(arg)),
 			"AverageOccupancyFunction" => Box::new(AverageOccupancyFunction::new(arg)),
 			"PortDiscardLabelThreshold" => Box::new(PortDiscardLabelThreshold::new(arg)),
-			"BufferAdvanceRate" => Box::new(BufferAdvanceRate::new(arg)),
 			"NegateLabel" => Box::new(NegateLabel::new(arg)),
 			"VecLabel" => Box::new(VecLabel::new(arg)),
 			"MapLabel" => Box::new(MapLabel::new(arg)),
@@ -336,7 +335,6 @@ pub fn new_virtual_channel_policy(arg:VCPolicyBuilderArgument) -> Box<dyn Virtua
 			"ValiantIntermediate" => Box::new(ValiantIntermediate::new(arg)),
 			"ValiantLastRouterPalmTree" => Box::new(ValiantLastRouterPalmTree::new(arg)),
 			"CartesianSpaceLabel" => Box::new(CartesianSpaceLabel::new(arg)),
-			"RateWeightFunction" => Box::new(RateWeightFunction::new(arg)),
 			"RRRate" => Box::new(RRRate::new(arg)),
 			_ => panic!("Unknown policy {}",cv_name),
 		}
@@ -1172,112 +1170,6 @@ impl RRRate
 }
 
 
-/**
-```ignore
-RateWeightFunction{
-	previous_policy: OccupancyFunction{...}
-	threshold: 80,
-	below: true, //discard if above threshold
-}
- ```
- **/
-#[derive(Debug)]
-pub struct RateWeightFunction
-{
-	threshold_neighbour_occupancy: usize,
-	threshold_local_occupancy: usize,
-	rate_normalization: usize,
-	default_rate_credits: f64,
-	// map_label: Option<Vec<usize>>,
-}
-
-impl VirtualChannelPolicy for RateWeightFunction
-{
-	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, _topology:&dyn Topology, _rng: &mut StdRng) -> Vec<CandidateEgress>
-	{
-		if candidates.len()==0
-		{
-			return vec![];
-		}
-
-		//change the label to the rate of the port
-		candidates.into_iter().map(
-			|candidate|{
-				let CandidateEgress{port, virtual_channel, estimated_remaining_hops, ..} = candidate;
-				let status=router.get_status_at_emisor(port).expect("This router does not have transmission status");
-				let output_port_occ = info.virtual_channel_occupied_output_space.expect("virtual_channel_occupied_output_space have not been computed for AverageOccupancyFunction");
-				let occupied_credits = router.get_maximum_credits_towards(port,virtual_channel).expect("we need routers with maximum credits") as i32
-					- status.known_available_space_for_virtual_channel(virtual_channel).expect("remote available space is not known.") as i32;
-				let mut free_vc = vec![];
-				let mut congested_vc = vec![];
-				let mut weights = vec![0.0; status.num_virtual_channels()];
-				for i in 0..status.num_virtual_channels()
-				{
-					let virtual_channel_occupied_credits=router.get_maximum_credits_towards(port,i).expect("we need routers with maximum credits") - status.known_available_space_for_virtual_channel(i).expect("remote available space is not known.");
-
-					if virtual_channel_occupied_credits > self.threshold_neighbour_occupancy
-					{
-						congested_vc.push(i);
-						weights[i] = router.get_rate_output_buffer(port, i, info.current_cycle).unwrap_or(self.default_rate_credits)/self.rate_normalization as f64;
-					} else 	if output_port_occ[port][i] > self.threshold_local_occupancy || i == virtual_channel
-					{
-						free_vc.push(i);
-					}
-				}
-				let congested_rate = congested_vc.iter().map(|a| weights[*a]).sum::<f64>();
-				let free_link_rate = 1.0 - congested_rate;
-				free_vc.iter().for_each(|a| weights[*a] = free_link_rate/free_vc.len() as f64);
-				let label = ((output_port_occ[port][virtual_channel] as i32 + occupied_credits) as f64 * ( 1.0/weights[virtual_channel] )) as i32;
-				//Do a general print to debug
-				// println!("port: {}, vc: {}, congested_vc: {:?}, free_vc: {:?}, weights: {:?}, occ_vc:{:?}, occ_n:{:?}, label: {:?}", port, virtual_channel, congested_vc, free_vc, weights, output_port_occ[port][virtual_channel], occupied_credits, label);
-				CandidateEgress{label, port, virtual_channel, estimated_remaining_hops, ..candidate}
-			}
-		).collect::<Vec<_>>()
-	}
-
-	fn need_server_ports(&self)->bool
-	{
-		false
-	}
-
-	fn need_port_average_queue_length(&self)->bool
-	{
-		false
-	}
-
-	fn need_port_last_transmission(&self)->bool
-	{
-		false
-	}
-
-}
-
-impl RateWeightFunction
-{
-	pub fn new(arg:VCPolicyBuilderArgument) -> RateWeightFunction
-	{
-		let mut threshold_neighbour_occupancy=None;
-		let mut threshold_local_occupancy=None;
-		let mut rate_normalization = None;
-		let mut default_rate = None;
-		match_object_panic!(arg.cv,"RateWeightFunction",value,
-			"threshold_neighbour_occupancy" => threshold_neighbour_occupancy = Some(value.as_f64().expect("bad value for threshold_neighbour_occupancy") as usize),
-			"threshold_local_occupancy" => threshold_local_occupancy = Some(value.as_f64().expect("bad value for threshold_local_occupancy") as usize),
-			"rate_normalization" => rate_normalization = Some(value.as_f64().expect("bad value for rate_normalization") as usize),
-			"default_rate_credits" => default_rate = Some(value.as_f64().expect("bad value for default_rate")),
-		);
-		let threshold_neighbour_occupancy=threshold_neighbour_occupancy.expect("There were no threshold_neighbour_occupancy");
-		let threshold_local_occupancy=threshold_local_occupancy.expect("There were no threshold_local_occupancy");
-		let rate_normalization=rate_normalization.expect("There were no rate_normalization");
-		let default_rate=default_rate.expect("There were no default_rate");
-		RateWeightFunction{
-			threshold_neighbour_occupancy,
-			threshold_local_occupancy,
-			rate_normalization,
-			default_rate_credits: default_rate,
-		}
-	}
-}
 
 /**
 Applies a `policy` to those candidates that would move to a router closer to the destination.
@@ -1381,62 +1273,6 @@ impl Minimal
 
 		Minimal {
 			policy
-		}
-	}
-}
-
-/**
-	Assigns the label the speed at which a buffer advances
- **/
-#[derive(Debug)]
-pub struct BufferAdvanceRate{
-	default_value: f64,
-}
-
-impl VirtualChannelPolicy for BufferAdvanceRate
-{
-	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, _topology:&dyn Topology, _rng: &mut StdRng) -> Vec<CandidateEgress>
-	{
-		candidates.iter().map(
-			|candidate|{
-				let CandidateEgress{port, virtual_channel, estimated_remaining_hops, ..} = *candidate;
-				let new_label = if let Some(buffer_advance_rate) = router.get_rate_output_buffer(port, virtual_channel, info.current_cycle){
-					buffer_advance_rate
-				}else{
-					self.default_value
-				};
-				CandidateEgress{label: new_label as i32, port, virtual_channel, estimated_remaining_hops,..candidate.clone()}
-			}).collect::<Vec<_>>()
-	}
-
-	fn need_server_ports(&self)->bool
-	{
-		false
-	}
-
-	fn need_port_average_queue_length(&self)->bool
-	{
-		false
-	}
-
-	fn need_port_last_transmission(&self)->bool
-	{
-		false
-	}
-
-}
-
-impl BufferAdvanceRate
-{
-	pub fn new(arg:VCPolicyBuilderArgument) -> BufferAdvanceRate
-	{
-		let mut default_value = None;
-		match_object_panic!(arg.cv,"BufferAdvanceRate",value,
-			"default_value" => default_value = Some(value.as_f64().expect("bad value for default_value")),
-		);
-		let default_value = default_value.expect("There were no default_value");
-		BufferAdvanceRate {
-			default_value
 		}
 	}
 }
@@ -2137,80 +1973,6 @@ impl MapTrafficIndex
 	}
 }
 
-
-// ///Select the VC to use by a function utilizing the selected vc and traffic ID
-// #[derive(Debug)]
-// pub struct VCFunction
-// {
-// 	multiply_current_vc: i32,
-// 	multiply_traffic_id: i32,
-// 	multiply_current_hops: i32,
-// 	add: i32,
-// }
-//
-// impl VirtualChannelPolicy for VCFunction
-// {
-// 	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, _topology:&dyn Topology, _rng: &mut StdRng) -> Vec<CandidateEgress>
-// 	{
-// 		//let port_average_neighbour_queue_length=port_average_neighbour_queue_length.as_ref().expect("port_average_neighbour_queue_length have not been computed for policy VCFunction");
-// 		if router.get_index().expect("we need routers with index") == info.target_router_index
-// 		{
-// 			//do nothing
-// 			candidates
-// 		}
-// 		else
-// 		{
-// 			candidates.into_iter().map(
-// 				//|CandidateEgress{port,virtual_channel,label,estimated_remaining_hops}|
-// 				|candidate|{
-// 				let CandidateEgress{port: _,virtual_channel,..} = candidate;
-// 				let new_vc = self.multiply_current_vc*virtual_channel as i32 + self.multiply_traffic_id*info.phit.packet.message.id_traffic.unwrap() as i32 + self.multiply_current_hops* info.performed_hops as i32 + self.add;
-// 				CandidateEgress{virtual_channel:new_vc as usize,..candidate}
-// 			}).collect::<Vec<_>>()
-// 		}
-// 	}
-//
-// 	fn need_server_ports(&self)->bool
-// 	{
-// 		false
-// 	}
-//
-// 	fn need_port_average_queue_length(&self)->bool
-// 	{
-// 		false
-// 	}
-//
-// 	fn need_port_last_transmission(&self)->bool
-// 	{
-// 		false
-// 	}
-//
-// }
-//
-// impl VCFunction
-// {
-// 	pub fn new(arg:VCPolicyBuilderArgument) -> VCFunction
-// 	{
-// 		let mut multiply_current_vc=0;
-// 		let mut multiply_traffic_id=0;
-// 		let mut multiply_current_hops=0;
-// 		let mut add=0;
-//
-// 		match_object_panic!( arg.cv,"VCFunction",value,
-// 			"multiply_current_vc" => multiply_current_vc=value.as_f64().expect("bad value for multiply_current_vc") as i32,
-// 			"multiply_traffic_id" => multiply_traffic_id=value.as_f64().expect("bad value for multiply_traffic_id") as i32,
-// 			"multiply_current_hops" => multiply_current_hops=value.as_f64().expect("bad value for multiply_current_hops") as i32,
-// 			"add" => add=value.as_f64().expect("bad value for add") as i32,
-// 		);
-//
-// 		VCFunction{
-// 			multiply_current_vc,
-// 			multiply_traffic_id,
-// 			multiply_current_hops,
-// 			add,
-// 		}
-// 	}
-// }
 
 
 ///Only allows those candidates whose vc equals their entry vc plus some `s` in `shifts`.

@@ -165,14 +165,6 @@ impl Router for InputOutput
 	{
 		Some(self.buffer_size)
 	}
-	fn get_rate_output_buffer(&self, port: usize, virtual_channel: usize, cycle: Time) -> Option<f64> {
-		if let Some(measure) = &self.buffer_speed_metric
-		{
-			measure[port][virtual_channel].get_in_use_data(cycle)
-		}else{
-			panic!("No buffer_speed_metric available");
-		}
-	}
 	fn get_index(&self)->Option<usize>
 	{
 		Some(self.router_index)
@@ -1062,9 +1054,10 @@ impl Eventful for InputOutput
 /*
  Value gathered at a period of time
  */
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 struct TimeSegmentValue {
 	value: f64,
+	#[allow(dead_code)]//It seems clear that is going to be used in the future.
 	begin_time: Time,
 	end_time: Time,
 }
@@ -1074,6 +1067,7 @@ struct TimeSegmentValue {
  measure_metric: Value being measured at the time
  time_segment: Time segment to measure the metric
  **/
+#[derive(Debug)]
 struct TimeSegmentMetric{
 	in_use_metric: TimeSegmentValue,
 	measure_metric: TimeSegmentValue,
@@ -1091,6 +1085,7 @@ impl TimeSegmentMetric{
 		self.check_refresh(time);
 		self.measure_metric.value += value;
 	}
+	#[allow(dead_code)]
 	fn get_in_use_data(&self, time: Time) ->Option<f64>{
 		if self.measure_metric.begin_time == 0u64 { //No chance to gather the metric (Something better?)
 			return None;
