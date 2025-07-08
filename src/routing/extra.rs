@@ -1302,7 +1302,7 @@ pub enum BalanceAlgorithm
 {
 	RINR,
 	BRINR,
-	Alex(usize, usize),
+	SRINR(usize, usize),
 	XOR,
 }
 
@@ -1314,14 +1314,14 @@ fn match_balance_algorithm(object: &ConfigurationValue) -> BalanceAlgorithm
 		match cv.as_str() {
 			"RINR" => BalanceAlgorithm::RINR,
 			"bRINR" | "BRINR" => BalanceAlgorithm::BRINR,
-			"Alex" => {
+			"sRINR" | "SRINR" => {
 				let mut a = 1;
 				let mut b = 1;
 				match_object_panic!(object, "Alex", value,
 					"a" => a = value.as_usize().expect("bad value for a"),
 					"b" => b = value.as_usize().expect("bad value for b"),
 				);
-				BalanceAlgorithm::Alex(a, b)
+				BalanceAlgorithm::SRINR(a, b)
 			},
 			"XOR" => BalanceAlgorithm::XOR,
 			_ => {
@@ -1513,7 +1513,7 @@ impl Routing for CGLabel
 					}
 				}
 			}
-			BalanceAlgorithm::Alex(a, b) => {
+			BalanceAlgorithm::SRINR(a, b) => {
 
 				for i in 0..n
 				{
