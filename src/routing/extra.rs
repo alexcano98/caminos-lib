@@ -1314,10 +1314,10 @@ fn match_balance_algorithm(object: &ConfigurationValue) -> BalanceAlgorithm
 		match cv.as_str() {
 			"RINR" => BalanceAlgorithm::RINR,
 			"bRINR" | "BRINR" => BalanceAlgorithm::BRINR,
-			"sRINR" | "SRINR" => {
+			"sRINR" => {
 				let mut a = 1;
 				let mut b = 1;
-				match_object_panic!(object, "Alex", value,
+				match_object_panic!(object, "sRINR", value,
 					"a" => a = value.as_usize().expect("bad value for a"),
 					"b" => b = value.as_usize().expect("bad value for b"),
 				);
