@@ -806,6 +806,7 @@ pub struct SubTopologyRouting
 	logical_routing: Box<dyn Routing>,
 	opportunistic_hops: bool,
 	livelock_avoidance: bool,
+	polarized_labels: bool,
 }
 
 impl Routing for SubTopologyRouting
@@ -860,7 +861,7 @@ impl Routing for SubTopologyRouting
 			let new_b=topology.distance(next_physical_router,target_router);
 
 			let new_weight:i32 = new_b as i32 - new_a as i32;
-			let label = new_weight-weight;
+			let label = if self.polarized_labels { new_weight - weight } else { 0 }; //0 because it's the safe path
 			candidates.push(CandidateEgress { port: physical_port, virtual_channel, label, estimated_remaining_hops: None, router_allows: None, annotation });
 		}
 
@@ -883,16 +884,16 @@ impl Routing for SubTopologyRouting
 
 				if new_weight < weight && new_b < b //Minimal routes always allowed
 				{
-					let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
+					let label= if self.polarized_labels { new_weight - weight } else { 1 }; //1 because its opportunistic
 					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
 
 				}else if new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b}){ // non-minimal routes
-					let label= new_weight-weight;
+					let label= if self.polarized_labels { new_weight - weight } else { 1 }; //1 because its opportunistic
 					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
 				}
 			}
 		}
-		if let Some(min_label) = candidates.iter().map(|ref e|e.label).min() //IMPORTANT INVERSION OF THE LABELS.
+		if let Some(min_label) = candidates.iter().map(|ref e|e.label).min() //IMPORTANT INVERSION OF THE LABELS. if no polarized labels, there is always a label 0 as min.
 		{
 			for ref mut e in candidates.iter_mut()
 			{
@@ -992,6 +993,7 @@ impl SubTopologyRouting
 		let mut logical_routing = None;
 		let mut opportunistic_hops = false;
 		let mut livelock_avoidance = false;
+		let mut polarized_labels = true;
 		//new rng for the subtopology
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
@@ -1000,6 +1002,7 @@ impl SubTopologyRouting
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"livelock_avoidance" => livelock_avoidance = value.as_bool().expect("bad value for livelock_avoidance"),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
+			"polarized_labels" => polarized_labels = value.as_bool().expect("bad value for polarized_labels"),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
 		let map = map.expect("missing physical_to_logical");
@@ -1017,6 +1020,7 @@ impl SubTopologyRouting
 			logical_routing,
 			opportunistic_hops,
 			livelock_avoidance,
+			polarized_labels,
 		}
 	}
 }
@@ -1784,6 +1788,178 @@ impl CGLabel
 			intermediate_filter: intermediate_selection_policy,
 			balance_algorithm,
 			weight_repetition,
+		}
+	}
+}
+
+/**
+	Routing that modifies the set of candidates returned by a principal routing.
+
+**/
+#[derive(Debug)]
+pub struct RoutingOperations{
+	intersection_routings : Vec<Box<dyn Routing>>,
+	difference_routings : Vec<Box<dyn Routing>>,
+	sum_routings : Vec<Box<dyn Routing>>,
+	principal_routing: Box<dyn Routing>,
+}
+
+impl Routing for RoutingOperations
+{
+	fn next(&self, routing_info: &RoutingInfo, topology: &dyn Topology, current_router: usize, target_router: usize, target_server: Option<usize>, num_virtual_channels: usize, rng: &mut StdRng) -> Result<RoutingNextCandidates, Error> {
+		if current_router == target_router
+		{
+			let target_server = target_server.expect("target server was not given.");
+			for i in 0..topology.ports(current_router)
+			{
+				if let (Location::ServerPort(server), _link_class) = topology.neighbour(current_router, i)
+				{
+					if server == target_server
+					{
+						return Ok(RoutingNextCandidates { candidates: (0..num_virtual_channels).map(|vc| CandidateEgress::new(i, vc)).collect(), idempotent: true })
+					}
+				}
+			}
+			unreachable!();
+		}
+		let all_routing_infos = routing_info.meta.as_ref().expect("Routing info meta is not set, this should not happen");
+
+		let mut candidates = self.principal_routing.next(&*all_routing_infos[0].borrow(), topology, current_router, target_router, target_server, num_virtual_channels, rng).expect("Error getting principal routing candidates").candidates;
+		let mut intersection_candidates = vec![];
+		let mut difference_candidates = vec![];
+		let mut sum_candidates = vec![];
+
+		for (i, routing) in self.intersection_routings.iter().enumerate()
+		{
+			let ri=all_routing_infos[i + 1].borrow_mut();
+			let next = routing.next(&*ri, topology, current_router, target_router, target_server, num_virtual_channels, rng)?;
+			intersection_candidates.extend(next.candidates);
+		}
+
+		for (i, routing) in self.difference_routings.iter().enumerate()
+		{
+			let ri=all_routing_infos[self.intersection_routings.len() + i + 1].borrow_mut();
+			let next = routing.next(&*ri, topology, current_router, target_router, target_server, num_virtual_channels, rng)?;
+			difference_candidates.extend(next.candidates);
+		}
+
+		for (i, routing) in self.sum_routings.iter().enumerate()
+		{
+			let ri=all_routing_infos[self.intersection_routings.len() + self.difference_routings.len() + i + 1].borrow_mut();
+			let next = routing.next(&*ri, topology, current_router, target_router, target_server, num_virtual_channels, rng)?;
+			sum_candidates.extend(next.candidates);
+		}
+
+		//Do the difference of the candidates, the principal minus the difference candidates. Compare just the port
+		candidates.retain(|c| !difference_candidates.iter().any(|d| d.port == c.port)); //&& d.virtual_channel == c.virtual_channel
+
+		if self.intersection_routings.len() > 0
+		{
+			//Do the intersection of the candidates. Keep those
+			candidates.retain(|c| intersection_candidates.iter().any(|d| d.port == c.port)); // && d.virtual_channel == c.virtual_channel
+		}
+
+		//Do the sum of the candidates, add the sum candidates
+		candidates.extend(sum_candidates);
+
+		return Ok(RoutingNextCandidates { candidates, idempotent: false })
+	}
+
+	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, target_server: Option<usize>, rng: &mut StdRng) {
+		let mut all_routing_info = vec![];
+		let principal_routing_info = RefCell::new(RoutingInfo::new());
+		self.principal_routing.initialize_routing_info(&principal_routing_info, topology, current_router, target_router, target_server, rng);
+		all_routing_info.push(principal_routing_info);
+
+		for routing in self.intersection_routings.iter()
+		{
+			let routing_info = RefCell::new(RoutingInfo::new());
+			routing.initialize_routing_info(&routing_info, topology, current_router, target_router, target_server, rng);
+			all_routing_info.push(routing_info);
+		}
+		for routing in self.difference_routings.iter()
+		{
+			let routing_info = RefCell::new(RoutingInfo::new());
+			routing.initialize_routing_info(&routing_info, topology, current_router, target_router, target_server, rng);
+			all_routing_info.push(routing_info);
+		}
+		for routing in self.sum_routings.iter()
+		{
+			let routing_info = RefCell::new(RoutingInfo::new());
+			routing.initialize_routing_info(&routing_info, topology, current_router, target_router, target_server, rng);
+			all_routing_info.push(routing_info);
+		}
+
+		let mut bri = routing_info.borrow_mut();
+		bri.meta = Some(all_routing_info);
+	}
+
+	fn update_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, current_port: usize, target_router: usize, target_server: Option<usize>, rng: &mut StdRng) {
+
+		let mut bri = routing_info.borrow_mut();
+		let all_routing_info = bri.meta.as_mut().unwrap();
+		self.principal_routing.update_routing_info(&all_routing_info[0], topology, current_router, current_port, target_router, target_server, rng);
+		all_routing_info.truncate(1);
+
+		for routing in self.intersection_routings.iter()
+		{
+			let routing_info = RefCell::new(RoutingInfo::new());
+			routing.initialize_routing_info(&routing_info, topology, current_router, target_router, target_server, rng);
+			all_routing_info.push(routing_info);
+		}
+		for routing in self.difference_routings.iter()
+		{
+			let routing_info = RefCell::new(RoutingInfo::new());
+			routing.initialize_routing_info(&routing_info, topology, current_router, target_router, target_server, rng);
+			all_routing_info.push(routing_info);
+		}
+		for routing in self.sum_routings.iter()
+		{
+			let routing_info = RefCell::new(RoutingInfo::new());
+			routing.initialize_routing_info(&routing_info, topology, current_router, target_router, target_server, rng);
+			all_routing_info.push(routing_info);
+		}
+		// bri.meta = Some(all_routing_info);
+		// let mut bri = routing_info.borrow_mut();
+	}
+
+	fn initialize(&mut self, topology: &dyn Topology, rng: &mut StdRng) {
+		self.principal_routing.initialize(topology, rng);
+		for routing in self.intersection_routings.iter_mut()
+		{
+			routing.initialize(topology, rng);
+		}
+		for routing in self.difference_routings.iter_mut()
+		{
+			routing.initialize(topology, rng);
+		}
+		for routing in self.sum_routings.iter_mut()
+		{
+			routing.initialize(topology, rng);
+		}
+	}
+}
+
+impl RoutingOperations
+{
+	pub fn new(arg: RoutingBuilderArgument) -> RoutingOperations
+	{
+		let mut intersection_routings = vec![];
+		let mut difference_routings = vec![];
+		let mut sum_routings = vec![];
+		let mut principal_routing = None;
+		match_object_panic!(arg.cv,"RoutingOperations",value,
+			"intersection_routings" => intersection_routings = value.as_array().expect("bad value for intersection_routings").iter().map(|v|new_routing(RoutingBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"difference_routings" => difference_routings = value.as_array().expect("bad value for difference_routings").iter().map(|v|new_routing(RoutingBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"sum_routings" => sum_routings = value.as_array().expect("bad value for sum_routings").iter().map(|v|new_routing(RoutingBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"principal_routing" => principal_routing = Some(new_routing(RoutingBuilderArgument{cv:value,plugs:arg.plugs})),
+		);
+		let principal_routing = principal_routing.expect("missing principal routing");
+		RoutingOperations {
+			intersection_routings,
+			difference_routings,
+			sum_routings,
+			principal_routing,
 		}
 	}
 }
