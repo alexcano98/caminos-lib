@@ -22,7 +22,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::matrix::Matrix;
 use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
-use crate::general_pattern::many_to_many_pattern::filters::{IdentityFilter, RandomFilter};
+use crate::general_pattern::many_to_many_pattern::filters::{RandomFilter};
 use crate::general_pattern::pattern::Pattern;
 use crate::routing::*;
 use crate::topology::prelude::*;
@@ -124,54 +124,54 @@ impl Routing for SumRouting
 		let r = match routing_info.selections
 		{
 			None =>
-			{
-				unreachable!();
-			}
-			Some(ref s) =>
-			{
-				//let both = if let &SumRoutingPolicy::TryBoth=&self.policy { routing_info.hops==0 } else { false };
-				//if both
-				if s.len()>=2
 				{
-					//let avc0=&self.first_allowed_virtual_channels;
-					let avc0=&self.allowed_virtual_channels[0];
-					//let el0=self.first_extra_label;
-					let el0=self.extra_label[0];
-					//let r0=self.first_routing.next(&meta[0].borrow(),topology,current_router,target_server,avc0.len(),rng).into_iter().map( |candidate| CandidateEgress{virtual_channel:avc0[candidate.virtual_channel],label:candidate.label+el0,annotation:Some(RoutingAnnotation{values:vec![0],meta:vec![candidate.annotation]}),..candidate} );
-					let r0=self.routing[0].next(&meta[0].borrow(),topology,current_router,target_router,target_server,avc0.len(),rng)?.into_iter().map( |candidate| CandidateEgress{virtual_channel:avc0[candidate.virtual_channel],label:candidate.label+el0,annotation:Some(RoutingAnnotation{values:vec![0],meta:vec![candidate.annotation]}),..candidate} );
-					//let avc1=&self.second_allowed_virtual_channels;
-					let avc1=&self.allowed_virtual_channels[1];
-					//let el1=self.second_extra_label;
-					let el1=self.extra_label[1];
-					//let r1=self.second_routing.next(&meta[1].borrow(),topology,current_router,target_server,avc1.len(),rng).into_iter().map( |candidate| CandidateEgress{virtual_channel:avc1[candidate.virtual_channel],label:candidate.label+el1,annotation:Some(RoutingAnnotation{values:vec![1],meta:vec![candidate.annotation]}),..candidate} );
-					let r1=self.routing[1].next(&meta[1].borrow(),topology,current_router,target_router,target_server,avc1.len(),rng)?.into_iter().map( |candidate| CandidateEgress{virtual_channel:avc1[candidate.virtual_channel],label:candidate.label+el1,annotation:Some(RoutingAnnotation{values:vec![1],meta:vec![candidate.annotation]}),..candidate} );
-					match self.policy
+					unreachable!();
+				}
+			Some(ref s) =>
+				{
+					//let both = if let &SumRoutingPolicy::TryBoth=&self.policy { routing_info.hops==0 } else { false };
+					//if both
+					if s.len()>=2
 					{
-						SumRoutingPolicy::SecondWhenFirstEmpty =>
+						//let avc0=&self.first_allowed_virtual_channels;
+						let avc0=&self.allowed_virtual_channels[0];
+						//let el0=self.first_extra_label;
+						let el0=self.extra_label[0];
+						//let r0=self.first_routing.next(&meta[0].borrow(),topology,current_router,target_server,avc0.len(),rng).into_iter().map( |candidate| CandidateEgress{virtual_channel:avc0[candidate.virtual_channel],label:candidate.label+el0,annotation:Some(RoutingAnnotation{values:vec![0],meta:vec![candidate.annotation]}),..candidate} );
+						let r0=self.routing[0].next(&meta[0].borrow(),topology,current_router,target_router,target_server,avc0.len(),rng)?.into_iter().map( |candidate| CandidateEgress{virtual_channel:avc0[candidate.virtual_channel],label:candidate.label+el0,annotation:Some(RoutingAnnotation{values:vec![0],meta:vec![candidate.annotation]}),..candidate} );
+						//let avc1=&self.second_allowed_virtual_channels;
+						let avc1=&self.allowed_virtual_channels[1];
+						//let el1=self.second_extra_label;
+						let el1=self.extra_label[1];
+						//let r1=self.second_routing.next(&meta[1].borrow(),topology,current_router,target_server,avc1.len(),rng).into_iter().map( |candidate| CandidateEgress{virtual_channel:avc1[candidate.virtual_channel],label:candidate.label+el1,annotation:Some(RoutingAnnotation{values:vec![1],meta:vec![candidate.annotation]}),..candidate} );
+						let r1=self.routing[1].next(&meta[1].borrow(),topology,current_router,target_router,target_server,avc1.len(),rng)?.into_iter().map( |candidate| CandidateEgress{virtual_channel:avc1[candidate.virtual_channel],label:candidate.label+el1,annotation:Some(RoutingAnnotation{values:vec![1],meta:vec![candidate.annotation]}),..candidate} );
+						match self.policy
 						{
-							let r : Vec<_> =r0.collect();
-							if r.is_empty() { r1.collect() } else { r }
+							SumRoutingPolicy::SecondWhenFirstEmpty =>
+								{
+									let r : Vec<_> =r0.collect();
+									if r.is_empty() { r1.collect() } else { r }
+								}
+							_ => r0.chain(r1).collect()
 						}
-						_ => r0.chain(r1).collect()
+					}
+					else
+					{
+						let index=s[0] as usize;
+						//let routing=if s[0]==0 { &self.first_routing } else { &self.second_routing };
+						let routing = &self.routing[index];
+						//let allowed_virtual_channels=if s[0]==0 { &self.first_allowed_virtual_channels } else { &self.second_allowed_virtual_channels };
+						let allowed_virtual_channels = &self.allowed_virtual_channels[index];
+						//let extra_label = if s[0]==0 { self.first_extra_label } else { self.second_extra_label };
+						let extra_label = self.extra_label[index];
+						let r=routing.next(&meta[index].borrow(),topology,current_router,target_router,target_server,allowed_virtual_channels.len(),rng)?;
+						//r.into_iter().map( |(x,c)| (x,allowed_virtual_channels[c]) ).collect()
+						r.into_iter()
+							//.map( |candidate| CandidateEgress{virtual_channel:allowed_virtual_channels[candidate.virtual_channel],label:candidate.label+extra_label,..candidate} ).collect()
+							// We need to keep the annotation to have a coherent state able to relay the annotation of the subrouting.
+							.map( |candidate| CandidateEgress{virtual_channel:allowed_virtual_channels[candidate.virtual_channel],label:candidate.label+extra_label,annotation:Some(RoutingAnnotation{values:vec![s[0]],meta:vec![candidate.annotation]}),..candidate} ).collect()
 					}
 				}
-				else
-				{
-					let index=s[0] as usize;
-					//let routing=if s[0]==0 { &self.first_routing } else { &self.second_routing };
-					let routing = &self.routing[index];
-					//let allowed_virtual_channels=if s[0]==0 { &self.first_allowed_virtual_channels } else { &self.second_allowed_virtual_channels };
-					let allowed_virtual_channels = &self.allowed_virtual_channels[index];
-					//let extra_label = if s[0]==0 { self.first_extra_label } else { self.second_extra_label };
-					let extra_label = self.extra_label[index];
-					let r=routing.next(&meta[index].borrow(),topology,current_router,target_router,target_server,allowed_virtual_channels.len(),rng)?;
-					//r.into_iter().map( |(x,c)| (x,allowed_virtual_channels[c]) ).collect()
-					r.into_iter()
-					//.map( |candidate| CandidateEgress{virtual_channel:allowed_virtual_channels[candidate.virtual_channel],label:candidate.label+extra_label,..candidate} ).collect()
-					// We need to keep the annotation to have a coherent state able to relay the annotation of the subrouting.
-					.map( |candidate| CandidateEgress{virtual_channel:allowed_virtual_channels[candidate.virtual_channel],label:candidate.label+extra_label,annotation:Some(RoutingAnnotation{values:vec![s[0]],meta:vec![candidate.annotation]}),..candidate} ).collect()
-				}
-			}
 		};
 		//FIXME: we can recover idempotence in some cases.
 		Ok(RoutingNextCandidates{candidates:r,idempotent:false})
@@ -229,18 +229,18 @@ impl Routing for SumRouting
 		{
 			None => unreachable!(),
 			Some(ref t) =>
-			{
-				if t.len()==3 {
-					match self.policy
-					{
-						SecondWhenFirstEmpty => t.clone(),
-						_ => vec![t[2]],
-						//let s=t[2];
-						//bri.selections=Some(vec![s]);
-						//s as usize
-					}
-				} else { t.clone() }
-			},
+				{
+					if t.len()==3 {
+						match self.policy
+						{
+							SecondWhenFirstEmpty => t.clone(),
+							_ => vec![t[2]],
+							//let s=t[2];
+							//bri.selections=Some(vec![s]);
+							//s as usize
+						}
+					} else { t.clone() }
+				},
 		};
 		for &is in cs.iter().take(2)
 		{
@@ -806,7 +806,6 @@ pub struct SubTopologyRouting
 	logical_routing: Box<dyn Routing>,
 	opportunistic_hops: bool,
 	livelock_avoidance: bool,
-	intermediate_filter: Box<dyn ManyToManyPattern>,
 }
 
 impl Routing for SubTopologyRouting
@@ -887,12 +886,9 @@ impl Routing for SubTopologyRouting
 					let label= new_weight-weight;//label in {-2,-1,0}. It is shifted later.
 					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
 
-				}else if let Some(intermediates) = routing_info.selections.as_ref() { //the allowed non-minimal routes
-
-					if (new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b})) &&  intermediates.contains(&(physical_neighbour as i32)) {
-						let label= new_weight-weight;
-						candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
-					}
+				}else if new_weight<weight || (new_weight==weight && if a<b {a<new_a} else {new_b<b}){ // non-minimal routes
+					let label= new_weight-weight;
+					candidates.extend((0..num_virtual_channels).map(|vc|CandidateEgress{port:neighbour.port_index,virtual_channel:vc,label, ..Default::default()}));
 				}
 			}
 		}
@@ -906,20 +902,13 @@ impl Routing for SubTopologyRouting
 		Ok(RoutingNextCandidates { candidates, idempotent: logical_candidates.idempotent })
 	}
 
-	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
+	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, _topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
 		let logical_current = self.physical_to_logical[current_router];
 		let logical_target = self.physical_to_logical[target_router];
 		routing_info.borrow_mut().visited_routers=Some(vec![current_router]);
 
 		let mut bri = routing_info.borrow_mut();
 		bri.meta = Some(vec![ RefCell::new(RoutingInfo::new())]);
-
-		//possible intermediates:
-		let vec = (0..topology.num_routers()).filter(|&i| i != current_router && i != target_router).collect();
-		let many_to_many_param = ManyToManyParam{ origin: Some(current_router), destination: Some(target_router), list: vec, ..Default::default() };
-		let intermediate: Vec<i32> = self.intermediate_filter.get_destination(many_to_many_param, Some(topology), rng).iter().map(|&i| i as i32).collect();
-		// println!("Intermediate: {:?}", intermediate.clone());
-		bri.selections = Some(intermediate);
 
 		let bri_sub = &bri.meta.as_ref().unwrap()[0];
 		self.logical_routing.initialize_routing_info(bri_sub, self.logical_topology.as_ref(), logical_current, logical_target, None, rng);
@@ -938,7 +927,7 @@ impl Routing for SubTopologyRouting
 		let (previous_physical_router_loc, _link_class) = topology.neighbour(current_router, current_port);
 
 		//TODO: Reduce the complexity of this operation. It can be O(1) instead of O(degree) but a new method is needed in the trait.
-		let mut logical_hop = false;
+		// let mut logical_hop = false;
 		if let Location::RouterPort{router_index: previous_physical_router,..} = previous_physical_router_loc {
 			let prev_logical_router = self.physical_to_logical[previous_physical_router];
 			if let Some(a) = self.logical_topology.neighbour_router_iter(logical_current)
@@ -948,7 +937,7 @@ impl Routing for SubTopologyRouting
 				let sub_routing_info = &routing_info.meta.as_ref().unwrap()[0];
 				sub_routing_info.borrow_mut().hops += 1;
 				self.logical_routing.update_routing_info(sub_routing_info, self.logical_topology.as_ref(), logical_current, logical_port, logical_target, None, rng);
-				logical_hop = true;
+				// logical_hop = true;
 			}else{
 				let routing_info_sub = RefCell::new(RoutingInfo::new());
 				routing_info.meta = Some(vec![routing_info_sub]);
@@ -956,18 +945,6 @@ impl Routing for SubTopologyRouting
 			}
 		}else {
 			panic!("!!")
-		}
-
-		if let Some(intermediate) = routing_info.selections.as_ref() { //SHOULD CHECK WHICH INTERMEDIATES ARE NEARER TO THE CURRENT.
-			if intermediate.contains(&(current_router as i32)) || logical_hop || current_router == target_router{
-				routing_info.selections = None;
-			} else {
-				//print all details
-				println!("Current router: {}, Target router: {}, Logical current: {}, Logical target: {}", current_router, target_router, logical_current, logical_target);
-				println!("{:?}", intermediate);
-				println!("{:?}", routing_info);
-				panic!("Should be run in a Complete graph");
-			}
 		}
 	}
 
@@ -999,7 +976,6 @@ impl Routing for SubTopologyRouting
 		// println!("logical_topology_connections={:?}",self.logical_topology_connections);
 
 		self.logical_routing.initialize(self.logical_topology.as_ref(), rng);
-		self.intermediate_filter.initialize(topology.num_routers(), topology.num_routers(), Some(topology), rng);
 	}
 
 	fn statistics(&self, _cycle: Time) -> Option<ConfigurationValue> {
@@ -1016,7 +992,6 @@ impl SubTopologyRouting
 		let mut logical_routing = None;
 		let mut opportunistic_hops = false;
 		let mut livelock_avoidance = false;
-		let mut intermediate_filter: Box<dyn ManyToManyPattern> = Box::new(IdentityFilter::get_basic_identity_filter());
 		//new rng for the subtopology
 		let rng =  &mut StdRng::from_entropy();
 		match_object_panic!(arg.cv,"SubTopologyRouting",value,
@@ -1025,7 +1000,6 @@ impl SubTopologyRouting
 			"logical_routing" => logical_routing = Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"livelock_avoidance" => livelock_avoidance = value.as_bool().expect("bad value for livelock_avoidance"),
 			"opportunistic_hops" => opportunistic_hops = value.as_bool().expect("bad value for opportunistic_hops"),
-			"intermediate_filter" => intermediate_filter = new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs}),
 		);
 		let logical_topology = logical_topology.expect("missing topology");
 		let map = map.expect("missing physical_to_logical");
@@ -1043,7 +1017,6 @@ impl SubTopologyRouting
 			logical_routing,
 			opportunistic_hops,
 			livelock_avoidance,
-			intermediate_filter,
 		}
 	}
 }
@@ -1329,7 +1302,7 @@ pub enum BalanceAlgorithm
 {
 	RINR,
 	BRINR,
-	Alex(usize, usize),
+	SRINR(usize, usize),
 	XOR,
 }
 
@@ -1341,14 +1314,14 @@ fn match_balance_algorithm(object: &ConfigurationValue) -> BalanceAlgorithm
 		match cv.as_str() {
 			"RINR" => BalanceAlgorithm::RINR,
 			"bRINR" | "BRINR" => BalanceAlgorithm::BRINR,
-			"Alex" => {
+			"sRINR" => {
 				let mut a = 1;
 				let mut b = 1;
-				match_object_panic!(object, "Alex", value,
+				match_object_panic!(object, "sRINR", value,
 					"a" => a = value.as_usize().expect("bad value for a"),
 					"b" => b = value.as_usize().expect("bad value for b"),
 				);
-				BalanceAlgorithm::Alex(a, b)
+				BalanceAlgorithm::SRINR(a, b)
 			},
 			"XOR" => BalanceAlgorithm::XOR,
 			_ => {
@@ -1413,9 +1386,9 @@ impl Routing for CGLabel
 		}
 		let mut candidates = vec![];
 
-			match routing_info.selections.as_ref()
-			{
-				Some(selections) =>
+		match routing_info.selections.as_ref()
+		{
+			Some(selections) =>
 				{
 					//Go to middle
 					for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
@@ -1426,7 +1399,7 @@ impl Routing for CGLabel
 						}
 					}
 				}
-				None =>
+			None =>
 				{
 					//Go to destination
 					for NeighbourRouterIteratorItem{port_index,neighbour_router,..} in topology.neighbour_router_iter(current_router)
@@ -1438,7 +1411,7 @@ impl Routing for CGLabel
 						}
 					}
 				}
-			}
+		}
 
 		Ok(RoutingNextCandidates{candidates,idempotent:true})
 	}
@@ -1540,7 +1513,7 @@ impl Routing for CGLabel
 					}
 				}
 			}
-			BalanceAlgorithm::Alex(a, b) => {
+			BalanceAlgorithm::SRINR(a, b) => {
 
 				for i in 0..n
 				{
