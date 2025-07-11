@@ -214,7 +214,7 @@ pub fn create_megafly_ad(arg: MegaflyAD) -> ConfigurationValue
 
 
 
-/// Encapsulates the parameters needed to create a Cartesian shift pattern (x, y) -> (x + shift_x, y + shift_y)
+/// Encapsulates the parameters needed to create a Cartesian shift general_pattern (x, y) -> (x + shift_x, y + shift_y)
 /// DEPRECATED - use cartesian_pattern_builder
 #[derive(Clone)]
 pub struct ShiftPatternBuilder
@@ -222,7 +222,7 @@ pub struct ShiftPatternBuilder
     pub sides: Vec<ConfigurationValue>,
     pub shift: Vec<ConfigurationValue>,
 }
-/// Creates a Configuration Value with the parameters for the Cartesian shift pattern
+/// Creates a Configuration Value with the parameters for the Cartesian shift general_pattern
 pub fn create_shift_pattern(arg: ShiftPatternBuilder) -> ConfigurationValue
 {
     ConfigurationValue::Object("CartesianTransform".to_string(), vec![
@@ -230,7 +230,7 @@ pub fn create_shift_pattern(arg: ShiftPatternBuilder) -> ConfigurationValue
         ("shift".to_string(),ConfigurationValue::Array(arg.shift))])
 }
 
-/// Encapsulates the parameters needed to create a Cartesian pattern
+/// Encapsulates the parameters needed to create a Cartesian general_pattern
 pub struct CartesianPatternBuilder
 {
     pub sides: Vec<ConfigurationValue>,
@@ -241,7 +241,7 @@ pub struct CartesianPatternBuilder
     pub random: Option<Vec<ConfigurationValue>>,
     pub patterns: Option<Vec<ConfigurationValue>>,
 }
-/// Creates a Configuration Value with the parameters for the Cartesian pattern
+/// Creates a Configuration Value with the parameters for the Cartesian general_pattern
 pub fn create_cartesian_pattern(arg: CartesianPatternBuilder) -> ConfigurationValue
 {
     let mut vec = vec![("sides".to_string(),ConfigurationValue::Array(arg.sides))];
@@ -278,7 +278,7 @@ pub struct HomogeneousTrafficBuilder
     pub load: f64,
     pub message_size: usize,
 }
-/// Creates a Configuration Value with the parameters for the Homogeneous traffic pattern
+/// Creates a Configuration Value with the parameters for the Homogeneous traffic general_pattern
 pub fn create_homogeneous_traffic(arg: HomogeneousTrafficBuilder) -> ConfigurationValue
 {
     ConfigurationValue::Object("HomogeneousTraffic".to_string(), vec![
@@ -290,7 +290,7 @@ pub fn create_homogeneous_traffic(arg: HomogeneousTrafficBuilder) -> Configurati
 
 
 
-/// Encapsulates the parameters needed to create a Burst traffic pattern.
+/// Encapsulates the parameters needed to create a Burst traffic general_pattern.
 pub struct BurstTrafficBuilder
 {
     pub pattern: ConfigurationValue,
@@ -298,7 +298,7 @@ pub struct BurstTrafficBuilder
     pub messages_per_server: usize,
     pub message_size: usize,
 }
-/// Creates a Configuration Value with the parameters for the Burst traffic pattern
+/// Creates a Configuration Value with the parameters for the Burst traffic general_pattern
 pub fn create_burst_traffic(arg: BurstTrafficBuilder) -> ConfigurationValue
 {
     ConfigurationValue::Object("Burst".to_string(), vec![("pattern".to_string(), arg.pattern ),
@@ -307,7 +307,7 @@ pub fn create_burst_traffic(arg: BurstTrafficBuilder) -> ConfigurationValue
                                                          ("message_size".to_string(), ConfigurationValue::Number(arg.message_size as f64))])
 }
 
-/// Encapsulates the parameters needed to create a Burst traffic pattern.
+/// Encapsulates the parameters needed to create a Burst traffic general_pattern.
 pub struct PeriodicBurstTrafficBuilder
 {
     pub pattern: ConfigurationValue,
@@ -318,7 +318,7 @@ pub struct PeriodicBurstTrafficBuilder
     pub messages_per_task_per_period: usize,
     pub message_size: usize,
 }
-/// Creates a Configuration Value with the parameters for the Burst traffic pattern
+/// Creates a Configuration Value with the parameters for the Burst traffic general_pattern
 pub fn create_periodic_burst_traffic(arg:PeriodicBurstTrafficBuilder) -> ConfigurationValue
 {
     ConfigurationValue::Object("PeriodicBurst".to_string(), vec![("pattern".to_string(), arg.pattern ),
@@ -331,7 +331,7 @@ pub fn create_periodic_burst_traffic(arg:PeriodicBurstTrafficBuilder) -> Configu
 }
 
 
-/// Encapsulates the parameters needed to create a Burst traffic pattern.
+/// Encapsulates the parameters needed to create a Burst traffic general_pattern.
 pub struct SumTrafficBuilder
 {
     pub traffics: Vec<ConfigurationValue>,
@@ -339,7 +339,7 @@ pub struct SumTrafficBuilder
     pub temporal_step: usize,
     // pub message_size: usize,
 }
-/// Creates a Configuration Value with the parameters for the Burst traffic pattern
+/// Creates a Configuration Value with the parameters for the Burst traffic general_pattern
 pub fn create_sum_traffic(arg: SumTrafficBuilder) -> ConfigurationValue
 {
     ConfigurationValue::Object("TrafficSum".to_string(), vec![

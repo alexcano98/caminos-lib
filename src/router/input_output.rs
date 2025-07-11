@@ -1085,6 +1085,19 @@ impl TimeSegmentMetric{
 		self.check_refresh(time);
 		self.measure_metric.value += value;
 	}
+	#[allow(dead_code)]
+	fn get_in_use_data(&self, time: Time) ->Option<f64>{
+		if self.measure_metric.begin_time == 0u64 { //No chance to gather the metric (Something better?)
+			return None;
+		}
+		if time < self.in_use_metric.end_time + self.time_segment as u64{
+			Some(self.in_use_metric.value)
+		}else if time < self.measure_metric.end_time + self.time_segment as u64{ //Didn't update the metric yet by check_refresh
+			Some(self.measure_metric.value)
+		}else { //No data collected.
+			None
+		}
+	}
 	fn check_refresh(&mut self, time: Time){
 		if time >= self.measure_metric.end_time as u64{
 			let offset = (self.time_segment * (time as usize/self.time_segment)) as u64;

@@ -16,7 +16,7 @@ use rand::SeedableRng;
 
 use crate::{match_object_panic, Plugs};
 use crate::config_parser::ConfigurationValue;
-use crate::pattern::{new_pattern, PatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::topology::{new_topology, Topology, TopologyBuilderArgument};
 use crate::routing::prelude::*;
 
@@ -102,6 +102,8 @@ pub struct ChannelsPerHopPerLinkClass
 	///`channels[class][k]` is the list of available VCs to use in the k-th hop given in links of the given `class` if `use_total_hops` is false
 	/// or the absolute k-th hop when it is true..
 	channels: Vec<Vec<Vec<usize>>>,
+	///Use this channels if the hop is empty
+	default_channels: Option<Vec<usize>>,
 	///Use total number of hops for each link class.
 	use_total_hops: bool,
 }
@@ -123,13 +125,19 @@ impl Routing for ChannelsPerHopPerLinkClass
 				hops[link_class] as usize
 			};
 
-			//println!("h={} link_class={} channels={:?}",h,link_class,self.channels[link_class]);
+
 			if self.channels[link_class].len()<=h
 			{
-				panic!("Already given {} hops by link class {}",h,link_class);
+				if let Some(ref default_channels) = self.default_channels
+				{
+					default_channels.contains(&c.virtual_channel)
+				}else {
+					panic!("Already given {} hops by link class {}",h,link_class);
+				}
+			}else {
+				self.channels[link_class][h].contains(&c.virtual_channel)
 			}
-			//self.channels[link_class].len()>h && self.channels[link_class][h].contains(&c.virtual_channel)
-			self.channels[link_class][h].contains(&c.virtual_channel)
+
 		}).collect();
 		Ok(RoutingNextCandidates{candidates:r,idempotent})
 	}
@@ -138,7 +146,9 @@ impl Routing for ChannelsPerHopPerLinkClass
 		let mut info = routing_info.borrow_mut();
 		info.meta=Some(vec![ RefCell::new(RoutingInfo::new())]);
 		info.selections = Some(vec![0;self.channels.len()]);
-		self.routing.initialize_routing_info(&info.meta.as_ref().unwrap()[0],topology,current_router,target_router,target_server,rng);
+		let routing_info_new = &info.meta.as_ref().unwrap()[0];
+		routing_info_new.borrow_mut().source_server = info.source_server;
+		self.routing.initialize_routing_info(routing_info_new,topology,current_router,target_router,target_server,rng);
 	}
 	fn update_routing_info(&self, routing_info:&RefCell<RoutingInfo>, topology:&dyn Topology, current_router:usize, current_port:usize, target_router:usize, target_server:Option<usize>, rng: &mut StdRng)
 	{
@@ -182,6 +192,7 @@ impl ChannelsPerHopPerLinkClass
 		let mut routing =None;
 		let mut channels =None;
 		let mut use_total_hops = false;
+		let mut default_channels = None;
 		match_object_panic!(arg.cv,"ChannelsPerHopPerLinkClass",value,
 			"routing" => routing=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"use_total_hops" => use_total_hops=match value
@@ -190,6 +201,8 @@ impl ChannelsPerHopPerLinkClass
 				&ConfigurationValue::False => false,
                 _ => panic!("bad value for use_total_hops"),
             },
+			"default_channels" => default_channels = Some(value.as_array().expect("bad value for default_channels").iter()
+				.map(|v|v.as_f64().expect("bad value in default_channels") as usize).collect()),
 			"channels" => match value
 			{
 				&ConfigurationValue::Array(ref classlist) => channels=Some(classlist.iter().map(|v|match v{
@@ -210,6 +223,7 @@ impl ChannelsPerHopPerLinkClass
 		ChannelsPerHopPerLinkClass{
 			routing,
 			channels,
+			default_channels,
 			use_total_hops,
 		}
 	}
@@ -372,7 +386,7 @@ impl ChannelMap
 	{
 		let mut routing =None;
 		let mut map =None;
-		let mut physical_to_logical =None; //pattern
+		let mut physical_to_logical =None; //general_pattern
 		let mut logical_size = None; //the size of the logical channels
 		let mut physical_size = None; //the size of the physical channels
 		match_object_panic!(arg.cv,"ChannelMap",value,
@@ -388,7 +402,7 @@ impl ChannelMap
 				}).collect()),
 				_ => panic!("bad value for map"),
 			},
-			"physical_to_logical" => physical_to_logical = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"physical_to_logical" => physical_to_logical = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"logical_size" => logical_size = Some(value.as_f64().expect("bad value for logical_size") as usize),
 			"physical_size" => physical_size = Some(value.as_f64().expect("bad value for physical_size") as usize),
 		);
@@ -407,7 +421,7 @@ impl ChannelMap
 			let mut map = vec![ vec![];logical_size ];
 			for i in 0..logical_size{
 				for j in 0..physical_size{
-					if physical_to_logical.get_destination(j, &*dummy_topology,&mut rng ) == i
+					if physical_to_logical.get_destination(j, Some(&*dummy_topology),&mut rng ) == i
 					{
 						map[i].push(j);
 					}

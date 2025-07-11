@@ -17,21 +17,23 @@ pub mod channel_operations;
 pub mod updown;
 pub mod polarized;
 
+use crate::topology::cartesian::GeneralDOR;
 use crate::topology::dragonfly::DragonflyDirect;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::convert::TryFrom;
 
-use ::rand::{rngs::StdRng,Rng,prelude::SliceRandom};
+use ::rand::{prelude::SliceRandom, rngs::StdRng, Rng};
 
 use crate::config_parser::ConfigurationValue;
-use crate::topology::cartesian::{DOR, O1TURN, ValiantDOR, OmniDimensionalDeroute, DimWAR, GENERALTURN, Valiant4Hamming, AdaptiveValiantClos};
-use crate::topology::dragonfly::{PAR, Valiant4Dragonfly};
-use crate::topology::{Topology,Location};
+use crate::topology::cartesian::{AdaptiveValiantClos, DimWAR, OmniDimensionalDeroute, Valiant4Hamming, ValiantDOR, DOR, GENERALTURN, O1TURN};
+use crate::topology::dragonfly::{Valiant4Dragonfly, PAR};
+use crate::topology::{Location, Topology};
 pub use crate::event::Time;
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::{Plugs};
 pub use crate::error::Error;
+use crate::general_pattern::{new_many_to_many_pattern};
 use crate::topology::megafly::MegaflyAD;
 use crate::topology::multistage::UpDownDerouting;
 
@@ -43,7 +45,7 @@ pub use self::polarized::Polarized;
 
 pub mod prelude
 {
-	pub use super::{new_routing,Routing,RoutingInfo,RoutingNextCandidates,CandidateEgress,RoutingBuilderArgument,Error,Time};
+	pub use super::{new_routing, CandidateEgress, Error, Routing, RoutingBuilderArgument, RoutingInfo, RoutingNextCandidates, Time};
 }
 
 ///Information stored in the packet for the `Routing` algorithms to operate.
@@ -226,7 +228,7 @@ Shortest{
 ```
 
 As solution for those cases problematic for shortest routing, Valiant proposed a randomization scheme. Each packet to be sent from a source to a destination is routed first to a random intermediate node, and from that intermediate to destination. These randomization makes the two parts behave as if the
-traffic pattern was uniform at the cost of doubling the lengths.
+traffic general_pattern was uniform at the cost of doubling the lengths.
 
 See Valiant, L. G. (1982). A scheme for fast parallel communication. SIAM journal on computing, 11(2), 350-361.
 
@@ -448,6 +450,8 @@ pub fn new_routing(arg: RoutingBuilderArgument) -> Box<dyn Routing>
 			"DragonflyDirect" => Box::new(DragonflyDirect::new(arg)),
 			"SubTopologyRouting" => Box::new(SubTopologyRouting::new(arg)),
 			"RegionRouting" => Box::new(RegionRouting::new(arg)),
+			"GeneralDOR" => Box::new(GeneralDOR::new(arg)),
+			"CGLabel" => Box::new(CGLabel::new(arg)),
 			_ => panic!("Unknown Routing {}",cv_name),
 		}
 	}

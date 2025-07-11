@@ -1,4 +1,5 @@
-use crate::pattern::probabilistic::UniformPattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::probabilistic::UniformPattern;
 use ::rand::{rngs::StdRng};
 use super::prelude::*;
 use super::cartesian::CartesianData;
@@ -7,8 +8,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::matrix::Matrix;
 use crate::quantify::Quantifiable;
 use crate::match_object_panic;
-use crate::pattern::prelude::*;
-use crate::pattern::Pattern;
+use crate::general_pattern::prelude::*;
 
 /**
 Builds a dragonfly topology, this is, a hierarchical topology where each group is fully-connected (a complete graph) and each pair of groups is connected at least with a global link.
@@ -401,6 +401,40 @@ impl Arrangement for Palmtree
 	}
 }
 
+
+/// Alex arrangement for DF+
+#[derive(Quantifiable,Debug,Default)]
+pub struct Cgraphs
+{
+	size: ArrangementSize,
+}
+
+impl Arrangement for Cgraphs
+{
+	fn initialize(&mut self, size:ArrangementSize, _rng: &mut StdRng)
+	{
+		self.size = size;
+	}
+	fn map( &self, input:ArrangementPoint ) -> ArrangementPoint
+	{
+		let target_group_index = (input.group_index + input.port_index +1) % self.size.number_of_groups;
+		let target_port = self.size.number_of_ports -input.port_index -1;
+		let target_group_offset = input.group_offset;
+
+		ArrangementPoint{
+			group_index: target_group_index,
+			group_offset: target_group_offset,
+			port_index: target_port,
+		}
+	}
+	fn get_size(&self) -> ArrangementSize
+	{
+		self.size
+	}
+}
+
+
+
 #[derive(Quantifiable,Debug,Default)]
 pub struct RandomArrangement
 {
@@ -510,6 +544,7 @@ pub fn new_arrangement(arg:ArrangementBuilderArgument) -> Box<dyn Arrangement>
 		match cv_name.as_ref()
 		{
 			"Palmtree" => Box::new(Palmtree::default()),
+			"Cgraphs" => Box::new(Cgraphs::default()),
 			"Random" => Box::new(RandomArrangement::default()),
 			_ => panic!("Unknown arrangement {}",cv_name),
 		}
@@ -678,11 +713,11 @@ It removes switches from source and target groups as intermediate switches.
 Valiant4Dragonfly{
 	first: Shortest,
 	second: Shortest,
-	pattern: Uniform, // pattern to select intermediate switches
+	general_pattern: Uniform, // general_pattern to select intermediate switches
 	distance_middle_destination: 3, // distance between the int switch and destination
 	first_reserved_virtual_channels: [0],//optional parameter, defaults to empty. Reserves some VCs to be used only in the first stage
 	second_reserved_virtual_channels: [1,2],//optional, defaults to empty. Reserves some VCs to be used only in the second stage.
-	intermediate_bypass: CartesianTransform{sides:[4,4],project:[true,false]} //optional, defaults to None. A pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant4Dragonfly_choice)` the first stage is terminated.
+	intermediate_bypass: CartesianTransform{sides:[4,4],project:[true,false]} //optional, defaults to None. A general_pattern on the routers such that when reaching a router `x` with `intermediate_bypass(x)==intermediate_bypass(Valiant4Dragonfly_choice)` the first stage is terminated.
 	local_missrouting: true, //allow local missrouting, only if target in the group
 	dragonfly_bypass: true, //Take shorcuts avoiding dumb hops
 	legend_name: "Using Valiant4Dragonfly scheme, shortest to intermediate and shortest to destination",
@@ -696,7 +731,7 @@ pub struct Valiant4Dragonfly
 {
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
-	//pattern to select intermideate nodes
+	//general_pattern to select intermideate nodes
 	pattern:Box<dyn Pattern>,
 	distance_middle_destination: usize,
 	first_reserved_virtual_channels: Vec<usize>,
@@ -840,7 +875,7 @@ impl Routing for Valiant4Dragonfly
 			//only local missrouting
 			while src_coord[0] == middle_coord[0] || trg_coord[0] == middle_coord[0] {
 
-				let middle_server = self.pattern.get_destination(source_server,topology, rng);
+				let middle_server = self.pattern.get_destination(source_server,Some(topology), rng);
 				let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 				middle=match middle_location
 				{
@@ -860,7 +895,7 @@ impl Routing for Valiant4Dragonfly
 
 				//	middle = rng.gen_range(0..topology.num_routers());
 
-				let middle_server = self.pattern.get_destination(source_server,topology, rng);
+				let middle_server = self.pattern.get_destination(source_server,Some(topology), rng);
 				let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 				middle=match middle_location
 				{
@@ -898,8 +933,8 @@ impl Routing for Valiant4Dragonfly
 			Some(middle) =>
 				{
 					let at_middle = if let Some(ref pattern) = self.intermediate_bypass {
-						let proj_middle = pattern.get_destination(middle, topology, rng);
-						let proj_current = pattern.get_destination(current_router, topology, rng);
+						let proj_middle = pattern.get_destination(middle, Some(topology), rng);
+						let proj_current = pattern.get_destination(current_router, Some(topology), rng);
 						proj_middle == proj_current
 					}else if self.dragonfly_bypass && //this is a hack which looks ugly but works
 						topology.cartesian_data().expect("something").unpack(current_router)[1] ==
@@ -941,11 +976,11 @@ impl Routing for Valiant4Dragonfly
 	{
 		self.first.initialize(topology,rng);
 		self.second.initialize(topology,rng);
-		self.pattern.initialize(topology.num_servers(), topology.num_servers(), topology, rng);
+		self.pattern.initialize(topology.num_servers(), topology.num_servers(), Some(topology), rng);
 		if let Some(ref mut pattern) = self.intermediate_bypass
 		{
 			let size = topology.num_routers();
-			pattern.initialize(size,size,topology,rng);
+			pattern.initialize(size,size,Some(topology),rng);
 		}
 	}
 	fn performed_request(&self, requested:&CandidateEgress, routing_info:&RefCell<RoutingInfo>, topology:&dyn Topology, current_router:usize, target_router:usize, target_server:Option<usize>, num_virtual_channels:usize, rng:&mut StdRng)
@@ -978,7 +1013,7 @@ impl Valiant4Dragonfly
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //pattern to intermideate node
+		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
 		let mut distance_middle_destination=0;
 		// let mut exclude_h_groups=false;
 		let mut first_reserved_virtual_channels=vec![];
@@ -989,7 +1024,7 @@ impl Valiant4Dragonfly
 		match_object_panic!(arg.cv,"Valiant4Dragonfly",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-			"pattern" => pattern= Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("pattern not valid for Valiant4Dragonfly"),
+			"pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Dragonfly"),
 			"distance_middle_destination" => distance_middle_destination=value.as_f64().expect("bad value for distance_middle_destination") as usize,
 			// "exclude_h_groups"=> exclude_h_groups=value.as_bool().expect("bad value for exclude_h_groups"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
@@ -998,7 +1033,7 @@ impl Valiant4Dragonfly
 			"second_reserved_virtual_channels" => second_reserved_virtual_channels=value.
 				as_array().expect("bad value for second_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in second_reserved_virtual_channels") as usize).collect(),
-			"intermediate_bypass" => intermediate_bypass=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"intermediate_bypass" => intermediate_bypass=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"local_missrouting" => local_missrouting=value.as_bool().expect("bad value for local_missrouting"),
 			"dragonfly_bypass" => dragonfly_bypass=value.as_bool().expect("bad value for dragonfly_bypass"),
 		);
@@ -1238,7 +1273,7 @@ impl PAR
 		// //let mut servers_per_router=None;
 		// let mut first=None;
 		// let mut second=None;
-		// let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //pattern to intermideate node
+		// let mut general_pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
 		// // let mut exclude_h_groups=false;
 		// let mut first_reserved_virtual_channels=vec![];
 		// let mut second_reserved_virtual_channels=vec![];
@@ -1248,7 +1283,7 @@ impl PAR
 		match_object_panic!(arg.cv,"PAR",_value,
 			// "first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			// "second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-			// "pattern" => pattern= Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("pattern not valid for PAR"),
+			// pattern => general_pattern= Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for PAR"),
 			// // "exclude_h_groups"=> exclude_h_groups=value.as_bool().expect("bad value for exclude_h_groups"),
 			// "first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 			// 	as_array().expect("bad value for first_reserved_virtual_channels").iter()
@@ -1256,7 +1291,7 @@ impl PAR
 			// "second_reserved_virtual_channels" => second_reserved_virtual_channels=value.
 			// 	as_array().expect("bad value for second_reserved_virtual_channels").iter()
 			// 	.map(|v|v.as_f64().expect("bad value in second_reserved_virtual_channels") as usize).collect(),
-			// "intermediate_bypass" => intermediate_bypass=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			// "intermediate_bypass" => intermediate_bypass=Some(new_pattern(MetaPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			// "local_missrouting" => local_missrouting=value.as_bool().expect("bad value for local_missrouting"),
 			// "dragonfly_bypass" => dragonfly_bypass=value.as_bool().expect("bad value for dragonfly_bypass"),
 		);
@@ -1280,13 +1315,9 @@ impl PAR
 
 
 /**
-* Experimental routing for Dragonfly which allow direct routes instead of only Minimal
-* Direct routes use the same resources as minimal routes, but they are not minimal paths over the graph
-* Used in Dragonflies with trunking
-* ```ignore
-* DragonflyDirect{
-* }
-* TODO: Add doc and refactor the code
+	Routing for Dragonfly, which allows direct routes instead of only Minimal.
+	Direct routes use the same resources (VC) as minimal routes, but they are not minimal paths over the graph.
+	Used in Dragonflies with trunking.
 **/
 #[derive(Debug)]
 pub struct DragonflyDirect
@@ -1295,14 +1326,10 @@ pub struct DragonflyDirect
 	class_weight:Vec<usize>,
 	///The distance matrix computed, including weights.
 	distance_matrix: Matrix<usize>,
-	///The distance matrix computed, including weights.
-	local_matrix: Matrix<usize>,
-	///Group matrix
-	group_matrix: Matrix<usize>,
 	///Max weight distance
 	total_max_weight_distance:usize,
-	///Max weight distance
-	max_hops_per_class:Vec<usize>,
+	///Global connection matrix
+	group_matrix: Matrix<usize>,
 }
 
 impl Routing for DragonflyDirect
@@ -1315,13 +1342,10 @@ impl Routing for DragonflyDirect
 			let target_server = target_server.expect("target server was not given.");
 			for i in 0..topology.ports(current_router)
 			{
-				//println!("{} -> {:?}",i,topology.neighbour(current_router,i));
 				if let (Location::ServerPort(server),_link_class)=topology.neighbour(current_router,i)
 				{
 					if server==target_server
 					{
-						//return (0..num_virtual_channels).map(|vc|(i,vc)).collect();
-						//return (0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)).collect();
 						return Ok(RoutingNextCandidates{candidates:(0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)).collect(),idempotent:true});
 					}
 				}
@@ -1331,25 +1355,18 @@ impl Routing for DragonflyDirect
 		let num_ports=topology.ports(current_router);
 		let mut r=Vec::with_capacity(num_ports*num_virtual_channels);
 		let selections = routing_info.selections.as_ref().unwrap();
-		let current_weight = selections.iter().zip(self.class_weight.iter()).map(|(&s,&w)|s as usize * w).sum::<usize>();
 		for i in 0..num_ports
 		{
-			//println!("{} -> {:?}",i,topology.neighbour(current_router,i));
 			if let (Location::RouterPort{router_index,router_port:_},link_class)=topology.neighbour(current_router,i)
 			{
-				if link_class == 0 && selections[0] != 0 && selections[1] == 0
+				if link_class == 0 && selections[0] != 0 && selections[1] == 0 //AVOID DEADLOCK
 				{
 					continue
 				}
 				let link_weight = self.class_weight[link_class];
-				//if distance>*self.distance_matrix.get(router_index,target_router)
 				let new_distance = *self.distance_matrix.get(router_index, target_router);
 				if new_distance + link_weight == distance
-					|| (current_weight + link_weight + new_distance <= self.total_max_weight_distance
-						&& selections[link_class] +1 <= self.max_hops_per_class[link_class] as i32
-						&& distance > self.class_weight[1] && selections[0] == 0
-						&& *self.group_matrix.get(router_index, target_router) == 100usize
-				) //This is adapted to DF
+					|| (selections[0] == 0 && selections[1] == 0 && distance != self.class_weight[0] && distance != self.class_weight[1] && *self.group_matrix.get(router_index,target_router) == self.class_weight[1] &&(link_weight+new_distance) <= self.total_max_weight_distance) //This is adapted to DF
 				{
 					r.extend((0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)));
 				}
@@ -1359,36 +1376,22 @@ impl Routing for DragonflyDirect
 	}
 	fn initialize(&mut self, topology:&dyn Topology, _rng: &mut StdRng)
 	{
-		let distance_matrix=topology.compute_distance_matrix(Some(&self.class_weight));
 		self.distance_matrix = topology.compute_distance_matrix(Some(&self.class_weight));
-		self.local_matrix = Matrix::constant(0, distance_matrix.get_rows(), distance_matrix.get_columns());
-		self.group_matrix = Matrix::constant(0,distance_matrix.get_rows(),distance_matrix.get_columns());
-		for i in 0..distance_matrix.get_rows()
+		self.group_matrix = Matrix::constant(0, self.distance_matrix.get_rows(), self.distance_matrix.get_columns());
+		for i in 0..self.distance_matrix.get_rows()
 		{
-			for j in 0..distance_matrix.get_columns()
+			for j in 0..self.distance_matrix.get_columns()
 			{
-				let d = *distance_matrix.get(i,j);
-				if d == self.class_weight[0]
-				{
-					*self.local_matrix.get_mut(i,j) = d;
-
-				}
-			}
-		}
-		for i in 0..distance_matrix.get_rows()
-		{
-			for j in 0..distance_matrix.get_columns()
-			{
-				let d = *distance_matrix.get(i,j);
+				let d = *self.distance_matrix.get(i, j);
 				if d == self.class_weight[1]
 				{
 					*self.group_matrix.get_mut(i, j) = d;
 					for j_2 in 0..self.distance_matrix.get_columns()
 					{
-						let d_2 = *distance_matrix.get(j,j_2);
+						let d_2 = *self.distance_matrix.get(j, j_2);
 						if d_2 == self.class_weight[0]
 						{
-							*self.group_matrix.get_mut(i,j_2) = d;
+							*self.group_matrix.get_mut(i, j_2) = d;
 						}
 					}
 				}
@@ -1419,26 +1422,24 @@ impl DragonflyDirect
 {
 	pub fn new(_arg: RoutingBuilderArgument) -> DragonflyDirect
 	{
-		let class_weight=vec![1, 100];
-		let total_max_weight_distance= 120;
-		let max_hops_per_class =vec![2, 1];
+		let class_weight= vec![1usize, 100];
+		let total_max_weight_distance= 102;
+
 		// match_object_panic!(arg.cv,"DragonflyDirect",value,
 		// 	"class_weight" => class_weight = Some(value.as_array()
 		// 		.expect("bad value for class_weight").iter()
 		// 		.map(|v|v.as_f64().expect("bad value in class_weight") as usize).collect()),
-		// 	"total_max_weight_distance" => total_max_weight_distance = value.as_f64().expect("bad value for total_max_weight_distance") as usize,
-		// 	"max_hops_per_class" => max_hops_per_class = value.as_array()
-		// 		.expect("bad value for local_max_weight_distance").iter()
-		// 		.map(|v|v.as_f64().expect("bad value in local_max_weight_distance") as usize).collect(),
+		// 	"total_max_weight_distance" => total_max_weight_distance = Some(value.as_f64().expect("bad value for total_max_weight_distance") as usize ),
 		// );
+		//
 		// let class_weight=class_weight.expect("There were no class_weight");
+		// let total_max_weight_distance=total_max_weight_distance.expect("There were no total_max_weight_distance");
+
 		DragonflyDirect {
 			class_weight,
 			distance_matrix:Matrix::constant(0, 0, 0),
-			local_matrix:Matrix::constant(0, 0, 0),
 			group_matrix:Matrix::constant(0,0,0),
 			total_max_weight_distance,
-			max_hops_per_class,
 		}
 	}
 }
@@ -1507,6 +1508,31 @@ mod tests {
 				}
 			}
 		}
+	}
+	#[test]
+	fn cgraphs_arrangement()
+	{
+		let mut rng = StdRng::seed_from_u64(0);
+		let size = ArrangementSize { number_of_groups: 7, group_size: 6, number_of_ports: 6, lag: 1 };
+		let mut cgraphs = Cgraphs::default();
+		cgraphs.initialize(size, &mut rng);
+		let point = ArrangementPoint { group_index: 0, group_offset: 0, port_index: 0 };
+		let target = cgraphs.map(point);
+		assert!(target.group_index == 1 && target.group_offset == 0 && target.port_index == 5, "invalid arrangement {:?}", target );
+		let target = cgraphs.map(target);
+		assert!(target.group_index == 0 && target.group_offset == 0 && target.port_index == 0, "invalid arrangement {:?}", target );
+
+		let point = ArrangementPoint { group_index: 0, group_offset: 1, port_index: 0 };
+		let target = cgraphs.map(point);
+		assert!(target.group_index == 1 && target.group_offset == 1 && target.port_index == 5, "invalid arrangement {:?}", target );
+		let target = cgraphs.map(target);
+		assert!(target.group_index == 0 && target.group_offset == 1 && target.port_index == 0, "invalid arrangement {:?}", target );
+
+		let point2 = ArrangementPoint { group_index: 0, group_offset: 0, port_index: 1 };
+		let target2 = cgraphs.map(point2);
+		assert!(target2.group_index == 2 && target2.group_offset == 0 && target2.port_index == 4, "invalid arrangement {:?}", target2 );
+		let target2 = cgraphs.map(target2);
+		assert!(target2.group_index == 0 && target2.group_offset == 0 && target2.port_index == 1, "invalid arrangement {:?}", target2 );
 	}
 }
 

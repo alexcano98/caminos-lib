@@ -1,19 +1,17 @@
-use crate::pattern::extra::get_cartesian_transform;
-use crate::pattern::extra::get_candidates_selection;
+use crate::general_pattern::pattern::extra::get_candidates_selection;
 use crate::AsMessage;
 use std::rc::Rc;
 use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
 use crate::config_parser::ConfigurationValue;
 use crate::{match_object_panic, Message, Time};
+use crate::general_pattern::one_to_many_pattern::neighbours::{immediate_neighbours_cv_builder, ImmediateNeighboursCVBuilder};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
-use crate::traffic::basic::{build_message_cv, BuildMessageCVArgs};
-use crate::traffic::mini_apps::{BuildTrafficCreditCVArgs, get_traffic_credit};
+use crate::traffic::basic::{build_send_message_to_vector_cv, SendMessageToVectorCVBuilder};
+use crate::traffic::extra::{get_message_size_modifier, get_traffic_manager, BuildMessageSizeModifierCVArgs, BuildTrafficManagerCVArgs};
 use crate::traffic::sequences::{BuilderMessageTaskSequenceCVArgs, get_traffic_message_task_sequence};
 use crate::traffic::TaskTrafficState::{UnspecifiedWait, WaitingData};
-
-
 
 /**
 Introduces a barrier when all the tasks has sent a number of messages.
@@ -50,12 +48,23 @@ pub struct MessageBarrier
 
 impl Traffic for MessageBarrier
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let message = self.traffic.generate_message(origin,cycle,topology,rng);
-        if !message.is_err(){
+        // if !message.is_err(){
             self.total_sent += 1;
             self.total_sent_per_task[origin] += 1;
+        // }
+        if message.as_ref().is_err_and(|a| matches!(a, TrafficError::SelfMessage) )
+        {
+            self.total_consumed += 1;
+            self.total_consumed_per_task[origin] += 1;
+            if self.total_sent == self.total_consumed && self.messages_per_task_to_wait * self.tasks == self.total_sent {
+                self.total_sent = 0;
+                self.total_consumed = 0;
+                self.total_sent_per_task = vec![0; self.tasks];
+                self.total_consumed_per_task = vec![0; self.tasks];
+            }
         }
         message
     }
@@ -76,7 +85,7 @@ impl Traffic for MessageBarrier
         self.total_sent_per_task[task] < self.messages_per_task_to_wait && self.traffic.should_generate(task, cycle, rng)
     }
 
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         self.total_consumed += 1;
         self.total_consumed_per_task[task] += 1;
@@ -88,11 +97,11 @@ impl Traffic for MessageBarrier
         }
         self.traffic.consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.traffic.is_finished()
+        self.traffic.is_finished(rng)
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         if self.total_sent_per_task[task] < self.messages_per_task_to_wait {
             self.traffic.task_state(task, cycle)
@@ -148,6 +157,7 @@ impl MessageBarrier
     }
 }
 
+#[allow(dead_code)]
 pub struct BuildMessageBarrierCVArgs {
     pub traffic: ConfigurationValue,
     pub tasks: usize,
@@ -155,6 +165,7 @@ pub struct BuildMessageBarrierCVArgs {
     pub expected_messages_to_consume_to_wait: Option<usize>,
 }
 
+#[allow(dead_code)]
 pub fn build_message_barrier_cv(args: BuildMessageBarrierCVArgs) -> ConfigurationValue
 {
     let mut cv = vec![
@@ -172,35 +183,92 @@ pub fn build_message_barrier_cv(args: BuildMessageBarrierCVArgs) -> Configuratio
 
 
 /**
-MPI collectives implementations based on TrafficCredit
+MPI collectives implementations based on TrafficManager.
+Some of the implementations are from:
+
+    Thakur, Rajeev, Rolf Rabenseifner, and William Gropp.
+    "Optimization of collective communication operations in MPICH."
+    The International Journal of High Performance Computing Applications 19.1 (2005): 49-66.
+
+For each collective there can be different algorithms.
+For instance, for AllReduce there is a Ring or a Hypercube (Rabenseifner) algorithm.
+Depending on the implementation, the number of messages and the size of them can vary.
 
 ```ignore
-Allgather{
+AllGather{
     tasks: 64,
     data_size: 1000, //The total data size to all-gather. Each task starts with a data slice of size data_size/tasks.
-    algorithm: "Hypercube",
-    neighbours_order: [32, 16, 8, 4, 2, 1], //Optional, the order to iter hypercube neighbours
+    algorithm: Hypercube{
+        neighbours_order: [32, 16, 8, 4, 2, 1], //Optional, the order to iter hypercube neighbours
+    },
+}
+AllGather{
+    tasks: 64,
+    data_size: 1000, //The total data size to all-gather. Each task starts with a data slice of size data_size/tasks.
+    algorithm: Ring,
 }
 
 ScatterReduce{
     tasks: 64,
     data_size: 1000, //The total data size to scatter-reduce. Each task ends with a data slice reduced of size data_size/tasks.
-    algorithm: "Hypercube",
+    algorithm: Hypercube, //natural order iterating
 }
 
-Allreduce{
+AllReduce{
     tasks: 64,
     data_size: 1000, //The total data size to all-reduce.
-    algorithm: "Optimal",
-    all_gather_neighbours_order: [32, 16, 8, 4, 2, 1], //Optional, the order to iter hypercube neighbours in the all-gather
+    algorithm: Hypercube, //Rabenseifner algorithm
 }
 
 All2All{
     tasks: 64,
     data_size: 1000, //The total data size to all2all. Each task sends a data slice of size data_size/tasks to all the other tasks.
+    rounds: 2, //Optional, the number of rounds to send all the data.
+}
+
+All2All{
+    tasks: 16,
+    data_size: 1000, //The total data size to all2all. Each task sends a data slice of size data_size/tasks to all the other tasks.
+    start_pattern: LinearTransform{ //Optional, to start sending to a different task, and not the next one. Then go +1 from there.
+            source_size: [4, 4],
+            matrix: [[0, 1], [1, 1]],
+            target_size: [4, 4],
+        },
 }
 ```
  **/
+
+#[derive(Debug)]
+pub enum MPICollectiveAlgorithm
+{
+    Hypercube(Option<ConfigurationValue>), //order in which to iterate the Hypercube neighbours
+    Ring,
+}
+
+fn parse_algorithm_from_cv(configuration_value: &ConfigurationValue) -> MPICollectiveAlgorithm
+{
+    if let ConfigurationValue::Object(ref cv, _) = configuration_value
+    {
+        let mut algorithm = None;
+        match cv.as_str() {
+            "Hypercube" => {
+                let mut neighbours_order = None;
+                match_object_panic!(configuration_value,"Hypercube",value,
+                "neighbours_order" => neighbours_order = Some(value.clone()),
+            );
+                algorithm = Some(MPICollectiveAlgorithm::Hypercube(neighbours_order));
+            },
+            "Ring" => algorithm = Some(MPICollectiveAlgorithm::Ring),
+            _ => {}
+        }
+        algorithm.expect("There should be a valid algorithm")
+
+    } else {
+
+        panic!("The algorithm should be an object");
+    }
+}
+
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct MPICollective {}
@@ -213,62 +281,63 @@ impl MPICollective
             "ScatterReduce" =>{
                 let mut tasks = None;
                 let mut data_size = None;
-                let mut algorithm = "Hypercube";
+                let mut algorithm = MPICollectiveAlgorithm::Hypercube(None);
                 match_object_panic!(arg.cv,"ScatterReduce",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-					"algorithm" => algorithm = value.as_str().expect("bad value for algorithm"),
+					"algorithm" => algorithm = parse_algorithm_from_cv(value),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
 				);
+
                 match algorithm {
-                    "Hypercube" => Some(get_scatter_reduce_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    "Ring" => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    _ => panic!("Unknown algorithm: {}", algorithm),
+                    MPICollectiveAlgorithm::Hypercube(_) => Some(get_scatter_reduce_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), 1)),
+                    // _ => panic!("Unknown algorithm: {:?}", algorithm),
                 }
             },
             "AllGather" =>{
                 let mut tasks = None;
                 let mut data_size = None;
-                let mut algorithm = "Hypercube";
-                let mut neighbours_order = None;
+                let mut algorithm =  MPICollectiveAlgorithm::Hypercube(None);
                 match_object_panic!(arg.cv,"AllGather",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-					"algorithm" => algorithm = value.as_str().expect("bad value for algorithm"),
+					"algorithm" => algorithm = parse_algorithm_from_cv(value),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
-					"neighbours_order" => neighbours_order = Some(value),
 				);
                 match algorithm {
-                    "Hypercube" => Some(get_all_gather_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order)),
-                    "Ring" => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    _ => panic!("Unknown algorithm: {}", algorithm),
+                    MPICollectiveAlgorithm::Hypercube(neighbours_order) => Some(get_all_gather_hypercube(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order.as_ref())),
+                    MPICollectiveAlgorithm::Ring => Some(ring_iteration(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), 1)),
+                    // _ => panic!("Unknown algorithm: {:?}", algorithm),
                 }
             },
             "AllReduce" =>{
                 let mut tasks = None;
                 let mut data_size = None;
-                let mut algorithm = "Optimal";
-                let mut neighbours_order = None;
+                let mut algorithm = MPICollectiveAlgorithm::Hypercube(None);
                 match_object_panic!(arg.cv,"AllReduce",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-					"algorithm" => algorithm = value.as_str().expect("bad value for algorithm"),
+					"algorithm" => algorithm = parse_algorithm_from_cv(value),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
-					"all_gather_neighbours_order" => neighbours_order = Some(value),
 				);
 
                 match algorithm {
-                    "Optimal" => Some(get_all_reduce_optimal(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order)),
-                    "Ring" => Some(get_all_reduce_ring(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
-                    _ => panic!("Unknown algorithm: {}", algorithm),
+                    MPICollectiveAlgorithm::Hypercube(neighbours_order) => Some(get_all_reduce_optimal(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), neighbours_order.as_ref())),
+                    MPICollectiveAlgorithm::Ring => Some(get_all_reduce_ring(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"))),
+                    // _ => panic!("Unknown algorithm: {}", algorithm),
                 }
             },
             "All2All" =>{
                 let mut tasks = None;
                 let mut data_size = None;
+                let mut rounds = 1;
+                let mut start_pattern = None;
                 match_object_panic!(arg.cv,"All2All",value,
 					"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
 					"data_size" => data_size = Some(value.as_f64().expect("bad value for data_size") as usize),
+                    "rounds" => rounds = value.as_usize().expect("bad value for rounds") as usize,
+                    "start_pattern" => start_pattern = Some(value.clone()),
 				);
 
-                Some(get_all2all(tasks.expect("There were no tasks"), data_size.expect("There were no data_size")))
+                Some(get_all2all(tasks.expect("There were no tasks"), data_size.expect("There were no data_size"), rounds, start_pattern))
             },
 
             _ => panic!("Unknown traffic type: {}", traffic),
@@ -279,43 +348,41 @@ impl MPICollective
 }
 
 //Scater-reduce or all-gather in a ring
-fn ring_iteration(tasks: usize, data_size: usize) -> ConfigurationValue {
+fn ring_iteration(tasks: usize, data_size: usize, iterations: usize) -> ConfigurationValue {
 
     let message_size = data_size/tasks;
 
-    let candidates_selection = get_candidates_selection(
+    let neighbours_vector = vec![vec![1]];
+    let immediate_neighbours_builder = ImmediateNeighboursCVBuilder {
+        sides: vec![tasks],
+        vector_neighbours: neighbours_vector,
+        modular: true,
+    };
+    let immediate_neighbours = immediate_neighbours_cv_builder(immediate_neighbours_builder);
+
+    let message_to_vector_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: immediate_neighbours,
+        message_size,
+        rounds: (tasks -1) * iterations,
+    };
+    let message_to_vector = build_send_message_to_vector_cv(message_to_vector_builder);
+
+    let initial_credits = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_cartesian_transform = get_cartesian_transform(
-    vec![tasks],
-        Some(vec![1]),
-        None,
-    );
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
-        credits_per_received_message: 1,
         messages_per_transition: 1,
-        message_size,
-        pattern: pattern_cartesian_transform,
-        initial_credits: candidates_selection,
-        message_size_pattern: None,
+        credits_per_received_message: 1,
+        traffic: message_to_vector,
+        initial_credits,
     };
+    let traffic_manager = get_traffic_manager(traffic_manager_builder);
 
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
-
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
-        tasks,
-        messages_per_task: Some(tasks -1),
-        num_messages: tasks * (tasks - 1),
-        expected_messages_to_consume_per_task: Some(tasks),
-    };
-
-    build_message_cv(traffic_message_cv_builder)
+    traffic_manager
 }
 
 
@@ -327,44 +394,46 @@ fn get_scatter_reduce_hypercube(tasks: usize, data_size: usize) -> Configuration
     {
         panic!("The number of tasks must be a power of 2");
     }
-    //Now list dividing the data size by to in each iteration till number of messages
-    let messages_size = ConfigurationValue::Array((1..=messages).map(|i| ConfigurationValue::Number((data_size / 2usize.pow(i as u32)) as f64)).collect::<Vec<_>>());
-    let inmediate_sequence_pattern = ConfigurationValue::Object("InmediateSequencePattern".to_string(), vec![
-        ("sequence".to_string(), messages_size),
-    ]);
+
+    let hypercube_neighbours = ConfigurationValue::Object("HypercubeNeighbours".to_string(), vec![]);
+
+    let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: hypercube_neighbours,
+        message_size: 0, //IDK if this is correct
+        rounds: 1, //only send one time to the neighbours
+    };
+    let send_message_to_vector_cv = build_send_message_to_vector_cv(send_message_to_vector_cv_builder);
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_distance_halving = ConfigurationValue::Object("RecursiveDistanceHalving".to_string(), vec![]);
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
-        credits_per_received_message: 1,
         messages_per_transition: 1,
-        message_size: 0,
-        pattern: pattern_distance_halving,
+        credits_per_received_message: 1,
+        traffic: send_message_to_vector_cv,
         initial_credits: candidates_selection,
-        message_size_pattern: Some(inmediate_sequence_pattern),
     };
+    let traffic_manager = get_traffic_manager(traffic_manager_builder);
 
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
 
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
+    //Now list dividing the data size by to in each iteration till number of messages
+    let messages_sizes = (1..=messages).map(|i| data_size / 2usize.pow(i as u32) ).collect::<Vec<_>>();
+
+    let message_size_mod = BuildMessageSizeModifierCVArgs{
         tasks,
-        messages_per_task: Some(messages),
-        num_messages: messages * tasks,
-        expected_messages_to_consume_per_task: Some(messages),
+        traffic: traffic_manager,
+        message_sizes: messages_sizes,
     };
 
-    build_message_cv(traffic_message_cv_builder)
+    get_message_size_modifier(message_size_mod)
+
 }
 
-fn get_all_gather_hypercube(tasks: usize, data_size: usize, neighbours_order: Option<&ConfigurationValue>) -> ConfigurationValue
+fn get_all_gather_hypercube(tasks: usize, data_size: usize, _neighbours_order: Option<&ConfigurationValue>) -> ConfigurationValue
 {
     //log2 the number of tasks and panic if its not a power of 2
     let messages = (tasks as f64).log2().round() as usize;
@@ -372,48 +441,42 @@ fn get_all_gather_hypercube(tasks: usize, data_size: usize, neighbours_order: Op
     {
         panic!("The number of tasks must be a power of 2");
     }
-    //Now list dividing the data size by to in each iteration till number of messages
-    let messages_size = ConfigurationValue::Array((1..=messages).map(|i| ConfigurationValue::Number((data_size / 2usize.pow(i as u32)) as f64)).rev().collect::<Vec<_>>()); //reverse the order, starting from the smallest message to the maximum
-    let inmediate_sequence_pattern = ConfigurationValue::Object("InmediateSequencePattern".to_string(), vec![
-        ("sequence".to_string(), messages_size),
-    ]);
 
+    let hypercube_neighbours = ConfigurationValue::Object("HypercubeNeighbours".to_string(), vec![]);
+
+    let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: hypercube_neighbours,
+        message_size: 0, //IDK if this is correct
+        rounds: 1,
+    };
+    let send_message_to_vector_cv = build_send_message_to_vector_cv(send_message_to_vector_cv_builder);
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_distance_halving = if let Some(neighbours_order) = neighbours_order {
-        ConfigurationValue::Object("RecursiveDistanceHalving".to_string(), vec![
-            ("neighbours_order".to_string(), neighbours_order.clone())
-        ])
-    } else {
-        ConfigurationValue::Object("RecursiveDistanceHalving".to_string(), vec![])
-    };
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
-        credits_per_received_message: 1,
         messages_per_transition: 1,
-        message_size: 0,
-        pattern: pattern_distance_halving,
+        credits_per_received_message: 1,
+        traffic: send_message_to_vector_cv,
         initial_credits: candidates_selection,
-        message_size_pattern: Some(inmediate_sequence_pattern),
     };
+    let traffic_manager = get_traffic_manager(traffic_manager_builder);
 
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
 
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
+    //Now list dividing the data size by to in each iteration till number of messages
+    let messages_sizes = (1..=messages).map(|i| data_size / 2usize.pow(i as u32) ).rev().collect::<Vec<_>>();
+
+    let message_size_mod = BuildMessageSizeModifierCVArgs{
         tasks,
-        messages_per_task: Some(messages),
-        num_messages: messages * tasks,
-        expected_messages_to_consume_per_task: Some(messages),
+        traffic: traffic_manager,
+        message_sizes: messages_sizes,
     };
 
-    build_message_cv(traffic_message_cv_builder)
+    get_message_size_modifier(message_size_mod)
 }
 
 fn get_all_reduce_optimal(tasks: usize, data_size: usize, neighbours_order: Option<&ConfigurationValue>) -> ConfigurationValue
@@ -433,60 +496,296 @@ fn get_all_reduce_optimal(tasks: usize, data_size: usize, neighbours_order: Opti
 
 fn get_all_reduce_ring(tasks: usize, data_size: usize) -> ConfigurationValue
 {
-    let scatter_reduce_ring = ring_iteration(tasks, data_size);
-    let all_gather_ring = ring_iteration(tasks, data_size);
-    let messages_per_task = tasks - 1;
-
-    let traffic_message_task_sequence_args = BuilderMessageTaskSequenceCVArgs{
-        tasks,
-        traffics: vec![scatter_reduce_ring, all_gather_ring],
-        messages_to_send_per_traffic: vec![messages_per_task, messages_per_task],
-        messages_to_consume_per_traffic: Some(vec![messages_per_task, messages_per_task]),
-    };
-
-    get_traffic_message_task_sequence(traffic_message_task_sequence_args)
+    ring_iteration(tasks, data_size, 2)
 }
 
-fn get_all2all(tasks: usize, data_size: usize) -> ConfigurationValue
+pub(crate) fn get_all2all(tasks: usize, data_size: usize, rounds: usize, start_pattern: Option<ConfigurationValue>) -> ConfigurationValue
 {
-    let messages = tasks -1;
-    let message_size = data_size/tasks;
+    let total_messages = (tasks -1) * rounds;
+    if rounds == 0 {
+        panic!("The number of rounds must be greater than 0");
+    }
+    let message_size = (data_size/tasks)/rounds;
+
+    let all_neighbours = if let Some(start_pattern) = start_pattern {
+        ConfigurationValue::Object("AllNeighbours".to_string(), vec![("pattern_first_neighbour".to_string(), start_pattern)])
+    }else {
+        ConfigurationValue::Object("AllNeighbours".to_string(), vec![])
+    };
+    let send_message_to_vector_cv_builder = SendMessageToVectorCVBuilder{
+        tasks,
+        one_to_many_pattern: all_neighbours,
+        message_size,
+        rounds,
+    };
+    let send_message_to_vector_cv = build_send_message_to_vector_cv(send_message_to_vector_cv_builder);
 
     let candidates_selection = get_candidates_selection(
         ConfigurationValue::Object("Identity".to_string(), vec![]),
         tasks,
     );
-
-    let pattern_cartesian_transform = get_cartesian_transform(
-        vec![tasks],
-        Some(vec![1]),
-        None,
-    );
-
-    let element_composition = ConfigurationValue::Object("ElementComposition".to_string(), vec![
-        ("pattern".to_string(), pattern_cartesian_transform),
-    ]);
-
-    let traffic_credit_args = BuildTrafficCreditCVArgs{
+    let traffic_manager_builder = BuildTrafficManagerCVArgs{
         tasks,
         credits_to_activate: 1,
+        messages_per_transition: total_messages,
         credits_per_received_message: 0,
-        messages_per_transition: messages,
-        message_size,
-        pattern: element_composition,
+        traffic: send_message_to_vector_cv,
         initial_credits: candidates_selection,
-        message_size_pattern: None,
     };
-
-    let traffic_credit = get_traffic_credit(traffic_credit_args);
-
-    let traffic_message_cv_builder = BuildMessageCVArgs{
-        traffic: traffic_credit,
-        tasks,
-        messages_per_task: Some(messages),
-        num_messages: tasks * messages,
-        expected_messages_to_consume_per_task: Some(messages),
-    };
-
-    build_message_cv(traffic_message_cv_builder)
+    get_traffic_manager(traffic_manager_builder)
 }
+
+#[cfg(test)]
+mod tests {
+    use rand::prelude::StdRng;
+    use rand::SeedableRng;
+    use crate::general_pattern::pattern::{get_linear_transform, BuildLinearTransformCV};
+    use crate::Plugs;
+    use crate::traffic::collectives::{get_all2all, get_all_reduce_optimal, get_all_reduce_ring};
+    use crate::traffic::new_traffic;
+
+    #[test]
+    fn test_allreduce_optimal() {
+        let tasks = 64;
+        let data_size = 128;
+        let cv = get_all_reduce_optimal(tasks, data_size, None);
+        let mut rng = StdRng::seed_from_u64(0);
+        println!("All reduce optimal");
+        println!("{}", cv.format_terminal());
+
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+        let mut t = new_traffic(traffic_builder);
+
+        let iterations = 6; //6 +6
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size /(2 << iteration));
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+
+        assert_eq!(t.is_finished(Some(&mut rng)), false);
+
+        for iteration in 0..iterations // extract all messages for all-gather
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size /(2 << (iterations - iteration - 1)));
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
+    }
+
+    #[test]
+    fn test_allreduce_ring() {
+        let tasks = 64;
+        let data_size = 128;
+        let cv = get_all_reduce_ring(tasks, data_size);
+        let mut rng = StdRng::seed_from_u64(0);
+        println!("All reduce ring");
+        println!("{}", cv.format_terminal());
+
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+
+        let mut t = new_traffic(traffic_builder);
+        let iterations = tasks -1;
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size / (tasks) );
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+
+        assert_eq!(t.is_finished(Some(&mut rng)), false);
+
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size / (tasks) );
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
+    }
+
+    #[test]
+    fn test_all2all() {
+        let cv = get_all2all(64, 128, 2, None);
+        println!("All2All");
+        println!("{}", cv.format_terminal());
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+
+        let mut t = new_traffic(traffic_builder);
+        let rounds = 2;
+        let tasks = 64;
+        let data_size = 128;
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..rounds // extract all messages
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                for _ in 0..(tasks -1){
+                    assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+                    let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                    assert_eq!(message.size, (data_size / (tasks-1))/rounds );
+                    messages.push(message);
+                }
+            }
+            assert_eq!(t.is_finished(Some(&mut rng)), false);
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
+    }
+
+    #[test]
+    fn test_all2all_cg(){
+        let tasks = 16;
+        let rounds = 1;
+        let message_size = 16;
+        let linear_transform_builder = BuildLinearTransformCV{
+            source_size: vec![4usize, 4usize],
+            matrix: vec![vec![0, 1], vec![1, 1]],
+            target_size: vec![4usize, 4usize],
+        };
+        let linear_transform_cfg = get_linear_transform(linear_transform_builder);
+        let cv = get_all2all(tasks, message_size * tasks, rounds, Some(linear_transform_cfg));
+        let results = vec![
+            vec![ 1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15], //0
+            vec![ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,  0,  2,  3,  4], //1
+            vec![ 9, 10, 11, 12, 13, 14, 15,  0,  1,  3,  4,  5,  6,  7,  8], //2
+            vec![13, 14, 15,  0,  1,  2,  4,  5,  6,  7,  8,  9, 10, 11, 12], //3
+
+            vec![  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,  0,  1,  2,  3,  5], //4
+            vec![ 10, 11, 12, 13, 14, 15,  0,  1,  2,  3,  4,  6,  7,  8,  9], //5
+            vec![ 14, 15,  0,  1,  2,  3,  4,  5,  7,  8,  9, 10, 11, 12, 13], //6
+            vec![  2,  3,  4,  5,  6,  8,  9, 10, 11, 12, 13, 14, 15,  0,  1], //7
+
+            vec![ 11, 12, 13, 14, 15,  0,  1,  2,  3,  4,  5,  6,  7,  9, 10], //8
+            vec![ 15,  0,  1,  2,  3,  4,  5,  6,  7,  8, 10, 11, 12, 13, 14], //9
+            vec![  3,  4,  5,  6,  7,  8,  9, 11, 12, 13, 14, 15,  0,  1,  2], //10
+            vec![  7,  8,  9, 10, 12, 13, 14, 15,  0,  1,  2,  3,  4,  5,  6], //11
+
+            vec![  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 13, 14, 15], //12
+            vec![  4,  5,  6,  7,  8,  9, 10, 11, 12, 14, 15,  0,  1,  2,  3], //13
+            vec![  8,  9, 10, 11, 12, 13, 15,  0,  1,  2,  3,  4,  5,  6,  7], //14
+            vec![ 12, 13, 14,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11], //15
+        ];
+        let mut t = new_traffic(super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut StdRng::seed_from_u64(0),
+            plugs: &Plugs::default(),
+            topology: None,
+        });
+        assert_eq!(t.number_tasks(), 16);
+        for iteration in 0..rounds{
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut StdRng::seed_from_u64(0)), true);
+            }
+            let mut messages = vec![];
+            for i in 0..tasks {
+                let start = (i * 8) % tasks;
+                let mut destinations = vec![];
+                for _ in 1..tasks {
+                    let message = t.generate_message(i, 0, None, &mut StdRng::seed_from_u64(0)).unwrap();
+                    assert_eq!(message.size, message_size);
+                    destinations.push(message.destination);
+                    messages.push(message);
+                }
+                assert_eq!(destinations, results[i]);
+            }
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut StdRng::seed_from_u64(0)), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut StdRng::seed_from_u64(0))), true);
+    }
+}
+

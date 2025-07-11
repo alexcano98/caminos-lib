@@ -1,4 +1,5 @@
-use crate::pattern::new_pattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::new_pattern;
 use std::cell::{RefCell};
 use std::collections::VecDeque;
 use std::convert::TryInto;
@@ -10,7 +11,8 @@ use crate::config_parser::ConfigurationValue;
 use crate::topology::cartesian::CartesianData;//for CartesianTransform
 use crate::topology::{Topology, Location};
 use crate::{match_object_panic};
-use crate::pattern::{Pattern, PatternBuilderArgument};
+use crate::general_pattern::GeneralPattern;
+use crate::general_pattern::{GeneralPatternBuilderArgument};
 
 
 /**
@@ -21,8 +23,8 @@ Example configuration:
 ```ignore
 FileMap{
 	/// Note this is a string literal.
-	filename: "/path/to/pattern",
-	legend_name: "A pattern in my device",
+	filename: "/path/to/general_pattern",
+	legend_name: "A general_pattern in my device",
 }
 ```
  **/
@@ -33,14 +35,14 @@ pub struct FileMap
     permutation: Vec<usize>,
 }
 
-impl Pattern for FileMap
+impl GeneralPattern<usize, usize> for FileMap
 {
-    fn initialize(&mut self, _source_size:usize, _target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, _source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         //self.permutation=(0..size).collect();
         //rng.shuffle(&mut self.permutation);
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         self.permutation[origin]
     }
@@ -48,19 +50,19 @@ impl Pattern for FileMap
 
 impl FileMap
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> FileMap
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> FileMap
     {
         let mut filename=None;
         match_object_panic!(arg.cv,"FileMap",value,
 			"filename" => filename = Some(value.as_str().expect("bad value for filename").to_string()),
 		);
         let filename=filename.expect("There were no filename");
-        let file=File::open(&filename).expect("could not open pattern file.");
+        let file=File::open(&filename).expect("could not open general_pattern file.");
         let reader = BufReader::new(&file);
         let mut permutation=Vec::new();
         for rline in reader.lines()
         {
-            let line=rline.expect("Some problem when reading the traffic pattern.");
+            let line=rline.expect("Some problem when reading the traffic general_pattern.");
             let mut words=line.split_whitespace();
             let origin=words.next().unwrap().parse::<usize>().unwrap();
             let destination=words.next().unwrap().parse::<usize>().unwrap();
@@ -74,7 +76,7 @@ impl FileMap
             permutation,
         }
     }
-    pub(crate) fn embedded(arg:PatternBuilderArgument) -> FileMap
+    pub(crate) fn embedded(arg: GeneralPatternBuilderArgument) -> FileMap
     {
         let mut map = None;
         match_object_panic!(arg.cv,"EmbeddedMap",value,
@@ -92,7 +94,7 @@ impl FileMap
 
 ///Divide the topology according to some given link classes, considering the graph components if the other links were removed.
 ///Then apply the `global_pattern` among the components and select randomly inside the destination component.
-///Note that this uses the topology and will cause problems if used as a sub-pattern.
+///Note that this uses the topology and will cause problems if used as a sub-general_pattern.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct ComponentsPattern
@@ -103,10 +105,11 @@ pub struct ComponentsPattern
     components: Vec<Vec<usize>>,
 }
 
-impl Pattern for ComponentsPattern
+impl GeneralPattern<usize, usize> for ComponentsPattern
 {
-    fn initialize(&mut self, _source_size:usize, _target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, _source_size:usize, _target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
+        let topology=topology.expect("ComponentsPattern needs a topology");
         let mut allowed_components=vec![];
         for link_class in self.component_classes.iter()
         {
@@ -121,13 +124,14 @@ impl Pattern for ComponentsPattern
         //{
         //	println!("component {}: {:?}",i,component);
         //}
-        self.global_pattern.initialize(self.components.len(),self.components.len(),topology,rng);
+        self.global_pattern.initialize(self.components.len(),self.components.len(),Some(topology),rng);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         //let local=origin % self.block_size;
         //let global=origin / self.block_size;
         //let n=topology.num_routers();
+        let topology=topology.expect("ComponentsPattern needs a topology");
         let router_origin=match topology.server_neighbour(origin).0
         {
             Location::RouterPort{
@@ -149,7 +153,7 @@ impl Pattern for ComponentsPattern
         {
             panic!("Could not found component of {}",router_origin);
         }
-        let global_dest=self.global_pattern.get_destination(global,topology,rng);
+        let global_dest=self.global_pattern.get_destination(global,Some(topology),rng);
         //let local_dest=self.block_pattern.get_destination(local,topology,rng);
         let r_local=rng.gen_range(0..self.components[global_dest].len());
         let dest=self.components[global_dest][r_local];
@@ -170,13 +174,13 @@ impl Pattern for ComponentsPattern
 
 impl ComponentsPattern
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> ComponentsPattern
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> ComponentsPattern
     {
         let mut component_classes=None;
         //let mut block_pattern=None;
         let mut global_pattern=None;
         match_object_panic!(arg.cv,"Components",value,
-			"global_pattern" => global_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"global_pattern" => global_pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
 			"component_classes" => component_classes = Some(value.as_array()
 				.expect("bad value for component_classes").iter()
 				.map(|v|v.as_f64().expect("bad value in component_classes") as usize).collect()),
@@ -195,7 +199,7 @@ impl ComponentsPattern
 
 
 /**
-A pattern that returns in order values recieved from a list of values.
+A general_pattern that returns in order values recieved from a list of values.
 ```ignore
 InmediateSequencePattern{
     sequence: [0,1,2,3,4,5,6,7,8,9],
@@ -211,14 +215,14 @@ pub struct InmediateSequencePattern
     sequences_input: RefCell<Vec<VecDeque<usize>>>,
 }
 
-impl Pattern for InmediateSequencePattern
+impl GeneralPattern<usize, usize>for InmediateSequencePattern
 {
-    fn initialize(&mut self, source_size:usize, _target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         self.sequences_input.replace(vec![VecDeque::from(self.sequence.clone()); source_size]);
 
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         self.sequences_input.borrow_mut()[origin].pop_front().unwrap_or(0)
     }
@@ -226,7 +230,7 @@ impl Pattern for InmediateSequencePattern
 
 impl InmediateSequencePattern
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> InmediateSequencePattern
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> InmediateSequencePattern
     {
         let mut sequence=None;
         match_object_panic!(arg.cv,"InmediateSequencePattern",value,
@@ -243,11 +247,11 @@ impl InmediateSequencePattern
 
 
 /**
-For each source, it keeps a state of the last destination used. When applying the pattern, it uses the last destination as the origin for the pattern, and
-the destination is saved for the next call to the pattern.
+For each source, it keeps a state of the last destination used. When applying the general_pattern, it uses the last destination as the origin for the general_pattern, and
+the destination is saved for the next call to the general_pattern.
 ```ignore
 ElementComposition{
-	pattern: RandomPermutation,
+	general_pattern: RandomPermutation,
 }
 ```
  **/
@@ -261,9 +265,9 @@ pub struct ElementComposition
     origin_state: RefCell<Vec<usize>>,
 }
 
-impl Pattern for ElementComposition
+impl GeneralPattern<usize, usize>for ElementComposition
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         if source_size!= target_size
         {
@@ -272,7 +276,7 @@ impl Pattern for ElementComposition
         self.pattern.initialize(source_size,target_size,_topology,_rng);
         self.origin_state.replace((0..source_size).collect());
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         if origin >= self.origin_state.borrow().len()
         {
@@ -287,13 +291,13 @@ impl Pattern for ElementComposition
 
 impl ElementComposition
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> ElementComposition
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> ElementComposition
     {
         let mut pattern = None;
         match_object_panic!(arg.cv,"ElementComposition",value,
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
 		);
-        let pattern = pattern.expect("There were no pattern in configuration of ElementComposition.");
+        let pattern = pattern.expect("There were no general_pattern in configuration of ElementComposition.");
         ElementComposition{
             pattern,
             origin_state: RefCell::new(vec![]),
@@ -316,15 +320,15 @@ pub struct RecursiveDistanceHalving
     neighbours_order: Option<Vec<Vec<usize>>>,
 }
 
-impl Pattern for RecursiveDistanceHalving
+impl GeneralPattern<usize, usize>for RecursiveDistanceHalving
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         if source_size!= target_size
         {
             panic!("RecursiveDistanceHalving requires source and target sets to have same size.");
         }
-        //If the source size is not a power of 2, the pattern will not work.
+        //If the source size is not a power of 2, the general_pattern will not work.
         if !source_size.is_power_of_two()
         {
             panic!("RecursiveDistanceHalving requires source size to be a power of 2.");
@@ -333,7 +337,7 @@ impl Pattern for RecursiveDistanceHalving
         self.origin_state = RefCell::new(vec![0;source_size]);
         self.cartesian_data = CartesianData::new(&(vec![2; pow as usize]))//(0..pow).map(|i| CartesianData::new(&[source_size/2_usize.pow(i), 2_usize.pow(i)]) ).collect();
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         if origin >= self.origin_state.borrow().len()
         {
@@ -363,7 +367,7 @@ impl Pattern for RecursiveDistanceHalving
 
 impl RecursiveDistanceHalving
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RecursiveDistanceHalving
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RecursiveDistanceHalving
     {
         let mut neighbours_order: Option<Vec<usize>> = None; //Array of vectors which represent the order of the neighbours
         match_object_panic!(arg.cv,"RecursiveDistanceHalving",value,
@@ -420,9 +424,9 @@ pub struct BinomialTree
     state: RefCell<Vec<usize>>,
 }
 
-impl Pattern for BinomialTree
+impl GeneralPattern<usize, usize>for BinomialTree
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         if source_size!= target_size
         {
@@ -443,7 +447,7 @@ impl Pattern for BinomialTree
         self.cartesian_data = CartesianData::new(&vec![2; tree_order as usize]); // Tree emdebbed into an hypercube
         self.state = RefCell::new(vec![0; source_size]);
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         if origin >= self.cartesian_data.size
         {
@@ -488,11 +492,11 @@ impl Pattern for BinomialTree
 
 impl BinomialTree
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> BinomialTree
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> BinomialTree
     {
         let mut upwards = None;
         match_object_panic!(arg.cv,"BinomialTree",value,
-			"upwards" => upwards = Some(value.as_bool().expect("bad value for upwards for pattern BinomialTree")),
+			"upwards" => upwards = Some(value.as_bool().expect("bad value for upwards for general_pattern BinomialTree")),
 		);
         let upwards = upwards.expect("There were no upwards in configuration of BinomialTree.");
         BinomialTree{
@@ -507,11 +511,11 @@ impl BinomialTree
 
 
 /**
-A transparent meta-pattern to help debug other [Pattern].
+A transparent meta-general_pattern to help debug other [Pattern].
 
 ```ignore
 Debug{
-	pattern: ...,
+	general_pattern: ...,
 	check_permutation: true,
 }
 ```
@@ -519,7 +523,7 @@ Debug{
 //TODO: admissible, orders/cycle-finding, suprajective,
 #[derive(Debug,Quantifiable)]
 pub struct DebugPattern {
-    /// The pattern being applied transparently.
+    /// The general_pattern being applied transparently.
     pattern: Box<dyn Pattern>,
     /// Whether to consider an error not being a permutation.
     check_permutation: bool,
@@ -529,8 +533,8 @@ pub struct DebugPattern {
     target_size: usize,
 }
 
-impl Pattern for DebugPattern{
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+impl GeneralPattern<usize, usize>for DebugPattern{
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.source_size = source_size;
         self.target_size = target_size;
@@ -549,7 +553,7 @@ impl Pattern for DebugPattern{
             }
         }
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         if origin >= self.source_size {
             panic!("Received an origin {origin} beyond source size {size}",size=self.source_size);
@@ -563,14 +567,14 @@ impl Pattern for DebugPattern{
 }
 
 impl DebugPattern{
-    pub(crate) fn new(arg:PatternBuilderArgument) -> DebugPattern{
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> DebugPattern{
         let mut pattern = None;
         let mut check_permutation = false;
         match_object_panic!(arg.cv,"Debug",value,
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"check_permutation" => check_permutation = value.as_bool().expect("bad value for check_permutation"),
 		);
-        let pattern = pattern.expect("Missing pattern in configuration of Debug.");
+        let pattern = pattern.expect("Missing general_pattern in configuration of Debug.");
         DebugPattern{
             pattern,
             check_permutation,
@@ -580,62 +584,192 @@ impl DebugPattern{
     }
 }
 
-#[derive(Quantifiable)]
-#[derive(Debug)]
-pub struct EncapsulatedPattern {}
-
-impl EncapsulatedPattern {
-    pub(crate) fn new(pattern: String, arg:PatternBuilderArgument) -> Box<dyn Pattern> {
-        let pattern_cv = match pattern.as_str(){
-            "Stencil" =>{
-                let mut task_space = None;
-                match_object_panic!(arg.cv,"Stencil",value,
-					"task_space" => task_space = Some(value.as_array().expect("bad value for task_space").iter()
-						.map(|v|v.as_usize().expect("bad value in task_space")).collect()),
-				);
-                let task_space = task_space.expect("There were no task_space in configuration of Stencil.");
-                Some(get_stencil_pattern(task_space))
-            },
-            _ => panic!("Pattern {} not found.",pattern),
-        };
-        new_pattern(PatternBuilderArgument{cv:&pattern_cv.unwrap(),..arg})
-    }
-}
-
-pub(crate) fn get_stencil_pattern(task_space: Vec<usize>) -> ConfigurationValue
-{
-    let space_cv = ConfigurationValue::Array(task_space.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
-
-    let mut transforms = vec![];
-    for i in 0..task_space.len()
-    {
-        let mut transform_suc = vec![0;task_space.len()]; //next element in dimension
-        transform_suc[i] = 1;
-        let transform_suc_cv = ConfigurationValue::Array(transform_suc.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
-
-        let mut transform_pred = vec![0;task_space.len()]; //previous element in dimension
-        transform_pred[i] = (task_space[i] -1).rem_euclid(task_space[i]);
-        let transform_pred_cv = ConfigurationValue::Array(transform_pred.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
-
-        transforms.push(
-            ConfigurationValue::Object("CartesianTransform".to_string(), vec![
-                ("sides".to_string(), space_cv.clone()),
-                ("shift".to_string(), transform_suc_cv),
-            ]),
-        );
-
-        transforms.push(
-            ConfigurationValue::Object("CartesianTransform".to_string(), vec![
-                ("sides".to_string(), space_cv.clone()),
-                ("shift".to_string(), transform_pred_cv),
-            ]),
-        );
-    }
-
-    ConfigurationValue::Object( "RoundRobin".to_string(), vec![
-        ("patterns".to_string(), ConfigurationValue::Array(transforms)),
-    ])
-}
+// /**
+// Neighbours general_pattern that selects the neighbours of a node in a space.
+// ```ignore
+//
+// NearestNeighbours{ //Iter the neighbours of a node in each dimension. No wrap-around
+//     sides: [3,3],
+// }
+//
+// ManhattanNeighbours{ //Iter the neighbours inside a manhattan distance. No wrap-around
+//     sides: [3,3],
+//     distance: 1,
+// }
+//
+// KingNeighbours{ //Iter the neighbours inside a chessboard distance. No wrap-around
+//     sides: [3,3],
+//     distance: 1,
+// }
+// **/
+// #[derive(Quantifiable)]
+// #[derive(Debug)]
+// pub struct EncapsulatedPattern {}
+//
+// impl EncapsulatedPattern {
+//     pub(crate) fn new(pattern: String, arg:MetaPatternBuilderArgument) -> Box<dyn SimplePattern> {
+//         let pattern_cv = match pattern.as_str(){
+//             "NearestNeighbours" =>{
+//                 let mut sides = None;
+//                 match_object_panic!(arg.cv,"NearestNeighbours",value,
+// 					"sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+// 						.map(|v|v.as_usize().expect("bad value in sides")).collect()),
+// 				);
+//                 let sides = sides.expect("There were no sides in configuration of Stencil.");
+//                 Some(get_nearest_neighbours_pattern(sides))
+//             },
+//             "ManhattanNeighbours" =>{
+//                 let mut distance = None;
+//                 let mut sides = None;
+//                 match_object_panic!(arg.cv,"ManhattanNeighbours",value,
+//                     "sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+//                         .map(|v|v.as_usize().expect("bad value in sides")).collect()),
+//                     "distance" => distance = Some(value.as_usize().expect("bad value for distance")),
+//                 );
+//                 let distance = distance.expect("There were no distance in configuration of ManhattanNeighbours.");
+//                 let sides = sides.expect("There were no sides in configuration of ManhattanNeighbours.");
+//                 Some(get_manhattan_neighbours_pattern(&sides, distance))
+//             },
+//             "KingNeighbours" =>{
+//                 let mut distance = None;
+//                 let mut sides = None;
+//                 match_object_panic!(arg.cv,"KingNeighbours",value,
+//                     "sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+//                         .map(|v|v.as_usize().expect("bad value in sides")).collect()),
+//                     "distance" => distance = Some(value.as_usize().expect("bad value for distance")),
+//                 );
+//                 let distance = distance.expect("There were no distance in configuration of KingNeighbours.");
+//                 let sides = sides.expect("There were no sides in configuration of KingNeighbours.");
+//                 Some(get_king_neighbours_pattern(&sides, distance))
+//             },
+//             _ => panic!("Pattern {} not found.",pattern),
+//         };
+//         new_pattern(MetaPatternBuilderArgument{cv:&pattern_cv.unwrap(),..arg})
+//     }
+// }
+//
+// pub fn get_nearest_neighbours_pattern(sides: Vec<usize>) -> ConfigurationValue
+// {
+//     get_manhattan_neighbours_pattern(&sides, 1)
+// }
+//
+// pub fn get_neighbours_pattern(sides: Vec<usize>, transforms: Vec<Vec<i32>>) -> ConfigurationValue
+// {
+//     let space_cv = ConfigurationValue::Array(sides.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<_>>());
+//
+//     let mut transforms_cv = vec![];
+//     for i in transforms
+//     {
+//         transforms_cv.push(
+//             ConfigurationValue::Object("AddVector".to_string(), vec![
+//                 ("sides".to_string(), space_cv.clone()),
+//                 ("shift".to_string(), ConfigurationValue::Array(i.iter().map(|&v| ConfigurationValue::Number(v as f64)).collect::<Vec<ConfigurationValue>>())),
+//                 ("modulo".to_string(), ConfigurationValue::False),
+//             ]),
+//         );
+//     }
+//
+//     ConfigurationValue::Object( "DestinationSets".to_string(), vec![
+//         ("patterns".to_string(), ConfigurationValue::Array(transforms_cv)),
+//         ("exclude_self_references".to_string(), ConfigurationValue::True),
+//     ])
+// }
+//
+// pub fn get_king_neighbours_pattern(sides: &Vec<usize>, chessboard_distance: usize) -> ConfigurationValue
+// {
+//     let transforms = get_vectors_in_king_distance(sides, chessboard_distance);
+//     get_neighbours_pattern(sides.clone(), transforms)
+// }
+//
+// /// sides are the sides of the space, chessboard_distance is the distance to be considered
+// pub fn get_vectors_in_king_distance(sides: &[usize], chessboard_distance: usize) -> Vec<Vec<i32>>
+// {
+//     let vectors = get_vectors_in_king_distance_aux(sides, chessboard_distance);
+//     let mut vectors:Vec<Vec<i32>> = vectors.into_iter().filter(|e| !e.iter().all(|&i| i == 0)).collect(); //remove all 0s
+//     vectors.sort();
+//     vectors
+// }
+//
+// pub fn get_vectors_in_king_distance_aux(sides: &[usize], chessboard_distance: usize) -> Vec<Vec<i32>>
+// {
+//     let total_dist = chessboard_distance as i32;
+//     if chessboard_distance == 0
+//     {
+//         vec![vec![0;sides.len()]]
+//     }else if sides.len() == 1
+//     {
+//         (-total_dist..=total_dist).map(|i| vec![i] ).collect()
+//     } else {
+//         let mut vectors = vec![];
+//         let vec = get_vectors_in_king_distance_aux(&sides[1..], chessboard_distance);
+//
+//         let vec_1 = extend_vectors(vec.clone(), 0);
+//         vectors.extend(vec_1);
+//
+//         for dist in 1..=total_dist
+//         {
+//             let vec_1 = extend_vectors(vec.clone(), dist);
+//             vectors.extend(vec_1);
+//
+//             let vec_2 = extend_vectors(vec.clone(), -dist);
+//             vectors.extend(vec_2);
+//         }
+//         vectors
+//     }
+// }
+//
+// pub fn get_manhattan_neighbours_pattern(sides: &Vec<usize>, manhattan_distance: usize) -> ConfigurationValue
+// {
+//     let transforms = get_vectors_in_manhattan_distance(sides, manhattan_distance);
+//     get_neighbours_pattern(sides.clone(), transforms)
+// }
+//
+// /// sides are the sides of the space, manhattan_distance is the distance to be considered
+// pub fn get_vectors_in_manhattan_distance(sides: &Vec<usize>, manhattan_distance: usize) -> Vec<Vec<i32>>
+// {
+//     let vectors = get_vectors_in_manhattan_distance_aux(sides, manhattan_distance);
+//     let mut vectors:Vec<Vec<i32>> = vectors.into_iter().filter(|e| !e.iter().all(|&i| i == 0)).collect(); //remove all 0s
+//     vectors.sort();
+//     vectors
+// }
+//
+//
+// /// sides are the sides of the space, manhattan_distance is the distance to be considered
+// pub fn get_vectors_in_manhattan_distance_aux(sides: &[usize], manhattan_distance: usize) -> Vec<Vec<i32>>
+// {
+//     let total_dist = manhattan_distance as i32;
+//     if manhattan_distance == 0
+//     {
+//         vec![vec![0;sides.len()]]
+//     } else if sides.len() == 1{
+//         (-total_dist..=total_dist).map(|i| vec![i] ).collect()
+//     } else {
+//         let mut vectors = vec![];
+//         for dist in 0..=total_dist
+//         {
+//             let vec = get_vectors_in_manhattan_distance_aux(&sides[1..], (total_dist - dist) as usize);
+//             let vec_1 = extend_vectors(vec.clone(), dist);
+//             vectors.extend(vec_1);
+//             if dist != 0{
+//                 let vec_2 = extend_vectors(vec.clone(), -dist);
+//                 vectors.extend(vec_2);
+//             }
+//         }
+//         vectors
+//     }
+// }
+//
+//
+// pub fn extend_vectors(vectors: Vec<Vec<i32>>, value: i32) -> Vec<Vec<i32>>
+// {
+//     let mut new_vectors = vec![];
+//     for mut vector in vectors
+//     {
+//         vector.push(value);
+//         new_vectors.push(vector);
+//     }
+//     new_vectors
+// }
 
 
 pub fn get_switch_pattern(index_pattern: ConfigurationValue, patterns: Vec<ConfigurationValue>) -> ConfigurationValue{
@@ -678,7 +812,7 @@ FOR ALEX, NO MASTER
 //TODO: admissible, orders/cycle-finding, suprajective,
 #[derive(Debug,Quantifiable)]
 pub struct MiDebugPattern {
-    /// The pattern being applied transparently.
+    /// The general_pattern being applied transparently.
     pattern: Vec<Box<dyn Pattern>>,
     /// Whether to consider an error not being a permutation.
     check_permutation: bool,
@@ -690,8 +824,8 @@ pub struct MiDebugPattern {
     target_size: usize,
 }
 
-impl Pattern for MiDebugPattern {
-    fn initialize(&mut self, _source_size:usize, _target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+impl GeneralPattern<usize, usize>for MiDebugPattern {
+    fn initialize(&mut self, _source_size:usize, _target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         // self.source_size = source_size;
         // self.target_size = target_size;
@@ -710,7 +844,7 @@ impl Pattern for MiDebugPattern {
                 for origin_local in 0..*size {
                     let dst = self.pattern[index].get_destination(origin_local,topology,rng);
                     if hits[dst] != -1 {
-                        panic!("Destination {} hit by origin {}, now by {}, in pattern: {}",dst,hits[dst],origin_local, index);
+                        panic!("Destination {} hit by origin {}, now by {}, in general_pattern: {}",dst,hits[dst],origin_local, index);
                     }
                     hits[dst] = origin_local as isize;
                 }
@@ -727,7 +861,7 @@ impl Pattern for MiDebugPattern {
         // 	}
         // 	let mut hits = vec![false;self.target_size];
         // 	for origin in 0..self.source_size {
-        // 		let dst = self.pattern.get_destination(origin,topology,rng);
+        // 		let dst = self.general_pattern.get_destination(origin,topology,rng);
         // 		if hits[dst] {
         // 			panic!("Destination {} hit at least twice.",dst);
         // 		}
@@ -736,13 +870,13 @@ impl Pattern for MiDebugPattern {
         // }
         panic!("This is just a check.")
     }
-    fn get_destination(&self, _origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, _origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         0
         // if origin >= self.source_size {
         // 	panic!("Received an origin {origin} beyond source size {size}",size=self.source_size);
         // }
-        // let dst = self.pattern.get_destination(origin,topology,rng);
+        // let dst = self.general_pattern.get_destination(origin,topology,rng);
         // if dst >= self.target_size {
         // 	panic!("The destination {dst} is beyond the target size {size}",size=self.target_size);
         // }
@@ -751,22 +885,22 @@ impl Pattern for MiDebugPattern {
 }
 
 impl MiDebugPattern {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> MiDebugPattern {
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> MiDebugPattern {
         let mut pattern = None;
         let mut check_permutation = false;
         let mut check_injective = false;
         let mut source_size = None;
         let mut target_size = None;
         match_object_panic!(arg.cv,"Debug",value,
-			"patterns" => pattern = Some(value.as_array().expect("bad value for pattern").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+			"patterns" => pattern = Some(value.as_array().expect("bad value for general_pattern").iter()
+				.map(|pcv|new_pattern(GeneralPatternBuilderArgument{cv:pcv,..arg})).collect()),
 			"check_permutation" => check_permutation = value.as_bool().expect("bad value for check_permutation"),
 			"source_size" => source_size = Some(value.as_array().expect("bad value for source_size").iter()
 				.map(|v|v.as_usize().expect("bad value in source_size")).collect()),
 			"target_size" => target_size = Some(value.as_usize().expect("bad value for target_size")),
 			"check_injective" => check_injective = value.as_bool().expect("bad value for check_injective"),
 		);
-        let pattern = pattern.expect("Missing pattern in configuration of Debug.");
+        let pattern = pattern.expect("Missing general_pattern in configuration of Debug.");
         let source_size = source_size.expect("Missing source_size in configuration of Debug.");
         let target_size = target_size.expect("Missing target_size in configuration of Debug.");
         MiDebugPattern {

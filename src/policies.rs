@@ -8,6 +8,7 @@ see [`new_virtual_channel_policy`](fn.new_virtual_channel_policy.html) for docum
 
 */
 
+use crate::general_pattern::pattern::Pattern;
 use crate::config_parser::ConfigurationValue;
 use crate::routing::CandidateEgress;
 use crate::router::Router;
@@ -21,7 +22,7 @@ use std::rc::Rc;
 
 use rand::{Rng,rngs::StdRng,SeedableRng};
 // use ::rand::{Rng,rngs::StdRng};
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::topology::prelude::CartesianData;
 
 ///Extra information to be used by the policies of virtual channels.
@@ -271,13 +272,13 @@ MapHop
 }
 ```
 
-### VOQ
+### VDQ
 
 Employ a different VC (or policy) to each destination.
 
 Example configuration:
 ```ignore
-VOQ{
+VDQ{ // Virtual Destination Queues
 	/// Optionally set a number of VCs to use in this policy. By default it uses a VC per destination node.
 	/// Packets to destination `dest` will use VC number `(dest % num_classes) + start_virtual_channel`.
 	//num_classes: 4,
@@ -326,7 +327,7 @@ pub fn new_virtual_channel_policy(arg:VCPolicyBuilderArgument) -> Box<dyn Virtua
 			// "VCFunction" => Box::new(VCFunction::new(arg)),
 			"MapMessageSize" => Box::new(MapMessageSize::new(arg)),
 			"Chain" => Box::new(Chain::new(arg)),
-			"VOQ" => Box::new(VOQ::new(arg)),
+			"VDQ" => Box::new(VDQ::new(arg)),
 			"CycleIntoNetwork" => Box::new(CycleIntoNetwork::new(arg)),
 			"NextLinkLabel" => Box::new(NextLinkLabel::new(arg)),
 			"CurrentLinkLabel" => Box::new(CurrentLinkLabel::new(arg)),
@@ -2415,11 +2416,11 @@ impl Chain
 
 
 /**
-Employ a different VC (or policy) to each destination.
+Virtual Destination Queues (VDQ) Employ a different VC (or policy) to each destination.
 
 Example configuration:
 ```ignore
-VOQ{
+VDQ{
 	/// Optionally set a number of VCs to use in this policy. By default it uses a VC per destination node.
 	/// Packets to destination `dest` will use VC number `(dest % num_classes) + start_virtual_channel`.
 	//num_classes: 4,
@@ -2433,7 +2434,7 @@ VOQ{
 ```
 **/
 #[derive(Debug)]
-pub struct VOQ
+pub struct VDQ
 {
 	/// Optionally set a number of VCs to use in this policy. By default it uses a VC per destination node.
 	/// Packets to destination `dest` will use VC number `(dest % num_classes) + start_virtual_channel`.
@@ -2447,11 +2448,11 @@ pub struct VOQ
 	policies_override: Vec<Box<dyn VirtualChannelPolicy>>,
 }
 
-impl VirtualChannelPolicy for VOQ
+impl VirtualChannelPolicy for VDQ
 {
 	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, topology:&dyn Topology, rng: &mut StdRng) -> Vec<CandidateEgress>
 	{
-		//let port_average_neighbour_queue_length=port_average_neighbour_queue_length.as_ref().expect("port_average_neighbour_queue_length have not been computed for policy VOQ");
+		//let port_average_neighbour_queue_length=port_average_neighbour_queue_length.as_ref().expect("port_average_neighbour_queue_length have not been computed for policy VDQ");
 		if router.get_index().expect("we need routers with index") == info.target_router_index
 		{
 			//do nothing
@@ -2492,22 +2493,22 @@ impl VirtualChannelPolicy for VOQ
 	}
 }
 
-impl VOQ
+impl VDQ
 {
-	pub fn new(arg:VCPolicyBuilderArgument) -> VOQ
+	pub fn new(arg:VCPolicyBuilderArgument) -> VDQ
 	{
 		let mut num_classes = None;
 		let mut switch_level = false;
 		let mut start_virtual_channel = 0;
 		let mut policies_override=vec![];
-		match_object_panic!(arg.cv,"VOQ",value,
+		match_object_panic!(arg.cv,"VDQ",value,
 			"num_classes" => num_classes = Some(value.as_usize().expect("bad value for num_classes")),
 			"switch_level" => switch_level = value.as_bool().expect("bad value for switch_level"),
 			"start_virtual_channel" => start_virtual_channel = value.as_usize().expect("bad value for start_virtual_channel"),
 			"policies_override" => policies_override=value.as_array().expect("bad value for policies_override").iter()
 				.map(|v|new_virtual_channel_policy(VCPolicyBuilderArgument{cv:v,..arg})).collect(),
 		);
-		VOQ{
+		VDQ{
 			num_classes,
 			switch_level,
 			start_virtual_channel,
@@ -2970,7 +2971,7 @@ impl VirtualChannelPolicy for CartesianSpaceLabel
 {
 	fn filter(&self, candidates:Vec<CandidateEgress>, router:&dyn Router, info: &RequestInfo, topology:&dyn Topology, rng: &mut StdRng) -> Vec<CandidateEgress>
 	{
-		// let mut patron = self.pattern.borrow_mut();
+		// let mut patron = self.general_pattern.borrow_mut();
 		//patron.initialize(self.source_space.size, self.destination_space.size, topology, rng); //FIXME: This shouldn't be done like this
 
 		candidates.iter().map(|cand|{
@@ -2984,7 +2985,7 @@ impl VirtualChannelPolicy for CartesianSpaceLabel
 				coord[index] = candidate[0].label as usize;
 			}
 			let mut cand_def = cand.clone();
-			cand_def.label = self.pattern.get_destination( self.source_space.pack(&coord), topology, rng ) as i32;
+			cand_def.label = self.pattern.get_destination( self.source_space.pack(&coord), Some(topology), rng ) as i32;
 			cand_def
 		}
 
@@ -3023,7 +3024,7 @@ impl CartesianSpaceLabel
 		let mut source_size=None;
 		let mut target_size=None;
 		let mut pattern = None;
-		//new_pattern(PatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs});
+		//new_pattern(MetaPatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs});
 		match_object_panic!(arg.cv,"CartesianSpaceLabel",value,
 			"values" => policies=Some(value.as_array().expect("bad value for policies").iter()
 				.map(|v|new_virtual_channel_policy(VCPolicyBuilderArgument{cv:v,..arg})).collect::<Vec<Box<dyn VirtualChannelPolicy>>>()),
@@ -3031,7 +3032,7 @@ impl CartesianSpaceLabel
 				.map(|v|v.as_usize().expect("bad value in sizes")).collect::<Vec<usize>>()),
 			"target_size" => target_size=Some(value.as_array().expect("bad value for sizes").iter()
 				.map(|v|v.as_usize().expect("bad value in sizes")).collect::<Vec<usize>>()),
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv: value, plugs: arg.plugs})),
+			"pattern" => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv: value, plugs: arg.plugs})),
 		);
 		let policies=policies.expect("There were no policies");
 		let source_size=source_size.expect("There were no sizes");
@@ -3045,7 +3046,7 @@ impl CartesianSpaceLabel
 		{
 			 CartesianData::new(&(target_size.expect("There were no sizes")))
 		}else{
-			pattern = Some(new_pattern(PatternBuilderArgument{cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs}));
+			pattern = Some(new_pattern(GeneralPatternBuilderArgument {cv: &ConfigurationValue::Object("Identity".to_string(), vec![]),plugs:arg.plugs}));
 			CartesianData::new(&source_size)
 		};
 		//dummy hamming
@@ -3055,12 +3056,12 @@ impl CartesianSpaceLabel
 		]);
 		let mut rng = StdRng::seed_from_u64(1);
 		let topo_builder = TopologyBuilderArgument{cv: &cv, plugs: arg.plugs, rng: &mut rng };
-		let mut pattern = pattern.expect("There were no pattern");
+		let mut pattern = pattern.expect("There were no general_pattern");
 		let binding = new_topology(topo_builder);
   		let topology = binding.as_ref();
 
 
-		pattern.initialize(source_space.size, target_space.size, topology, &mut rng);//RefCell::new(pattern.unwrap());
+		pattern.initialize(source_space.size, target_space.size, Some(topology), &mut rng);//RefCell::new(general_pattern.unwrap());
 		CartesianSpaceLabel{
 			policies,
 			source_space,
@@ -3074,11 +3075,6 @@ impl CartesianSpaceLabel
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::cell::RefCell;
-	use std::rc::Rc;
-	use crate::router::basic::Basic;
-	use crate::topology::cartesian::Mesh;
-
 	#[test]
 	fn test_valiant_dragonfly_last_router() {
 		//DF

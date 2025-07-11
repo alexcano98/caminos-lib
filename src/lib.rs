@@ -144,9 +144,9 @@ Configuration
 		degree: 10,//Number of router ports reserved to go to other routers
 		legend_name: "random 500-regular graph",//Name used on generated outputs
 	},
-	traffic: HomogeneousTraffic//Select a traffic. e.g., traffic repeating a pattern continuously.
+	traffic: HomogeneousTraffic//Select a traffic. e.g., traffic repeating a general_pattern continuously.
 	{
-		pattern: ![//We can make a simulation for each of several patterns.
+		general_pattern: ![//We can make a simulation for each of several patterns.
 			Uniform { legend_name:"uniform" },
 			RandomPermutation { legend_name:"random server permutation" },
 		],
@@ -210,15 +210,15 @@ An example of output description `main.od` is
 [
 	CSV//To generate a csv with a selection of fields
 	{
-		fields: [=configuration.traffic.pattern.legend_name, =configuration.traffic.load, =result.accepted_load, =result.average_message_delay, =configuration.routing.legend_name, =result.server_consumption_jain_index, =result.server_generation_jain_index, =result.average_packet_hops, =result.average_link_utilization, =result.maximum_link_utilization],
+		fields: [=configuration.traffic.general_pattern.legend_name, =configuration.traffic.load, =result.accepted_load, =result.average_message_delay, =configuration.routing.legend_name, =result.server_consumption_jain_index, =result.server_generation_jain_index, =result.average_packet_hops, =result.average_link_utilization, =result.maximum_link_utilization],
 		filename: "results.csv",
 	},
 	Plots//To plot curves of data.
 	{
-		selector: =configuration.traffic.pattern.legend_name,//Make a plot for each value of the selector
+		selector: =configuration.traffic.general_pattern.legend_name,//Make a plot for each value of the selector
 		kind: [
 			//We may create groups of figures.
-			//In this example. For each value of pattern we draw three graphics.
+			//In this example. For each value of general_pattern we draw three graphics.
 			Plotkind{
 				//The first one is accepted load for each offered load.
 				//Simulations with same parameter, here offered load, are averaged together.
@@ -256,7 +256,7 @@ An example of output description `main.od` is
 	},
 	Plots
 	{
-		selector: =configuration.traffic.pattern.legend_name,//Make a plot for each value of the selector
+		selector: =configuration.traffic.general_pattern.legend_name,//Make a plot for each value of the selector
 		//We can create histograms.
 		kind: [Plotkind{
 			label_abscissas: "path length",
@@ -315,6 +315,7 @@ Both entries `directory_main` and `file_main` receive a `&Plugs` argument that m
 	//missing repository and categories.
 	#![allow(clippy::cargo_common_metadata)]
 
+use crate::general_pattern::pattern::Pattern;
 pub use quantifiable_derive::Quantifiable;//the derive macro
 
 //config_parser contains automatically generated code. No sense in being too strict.
@@ -323,7 +324,7 @@ pub use quantifiable_derive::Quantifiable;//the derive macro
 pub mod config_parser;
 pub mod topology;
 pub mod traffic;
-pub mod pattern;
+pub mod general_pattern;
 pub mod router;
 pub mod routing;
 pub mod event;
@@ -365,7 +366,7 @@ use event::{EventQueue,Event,EventGeneration};
 use quantify::Quantifiable;
 use experiments::{Experiment,Action,ExperimentOptions};
 use policies::{VirtualChannelPolicy,VCPolicyBuilderArgument};
-use pattern::{Pattern,PatternBuilderArgument};
+use general_pattern::{GeneralPatternBuilderArgument};
 use config::flatten_configuration_value;
 use measures::{Statistics,ServerStatistics};
 use error::{Error,SourceLocation};
@@ -420,7 +421,7 @@ impl Server
 			self.statistics.track_message_delay(cycle-message.creation_cycle,cycle);
 			statistics.track_message_delay(cycle-message.creation_cycle,cycle);
 			self.consumed_phits.remove(&message_ptr);
-			if !traffic.consume(self.index, &*message, cycle, topology, rng)
+			if !traffic.consume(self.index, &*message, cycle, Some(topology), rng)
 			{
 				panic!("The traffic could not consume its own message.");
 			}
@@ -965,7 +966,7 @@ impl<'a> Simulation<'a>
 		let traffic=new_traffic(TrafficBuilderArgument{
 			cv:traffic,
 			plugs,
-			topology:topology.as_ref(),
+			topology:Some(topology.as_ref()),
 			rng:&mut rng,
 		});
 		let num_tasks = traffic.number_tasks();
@@ -1016,7 +1017,7 @@ impl<'a> Simulation<'a>
 				self.statistics.reset(self.shared.cycle,&mut self.shared.network);
 				self.shared.routing.reset_statistics(self.shared.cycle);
 			}
-			if self.shared.traffic.is_finished()
+			if self.shared.traffic.is_finished(Some(&mut self.mutable.rng))
 			{
 				println!("Traffic consumed before cycle {}",self.shared.cycle);
 				break;
@@ -1202,7 +1203,7 @@ impl<'a> Simulation<'a>
 				if self.shared.traffic.should_generate(iserver,self.shared.cycle,&mut self.mutable.rng)
 				{
 					if server.stored_messages.len()<self.server_queue_size {
-						match self.shared.traffic.generate_message(iserver,self.shared.cycle,self.shared.network.topology.as_ref(),&mut self.mutable.rng)
+						match self.shared.traffic.generate_message(iserver,self.shared.cycle,Some(self.shared.network.topology.as_ref()),&mut self.mutable.rng)
 						{
 							Ok(message) =>
 							{
@@ -1931,7 +1932,7 @@ pub struct Plugs
 	stages: BTreeMap<String, fn(StageBuilderArgument) -> Box<dyn Stage> >,
 	routings: BTreeMap<String,fn(RoutingBuilderArgument) -> Box<dyn Routing>>,
 	traffics: BTreeMap<String,fn(TrafficBuilderArgument) -> Box<dyn Traffic> >,
-	patterns: BTreeMap<String, fn(PatternBuilderArgument) -> Box<dyn Pattern> >,
+	patterns: BTreeMap<String, fn(GeneralPatternBuilderArgument) -> Box<dyn Pattern> >,
 	policies: BTreeMap<String, fn(VCPolicyBuilderArgument) -> Box<dyn VirtualChannelPolicy> >,
 	allocators: BTreeMap<String, fn(AllocatorBuilderArgument) -> Box<dyn Allocator> >,
 }
@@ -1962,7 +1963,7 @@ impl Plugs
 	{
 		self.policies.insert(key,builder);
 	}
-	pub fn add_pattern(&mut self, key:String, builder: fn(PatternBuilderArgument) -> Box<dyn Pattern>)
+	pub fn add_pattern(&mut self, key:String, builder: fn(GeneralPatternBuilderArgument) -> Box<dyn Pattern>)
 	{
 		self.patterns.insert(key,builder);
 	}

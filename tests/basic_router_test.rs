@@ -22,8 +22,8 @@ fn basic_switch_local_traffic()
     };
 
     //Pattern
-    let total_sides = vec![2, 1]; //sides of the Cartesian pattern
-    let cartesian_shift = vec![1, 0]; //shift of the Cartesian pattern
+    let total_sides = vec![2, 1]; //sides of the Cartesian general_pattern
+    let cartesian_shift = vec![1, 0]; //shift of the Cartesian general_pattern
     let shift_pattern_builder = ShiftPatternBuilder{
         sides: total_sides.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(), //vec![ConfigurationValue::Number(2.0),ConfigurationValue::Number(1.0)],
         shift: cartesian_shift.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(),//vec![ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0)],
@@ -126,8 +126,8 @@ fn basic_two_servers_two_routers()
     };
 
     //Pattern
-    let total_sides = vec![1, 2]; //sides of the Cartesian pattern
-    let cartesian_shift = vec![0, 1]; //shift of the Cartesian pattern
+    let total_sides = vec![1, 2]; //sides of the Cartesian general_pattern
+    let cartesian_shift = vec![0, 1]; //shift of the Cartesian general_pattern
     let shift_pattern_builder = ShiftPatternBuilder{
         sides: total_sides.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(), //vec![ConfigurationValue::Number(2.0),ConfigurationValue::Number(1.0)],
         shift: cartesian_shift.into_iter().map(|a| ConfigurationValue::Number(a as f64)).collect(),//vec![ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0)],

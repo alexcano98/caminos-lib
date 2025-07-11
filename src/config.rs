@@ -619,6 +619,39 @@ pub fn evaluate(expr:&Expr, context:&ConfigurationValue, path:&Path) -> Result<C
 					}
 					Ok(ConfigurationValue::Number(q))
 				}
+				"mod" =>
+				{
+					let mut first=None;
+					let mut second=None;
+					for (key,val) in arguments
+					{
+						match key.as_ref()
+						{
+							"first" =>
+							{
+								first=Some(evaluate(val,context,path)?);
+							},
+							"second" =>
+							{
+								second=Some(evaluate(val,context,path)?);
+							},
+							_ => panic!("unknown argument `{}' for function `{}'",key,function_name),
+						}
+					}
+					let first=first.expect("first argument of and not given.");
+					let second=second.expect("second argument of and not given.");
+					let first=match first
+					{
+						ConfigurationValue::Number(x) => x,
+						_ => panic!("first argument of {} evaluated to a non-number ({}:?)",function_name,first),
+					};
+					let second=match second
+					{
+						ConfigurationValue::Number(x) => x,
+						_ => panic!("second argument of {} evaluated to a non-number ({}:?)",function_name,second),
+					};
+					Ok(ConfigurationValue::Number(first%second))
+				}
 				"roundto" | "round_to" =>
 				{
 					let mut value=None;
@@ -746,6 +779,25 @@ pub fn evaluate(expr:&Expr, context:&ConfigurationValue, path:&Path) -> Result<C
 					} else {
 						Ok(else_value)
 					}
+				}
+				"length" | "len" =>
+				{
+					let mut container = None;
+					for (key,val) in arguments
+					{
+						match key.as_ref()
+						{
+							"container" => container=Some(evaluate(val,context,path)?),
+							_ => panic!("unknown argument `{}' for function `{}'",key,function_name),
+						}
+					}
+					let container = container.unwrap();
+					let container=match container
+					{
+						ConfigurationValue::Array(a) => a,
+						_ => panic!("container argument of at evaluated to a non-array ({:?})",container),
+					};
+					Ok(ConfigurationValue::Number(container.len() as f64))
 				}
 				"AverageBins" =>
 				{
@@ -1047,62 +1099,109 @@ pub fn evaluate(expr:&Expr, context:&ConfigurationValue, path:&Path) -> Result<C
 					let container = container[start..end].to_vec();
 					Ok(ConfigurationValue::Array(container))
 				}
-				// TODO: document
-				"sum_group" =>
+				"repeat_object" =>
+				{
+					let mut object = None;
+					let mut times = None;
+					for (key,val) in arguments
 					{
-						let mut container = None;
-						let mut box_size = None;
-						for (key,val) in arguments
+						match key.as_ref()
 						{
-							match key.as_ref()
+							"object" =>
 							{
-								"container" =>
+								fn closure_function_to_cv(f: &Expr, context: &ConfigurationValue, path:&Path) -> ConfigurationValue {
+									if let Expr::FunctionCall(name, args) = f
 									{
-										container=Some(evaluate(val,context,path)?);
-									},
-								"box_size" =>
-								{
-									box_size=Some(evaluate(val,context,path)?);
-								},
-								_ => panic!("unknown argument `{}' for function `{}'",key,function_name),
-							}
-						}
-						let container=container.expect("container argument of at not given.");
-						let container=match container
-						{
-							ConfigurationValue::Array(a) => a,
-							_ => panic!("first argument of at evaluated to a non-array ({}:?)",container),
-						};
-						let box_size=match box_size
-						{
-							Some(ConfigurationValue::Number(x)) => x as usize,
-							_ => panic!("box_size argument of AverageBins evaluated to a non-number ({:?}:?)",box_size),
-						};
-						let n = if container.len() % box_size == 0 {
-							container.len() / box_size
-						}else {
-							container.len() / box_size + 1
-						};
-						let mut result = Vec::with_capacity(n);
-						for i in 0..n
-						{
-							let mut sum = 0f64;
-							for j in 0..box_size
-							{
-								let index = i*box_size + j;
-								if index < container.len()
-								{
-									sum += match container[index]
-									{
-										ConfigurationValue::Number(x) => x,
-										_ => 0.0,
+										let mut arguments = vec![];
+										for (key, val) in args
+										{
+											arguments.push((key.clone(), closure_function_to_cv(&val, &context, &path))); //recursive
+										}
+										ConfigurationValue::Object(name.clone(), arguments)
+									}
+									else{
+										evaluate(f, &context, &path).unwrap() //base case
 									}
 								}
-							}
-							result.push(ConfigurationValue::Number(sum));
+								println!("object {:?}",val);
+								object = Some(closure_function_to_cv(val, context, path));
+							},
+							"times" =>
+							{
+								times = match evaluate(val, context, path)?
+								{
+									ConfigurationValue::Number(n) => Some(n as usize),
+									_ => panic!("the end argument of comprehension_array must be a number"),
+								};
+							},
+							_ => panic!("unknown argument `{}' for function `{}'",key,function_name),
 						}
-						Ok(ConfigurationValue::Array(result))
 					}
+
+					let times= times.expect("end argument of comprehension_array not given.");
+					let cv = object.expect("object argument of comprehension_array not given.");
+
+					let container = (0..times).map(|_|{
+						cv.clone()
+					}).collect::<Vec<ConfigurationValue>>();
+
+					Ok(ConfigurationValue::Array(container))
+				}
+				"sum_group" =>
+				{
+					let mut container = None;
+					let mut box_size = None;
+					for (key,val) in arguments
+					{
+						match key.as_ref()
+						{
+							"container" =>
+								{
+									container=Some(evaluate(val,context,path)?);
+								},
+							"box_size" =>
+							{
+								box_size=Some(evaluate(val,context,path)?);
+							},
+							_ => panic!("unknown argument `{}' for function `{}'",key,function_name),
+						}
+					}
+					let container=container.expect("container argument of at not given.");
+					let container=match container
+					{
+						ConfigurationValue::Array(a) => a,
+						_ => panic!("first argument of at evaluated to a non-array ({}:?)",container),
+					};
+					let box_size=match box_size
+					{
+						Some(ConfigurationValue::Number(x)) => x as usize,
+						_ => panic!("box_size argument of AverageBins evaluated to a non-number ({:?}:?)",box_size),
+					};
+					let n = if container.len() % box_size == 0 {
+						container.len() / box_size
+					}else {
+						container.len() / box_size + 1
+					};
+					let mut result = Vec::with_capacity(n);
+					for i in 0..n
+					{
+						let mut sum = 0f64;
+						for j in 0..box_size
+						{
+							let index = i*box_size + j;
+							if index < container.len()
+							{
+								sum += match container[index]
+								{
+									ConfigurationValue::Number(x) => x,
+									_ => 0.0,
+								}
+							}
+						}
+						result.push(ConfigurationValue::Number(sum));
+					}
+					Ok(ConfigurationValue::Array(result))
+				}
 				"sort" =>
 				{
 					let mut container = None;
@@ -1168,7 +1267,6 @@ pub fn evaluate(expr:&Expr, context:&ConfigurationValue, path:&Path) -> Result<C
 					let container = container.into_iter().map( |(_expr_value,entry)| entry ).collect();
 					Ok(ConfigurationValue::Array(container))
 				}
-				// TODO: document
 				"fill_list" =>
 				{
 					let mut container = None;
@@ -1927,9 +2025,10 @@ pub fn config_relaxed_cmp(a:&ConfigurationValue, b:&ConfigurationValue) -> bool
 			//na==nb && xa==xb,
 			if na != nb { return false; }
 			//do we want to enforce order of the fields?
-			for ( (ka,va),(kb,vb) ) in
-				xa.iter().filter(|(key,_)| !ignore(key) ).zip(
-				xb.iter().filter(|(key,_)| !ignore(key)  ) )
+			let xa_filter = xa.iter().filter(|(key,_)| !ignore(key) ).collect::<Vec<&(String, ConfigurationValue)>>();
+			let xb_filter = xb.iter().filter(|(key,_)| !ignore(key) ).collect::<Vec<&(String, ConfigurationValue)>>();
+			if xa_filter.len() != xb_filter.len() { return false; }
+			for ( (ka,va),(kb,vb) ) in xa_filter.iter().zip(xb_filter.iter())
 			{
 				if ka != kb { return false; }
 				if !config_relaxed_cmp(va,vb) { return false; }
@@ -2012,7 +2111,7 @@ macro_rules! match_object{
 				//match name.as_ref()
 				match AsRef::<str>::as_ref(&name)
 				{
-					//"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+					//pattern => general_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
 					$( $arm )*
 					"legend_name" => (),
 					//_ => panic!("Nothing to do with field {} in {}",name,$name),

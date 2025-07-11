@@ -7,7 +7,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::{SliceRandom, StdRng};
 use crate::{match_object_panic, Message, Time};
 use crate::measures::TrafficStatistics;
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::general_pattern::{new_pattern, pattern::Pattern, GeneralPatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Generating, WaitingData};
@@ -27,8 +27,8 @@ TrafficMap{
 
 TrafficMap also gives the possibility of seeing a small application as a large, helping in the composition of large applications.
 The following example uses TrafficMap together with [TrafficSum](Sum),
-[CartesianEmbedding](crate::pattern::CartesianEmbedding), [Composition](crate::pattern::Composition),
-and [CartesianTransform](crate::pattern::CartesianTransform) to divide the network into
+[CartesianEmbedding](crate::Pattern::CartesianEmbedding), [Composition](crate::Pattern::Composition),
+and [CartesianTransform](crate::Pattern::CartesianTransform) to divide the network into
 two regions, each employing a different kind of traffic.
 ```ignore
 TrafficSum
@@ -41,7 +41,7 @@ TrafficSum
 				destination_sides: [3,10,5],
 			},
 			application: HomogeneousTraffic{
-				pattern: Uniform,
+				SimplePattern: Uniform,
 				tasks: 75,
 				load: 1.0,
 				message_size: 16,
@@ -60,7 +60,7 @@ TrafficSum
 				},
 			]},
 			application: Burst{
-				pattern: Uniform,
+				SimplePattern: Uniform,
 				tasks: 75,
 				message_size: 16,
 				messages_per_task: 100,
@@ -101,7 +101,7 @@ pub struct TrafficMap
 
 impl Traffic for TrafficMap
 {
-    fn generate_message(&mut self, origin: usize, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError>
+    fn generate_message(&mut self, origin: usize, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError>
     {
         // the machine origin of the message
         if origin >= self.from_machine_to_app.len()
@@ -142,7 +142,7 @@ impl Traffic for TrafficMap
         }).unwrap_or(0.0) // if the task_app has no origin, it has no probability
     }
 
-    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
 
         let task_app = self.from_machine_to_app[task].expect("There was no origin for the message");
@@ -155,9 +155,9 @@ impl Traffic for TrafficMap
     }
 
 
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.application.is_finished()
+        self.application.is_finished(rng)
     }
 
     fn should_generate(&mut self, task: usize, cycle: Time, rng: &mut StdRng) -> bool {
@@ -168,12 +168,12 @@ impl Traffic for TrafficMap
         }).unwrap_or(false)
     }
 
-    fn task_state(&self, task: usize, cycle: Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task: usize, cycle: Time) -> Option<TaskTrafficState>
     {
         let task_app = self.from_machine_to_app[task];
         if let Some(app) = task_app
         {
-            self.application.task_state(app, cycle).into()
+            self.application.task_state(app, cycle)
         }
         else
         {
@@ -202,7 +202,7 @@ impl TrafficMap
         match_object_panic!(arg.cv,"TrafficMap",value,
 			"tasks" => number_tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"application" => application = Some(new_traffic(TrafficBuilderArgument{cv:value,rng:&mut arg.rng,..arg})), //traffic of the application
-			"map" => map = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
+			"map" => map = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})), //map of the application over the machine
 		);
 
         let number_tasks = number_tasks.expect("There were no tasks in configuration of TrafficMap.");
@@ -271,7 +271,7 @@ pub struct Sum
 
 impl Traffic for Sum
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         if self.server_task_isolation && self.index_to_generate[origin].len() > 1{
             panic!("Server task isolation is enabled and there are more than one task generating messages in the server.")
@@ -312,7 +312,7 @@ impl Traffic for Sum
     {
         self.list.iter().map(|t|t.probability_per_cycle(task)).sum()
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         let index=  *bytemuck::try_from_bytes::<u32>(&message.payload()[0..4]).expect("Bad index in message for TrafficSum.") as usize;
         let sub_payload = &message.payload()[4..];
@@ -323,11 +323,12 @@ impl Traffic for Sum
         sub_message.payload = sub_payload;
         self.list[index].consume(task, &sub_message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
+        let rng = rng.expect("RNG is required for TrafficSum");
         for traffic in self.finish_when.iter()
         {
-            if !self.list[*traffic].is_finished()
+            if !self.list[*traffic].is_finished(Some(rng))
             {
                 return false;
             }
@@ -348,7 +349,7 @@ impl Traffic for Sum
         let mut indexes = (0..self.list.len()).collect::<Vec<usize>>();
         indexes.shuffle(rng);
 
-        for index in indexes.iter(){
+        for index in indexes.iter(){ //Ask all the traffics if the task should generate.
             if self.list[*index].should_generate(task,cycle,rng){
                 self.index_to_generate[task].push_back(*index);
             }
@@ -362,7 +363,7 @@ impl Traffic for Sum
 
         }else{
 
-            for (i,traffic) in self.list.iter().enumerate()
+            for (i,traffic) in self.list.iter_mut().enumerate()
             {
                 if let Some(state) = traffic.task_state(task,cycle)
                 {
@@ -373,10 +374,10 @@ impl Traffic for Sum
 
         self.index_to_generate[task].len() > 0
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         let mut task_state = None;
-        for (_i,traffic) in self.list.iter().enumerate()
+        for (_i,traffic) in self.list.iter_mut().enumerate()
         {
             if let Some(state) = traffic.task_state(task,cycle)
             {
@@ -447,7 +448,7 @@ impl Sum
 /**
 The tasks in a ProductTraffic are grouped in blocks of size `block_size`. The traffic each block generates follows the underlying `block_traffic` [Traffic],
 but with the group of destination being indicated by the `global_pattern`.
-First check whether a transformation at the [Pattern] level is enough; specially see the [crate::pattern::ProductPattern] pattern.
+First check whether a transformation at the [Pattern] level is enough; specially see the [crate::Pattern::ProductPattern] SimplePattern.
 
 ```ignore
 ProductTraffic{
@@ -471,7 +472,7 @@ pub struct ProductTraffic
 
 impl Traffic for ProductTraffic
 {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		let local=origin % self.block_size;
 		let global=origin / self.block_size;
@@ -504,7 +505,7 @@ impl Traffic for ProductTraffic
 		let local=task % self.block_size;
 		self.block_traffic.probability_per_cycle(local)
 	}
-	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+	fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
 	{
 		//let message_ptr=message.as_ref() as *const Message;
 		//let inner_message=match self.generated_messages.remove(&message_ptr)
@@ -524,11 +525,11 @@ impl Traffic for ProductTraffic
 		}
 		true
 	}
-	fn is_finished(&self) -> bool
+	fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
 	{
-		self.block_traffic.is_finished()
+		self.block_traffic.is_finished(rng)
 	}
-	fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
 	{
 		let local=task % self.block_size;
 		self.block_traffic.task_state(local,cycle)
@@ -548,7 +549,7 @@ impl ProductTraffic
 		let mut global_pattern=None;
 		match_object_panic!(arg.cv,"ProductTraffic",value,
 			"block_traffic" => block_traffic=Some(new_traffic(TrafficBuilderArgument{cv:value,rng:&mut arg.rng,..arg})),
-			"global_pattern" => global_pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"global_pattern" => global_pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"block_size" => block_size=Some(value.as_f64().expect("bad value for block_size") as usize),
 		);
 		let block_size=block_size.expect("There were no block_size");
@@ -556,8 +557,9 @@ impl ProductTraffic
 		let mut global_pattern=global_pattern.expect("There were no global_pattern");
 		// TODO: should receive a `global_size` argument. When missing, fall back to use topology size.
 		// TODO: Also check for divisibility.
-		let global_size=arg.topology.num_servers()/block_size;
-		global_pattern.initialize(global_size,global_size,arg.topology,arg.rng);
+        let topology = arg.topology.expect("Topology is required for ProductTraffic");
+		let global_size=topology.num_servers()/block_size;
+		global_pattern.initialize(global_size,global_size,Some(topology),arg.rng);
 		ProductTraffic{
 			block_size,
 			block_traffic,
@@ -571,14 +573,14 @@ impl ProductTraffic
 ///In this traffic each task has a limited amount of data that can send over the amount it has received.
 ///For example, with `bound=1` after a task sends a message it must wait to receive one.
 ///And if received `x` messages then it may generate `x+bound` before having to wait.
-///All messages have same size, follow the same pattern.
+///All messages have same size, follow the same SimplePattern.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct BoundedDifference
 {
 	///Number of tasks applying this traffic.
 	tasks: usize,
-	///The pattern of the communication.
+	///The SimplePattern of the communication.
 	pattern: Box<dyn Pattern>,
 	///The size of each sent message.
 	message_size: usize,
@@ -597,7 +599,7 @@ pub struct BoundedDifference
 
 impl Traffic for BoundedDifference
 {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		if origin>=self.tasks
 		{
@@ -640,7 +642,7 @@ impl Traffic for BoundedDifference
 			}
 		} else { 0f32 }
 	}
-	fn consume(&mut self, task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+	fn consume(&mut self, task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
 	{
 		//let message_ptr=message.as_ref() as *const Message;
 		self.allowance[task]+=1;
@@ -648,11 +650,11 @@ impl Traffic for BoundedDifference
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
 		self.generated_messages.remove(&id)
 	}
-	fn is_finished(&self) -> bool
+	fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
 	{
 		false
 	}
-	fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
 	{
 		if self.allowance[task]>0 {
 			Some(Generating)
@@ -676,7 +678,7 @@ impl BoundedDifference
 		let mut message_size=None;
 		let mut bound=None;
 		match_object_panic!(arg.cv,"BoundedDifference",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern" => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 			"load" => load=Some(value.as_f64().expect("bad value for load") as f32),
 			"message_size" => message_size=Some(value.as_f64().expect("bad value for message_size") as usize),
@@ -686,7 +688,7 @@ impl BoundedDifference
 		let message_size=message_size.expect("There were no message_size");
 		let bound=bound.expect("There were no bound");
 		let load=load.expect("There were no load");
-		let mut pattern=pattern.expect("There were no pattern");
+		let mut pattern=pattern.expect("There were no SimplePattern");
 		pattern.initialize(tasks, tasks, arg.topology, arg.rng);
 		BoundedDifference{
 			tasks,
@@ -727,7 +729,7 @@ pub struct Shifted
 
 impl Traffic for Shifted
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         if origin<self.shift
         {
@@ -753,7 +755,7 @@ impl Traffic for Shifted
     {
         self.traffic.probability_per_cycle(task-self.shift)
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         let mut inner_message = ReferredPayload::from(message);
         inner_message.destination -= self.shift;
@@ -763,11 +765,11 @@ impl Traffic for Shifted
         }
         true
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        self.traffic.is_finished()
+        self.traffic.is_finished(rng)
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         self.traffic.task_state(task-self.shift,cycle)
     }
@@ -793,6 +795,136 @@ impl Shifted
         Shifted{
             shift,
             traffic,
+            generated_messages: BTreeMap::new(),
+        }
+    }
+}
+
+/**
+Traffic which replicate a block of traffic all over the network.
+The block traffic is defined by the `block_traffic` and the `replicas` parameter indicates how many blocks to place consecutively.
+```ignore
+Replica{
+    total_tasks: 1000,
+    block_tasks: 100,
+    block_traffic: HomogeneousTraffic{...},
+    replicas: 10,
+}
+```
+ **/
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct Replica
+{
+    ///The total number of tasks in the network.
+    total_tasks: usize,
+    ///The number of tasks in each block.
+    block_tasks: usize,
+    ///The traffic that is being replicated.
+    block_traffic: Vec<Box<dyn Traffic>>,
+    ///The number of blocks to replicate.
+    replicas: usize,
+    ///Set of generated messages.
+    generated_messages: BTreeMap<*const Message,Rc<Message>>,
+}
+
+impl Traffic for Replica
+{
+
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    {
+        let block=origin/self.block_tasks;
+        let local=origin%self.block_tasks;
+        let inner_message=self.block_traffic[block].generate_message(local,cycle,topology,rng)?;
+        let outer_message=Rc::new(Message{
+            origin,
+            destination:inner_message.destination+block*self.block_tasks,
+            size:inner_message.size,
+            creation_cycle: cycle,
+            payload: inner_message.payload.clone(),
+            id_traffic: None,
+        });
+        //self.generated_messages.insert(outer_message.as_ref() as *const Message,inner_message);
+        Ok(outer_message)
+    }
+    fn probability_per_cycle(&self,task:usize) -> f32
+    {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        self.block_traffic[block].probability_per_cycle(local)
+    }
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
+    {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        let mut inner_message = ReferredPayload::from(message);
+        inner_message.destination -= block*self.block_tasks;
+        if !self.block_traffic[block].consume(local, &inner_message, cycle, topology, rng)
+        {
+            panic!("Replica traffic consumed a message but its child did not.");
+        }
+        true
+    }
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
+    {
+        let rng = rng.expect("RNG is required for Replica");
+        self.block_traffic.iter_mut().all(|t|t.is_finished (Some(rng)))
+    }
+
+    fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        self.block_traffic[block].should_generate(local, cycle, rng)
+    }
+
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    {
+        let block=task/self.block_tasks;
+        let local=task%self.block_tasks;
+        self.block_traffic[block].task_state(local, cycle)
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.total_tasks
+    }
+
+    fn get_statistics(&self) -> Option<TrafficStatistics> {
+        None
+    }
+}
+
+impl Replica
+{
+    pub fn new(mut arg:TrafficBuilderArgument) -> Replica
+    {
+        let mut total_tasks=None;
+        let mut block_tasks=None;
+        let mut block_traffic_cv=None;
+        let mut replicas=None;
+        match_object_panic!(arg.cv,"Replica",value,
+            "block_traffic" => block_traffic_cv=Some(value),
+            "total_tasks" => total_tasks=Some(value.as_f64().expect("bad value for total_tasks") as usize),
+            "block_tasks" => block_tasks=Some(value.as_f64().expect("bad value for block_tasks") as usize),
+            "replicas" => replicas=Some(value.as_f64().expect("bad value for replicas") as usize),
+        );
+        let total_tasks=total_tasks.expect("There were no total_tasks");
+        let block_tasks=block_tasks.expect("There were no block_tasks");
+        let replicas=replicas.expect("There were no replicas");
+        let block_traffic_cv=block_traffic_cv.expect("There were no block_traffic");
+        let mut block_traffic=vec![];
+        for _ in 0..replicas
+        {
+            block_traffic.push(new_traffic(TrafficBuilderArgument{cv:block_traffic_cv,rng:&mut arg.rng,..arg}));
+        }
+        if total_tasks != block_tasks * replicas
+        {
+            panic!("The total number of tasks must be the product of the block size and the number of replicas.");
+        }
+        Replica{
+            total_tasks,
+            block_tasks,
+            block_traffic,
+            replicas,
             generated_messages: BTreeMap::new(),
         }
     }

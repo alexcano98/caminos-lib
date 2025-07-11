@@ -1,5 +1,5 @@
 use crate::AsMessage;
-use crate::pattern::{new_pattern, PatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use std::collections::{BTreeSet};
 use std::convert::TryInto;
 use std::rc::Rc;
@@ -9,7 +9,7 @@ use crate::{match_object_panic, Message, Time};
 use crate::config_parser::ConfigurationValue;
 use crate::measures::TrafficStatistics;
 use crate::packet::ReferredPayload;
-use crate::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::TaskTrafficState::{Finished, FinishedGenerating, UnspecifiedWait, WaitingCycle};
@@ -41,7 +41,7 @@ pub struct Sequence
 
 impl Traffic for Sequence
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         // while self.traffics[self.current_traffic].is_finished()
         // {
@@ -59,13 +59,13 @@ impl Traffic for Sequence
             0.0
         }
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         self.traffics[self.current_traffic].consume(task, message, cycle, topology, rng)
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
-        return self.current_traffic>=self.traffics.len() || (self.current_traffic==self.traffics.len()-1 && self.traffics[self.current_traffic].is_finished())
+        return self.current_traffic>=self.traffics.len() || (self.current_traffic==self.traffics.len()-1 && self.traffics[self.current_traffic].is_finished(rng))
     }
     fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool
     {
@@ -74,7 +74,7 @@ impl Traffic for Sequence
             return false;
         }
 
-        while self.current_traffic < self.traffics.len() && self.traffics[self.current_traffic].is_finished()
+        while self.current_traffic < self.traffics.len() && self.traffics[self.current_traffic].is_finished(Some(rng))
         {
             self.current_traffic += 1;
         }
@@ -86,25 +86,25 @@ impl Traffic for Sequence
             self.traffics[self.current_traffic].should_generate(task,cycle,rng)
         }
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
-        use crate::traffic::TaskTrafficState::*;
-        if self.current_traffic>=self.traffics.len()
-        {
-            Some(Finished)
-        } else {
-            let state = self.traffics[self.current_traffic].task_state(task,cycle).expect("TODO! the none case");
-            if let Finished=state{
-                Some(UnspecifiedWait)
-            } else {
-                Some(state)
-            }
-            //In the last traffic we could try to check for FinishedGenerating
-        }
+        self.traffics[self.current_traffic].task_state(task,cycle)
+        // if self.current_traffic>=self.traffics.len()
+        // {
+        //     Some(Finished)
+        // } else {
+        //     let state = self.traffics[self.current_traffic].task_state(task,cycle).expect("TODO! the none case");
+        //     if let Finished=state{
+        //         Some(UnspecifiedWait)
+        //     } else {
+        //         Some(state)
+        //     }
+        //     //In the last traffic we could try to check for FinishedGenerating
+        // }
     }
 
     fn number_tasks(&self) -> usize {
-        // every traffic has the same number of tasks
+        // every traffic ha&mut selfe number of tasks
         self.traffics[0].number_tasks()
     }
 }
@@ -148,6 +148,126 @@ impl Sequence
 }
 
 /**
+When the state of the task is Finished, the task goes to the next traffic.
+```ignore
+TaskSequence{
+    traffics: [Burst{...}, Burst{...}],
+}
+```
+**/
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct TaskSequence
+{
+    ///List of applicable traffics.
+    traffics: Vec<Box<dyn Traffic>>,
+    ///The traffic which is currently in use.
+    task_current_traffic:  Vec<usize>,
+}
+
+impl Traffic for TaskSequence
+{
+    fn generate_message(&mut self, origin: usize, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError>
+    {
+        let current_traffic = self.task_current_traffic[origin];
+        let m = self.traffics[current_traffic].generate_message(origin, cycle, topology, rng);
+
+        if m.is_ok(){
+            let message = m.unwrap();
+            let payload = current_traffic as u128;
+            let mut payload_vec = Vec::with_capacity(message.payload().len() + 16);
+            let my_payload = bytemuck::bytes_of( &payload );
+            payload_vec.extend_from_slice(&my_payload);
+            payload_vec.extend_from_slice(message.payload());
+
+            let message = Rc::new(Message {
+                origin: message.origin(),
+                destination: message.destination(),
+                size: message.size(),
+                creation_cycle: message.creation_cycle(),
+                payload: payload_vec,
+                id_traffic: message.id_traffic(),
+            });
+
+            Ok(message)
+        }else {
+            m
+        }
+    }
+    fn probability_per_cycle(&self, task: usize) -> f32
+    {
+        self.traffics[self.task_current_traffic[task]].probability_per_cycle(task)
+    }
+    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
+    {
+        let current_traffic = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload")) as usize;
+        let other_payload = &message.payload()[16..];
+        let mut message = ReferredPayload::from(message);
+        message.payload = other_payload;
+        assert_eq!(current_traffic, self.task_current_traffic[task], "TaskSequence: Task advanced in traffic but didnt consume everything");
+
+        self.traffics[self.task_current_traffic[task]].consume(task, &message, cycle, topology, rng)
+    }
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
+    {
+        let rng = rng.expect("TaskSequence: rng is required");
+        self.task_current_traffic.clone().iter().all(|&current_traffic| self.traffics[current_traffic].is_finished(Some(rng)))
+    }
+
+    fn should_generate(&mut self, task: usize, cycle: Time, rng: &mut StdRng) -> bool
+    {
+        let current_traffic = self.task_current_traffic[task];
+        if self.traffics[current_traffic].should_generate(task, cycle, rng)
+        {
+            return true;
+        }
+
+        let mut next_traffic = current_traffic;
+        while matches!(self.traffics[next_traffic].task_state(task, cycle).expect("TaskSequence: Task finished but should_generate called"), Finished) && (next_traffic+1) < self.traffics.len() - 1
+        {
+            next_traffic = (next_traffic + 1) % self.traffics.len();
+            if self.traffics[next_traffic].should_generate(task, cycle, rng)
+            {
+                self.task_current_traffic[task] = next_traffic;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn task_state(&mut self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
+        self.traffics[self.task_current_traffic[task]].task_state(task, cycle)
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.traffics[0].number_tasks()
+    }
+}
+
+impl TaskSequence
+{
+    pub fn new(arg: TrafficBuilderArgument) -> TaskSequence
+    {
+        let mut traffics_args = None;
+        match_object_panic!(arg.cv, "TaskSequence", value,
+            "traffics" => traffics_args = Some(value.as_array().expect("bad value for traffics")),
+        );
+        let traffics_args = traffics_args.expect("There were no traffics");
+        let TrafficBuilderArgument { plugs, topology, rng, .. } = arg;
+        let traffics: Vec<_> = traffics_args.iter().map(|v| new_traffic(TrafficBuilderArgument { cv: v, plugs, topology, rng: &mut *rng })).collect();
+        let size = traffics[0].number_tasks();
+        for traffic in traffics.iter().skip(1)
+        {
+            assert_eq!(traffic.number_tasks(), size, "In TaskSequence all sub-traffics must involve the same number of tasks.");
+        }
+        TaskSequence {
+            traffics,
+            task_current_traffic: vec![0; size],
+        }
+    }
+}
+
+/**
 A sequence of traffics. Each task independently sends/consumes a number of messages before moving to the next traffic.
 ```ignore
 MessageTaskSequence{
@@ -180,7 +300,7 @@ pub struct MessageTaskSequence
 
 impl Traffic for MessageTaskSequence
 {
-    fn generate_message(&mut self, origin: usize, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
+    fn generate_message(&mut self, origin: usize, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
         let messages_sent = &mut self.messages_sent[origin];
         let messages_to_send_per_traffic = &self.messages_to_send_per_traffic;
 
@@ -231,7 +351,7 @@ impl Traffic for MessageTaskSequence
         0.0
     }
 
-    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: &dyn Topology, rng: &mut StdRng) -> bool {
+    fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool {
         let messages_consumed = &mut self.messages_consumed[task];
         let [id,index ] = bytemuck::try_cast::<[u8;32],[u128;2]>(message.payload()[0..32].try_into().expect("This should be here!")).expect("MessageTaskSequence: bad payload in consume");
         let mut down_message = ReferredPayload::from(message);
@@ -247,7 +367,7 @@ impl Traffic for MessageTaskSequence
         }
     }
 
-    fn is_finished(&self) -> bool {
+    fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool {
 
         if self.generated_messages.len() > 0
         {
@@ -288,7 +408,7 @@ impl Traffic for MessageTaskSequence
         false
     }
 
-    fn task_state(&self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
+    fn task_state(&mut self, task: usize, cycle: Time) -> Option<TaskTrafficState> {
         for i in 0..self.traffics.len(){
             if self.messages_sent[task][i] < self.messages_to_send_per_traffic[i]{
                 return self.traffics[i].task_state(task, cycle);
@@ -338,11 +458,17 @@ impl MessageTaskSequence
         let traffics_args = traffics_args.expect("There were no traffics");
         let TrafficBuilderArgument { plugs, topology, rng, .. } = arg;
         let traffics: Vec<_> = traffics_args.iter().map(|v| new_traffic(TrafficBuilderArgument { cv: v, plugs, topology, rng: &mut *rng })).collect();
-        let messages_to_send_per_traffic = messages_to_send_per_traffic.expect("There were no messages_to_send_per_traffic");
+        let messages_to_send_per_traffic: Vec<usize> = messages_to_send_per_traffic.expect("There were no messages_to_send_per_traffic");
         let messages_to_consume_per_traffic = messages_to_consume_per_traffic;
         for traffic in traffics.iter()
         {
             assert_eq!(traffic.number_tasks(), tasks, "In MessageTaskSequence all sub-traffics must involve the same number of tasks.");
+        }
+        if messages_to_send_per_traffic.len() != traffics.len()
+        {
+            //print the error and panic
+            println!("The length of messages_to_send_per_traffic {} is not the same as the length of traffics {}", messages_to_send_per_traffic.len(), traffics.len());
+            panic!("The length of messages_to_send_per_traffic is not the same as the length of traffics")
         }
         let traffic_len = traffics.len();
         MessageTaskSequence {
@@ -379,7 +505,7 @@ pub fn get_traffic_message_task_sequence(args: BuilderMessageTaskSequenceCVArgs)
 }
 
 
-/// Like the `Burst` pattern, but generating messages from different patterns and with different message sizes.
+/// Like the `Burst` SimplePattern, but generating messages from different patterns and with different message sizes.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct MultimodalBurst
@@ -387,12 +513,12 @@ pub struct MultimodalBurst
 	///Number of tasks applying this traffic.
 	tasks: usize,
 	/// For each kind of message `provenance` we have
-	/// `(pattern,total_messages,message_size,step_size)`
+	/// `(SimplePattern,total_messages,message_size,step_size)`
 	/// a Pattern deciding the destination of the message
 	/// a usize with the total number of messages of this kind that each task must generate
 	/// a usize with the size of each message size.
 	/// a usize with the number of messages to send of this kind before switching to the next one.
-	provenance: Vec< (Box<dyn Pattern>,usize,usize,usize) >,
+	provenance: Vec< (Box<dyn Pattern>, usize, usize, usize) >,
 	///For each task and kind we track `pending[task][kind]=(total_remaining,step_remaining)`.
 	///where `total_remaining` is the total number of messages of this kind that this task has yet to send.
 	///and `step_remaining` is the number of messages that the task will send before switch to the next kind.
@@ -407,7 +533,7 @@ pub struct MultimodalBurst
 
 impl Traffic for MultimodalBurst
 {
-	fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+	fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
 	{
 		if origin>=self.tasks
 		{
@@ -466,14 +592,14 @@ impl Traffic for MultimodalBurst
 		}
 		0.0
 	}
-	fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology:&dyn Topology, _rng: &mut StdRng) -> bool
+	fn consume(&mut self, _task:usize, message: &dyn AsMessage, _cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool
 	{
 		//let message_ptr=message.as_ref() as *const Message;
 		//self.generated_messages.remove(&message_ptr)
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
 		self.generated_messages.remove(&id)
 	}
-	fn is_finished(&self) -> bool
+	fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
 	{
 		if !self.generated_messages.is_empty()
 		{
@@ -491,7 +617,7 @@ impl Traffic for MultimodalBurst
 		}
 		true
 	}
-	fn task_state(&self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
+	fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
 	{
 		if self.pending[task].iter().any(|(total_remaining,_step_remaining)| *total_remaining > 0 ) {
 			Some(TaskTrafficState::Generating)
@@ -524,13 +650,13 @@ impl MultimodalBurst
 					let mut message_size=None;
 					let mut step_size=None;
 					match_object_panic!(pcv,"Provenance",pvalue,
-						"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
+						"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:pvalue,plugs:arg.plugs})),
 						"messages_per_task" | "messages_per_server" | "total_messages" =>
 							messages_per_task=Some(pvalue.as_f64().expect("bad value for messages_per_task") as usize),
 						"message_size" => message_size=Some(pvalue.as_f64().expect("bad value for message_size") as usize),
 						"step_size" => step_size=Some(pvalue.as_f64().expect("bad value for step_size") as usize),
 					);
-					let pattern=pattern.expect("There were no pattern");
+					let pattern=pattern.expect("There were no SimplePattern");
 					let messages_per_task=messages_per_task.expect("There were no messages_per_task");
 					let message_size=message_size.expect("There were no message_size");
 					let step_size=step_size.expect("There were no step_size");
@@ -584,7 +710,7 @@ pub struct TimeSequenced
 
 impl Traffic for TimeSequenced
 {
-    fn generate_message(&mut self, origin:usize, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
         let mut offset = cycle;
         let mut traffic_index = 0;
@@ -601,7 +727,7 @@ impl Traffic for TimeSequenced
         //Can we do better here?
         1.0
     }
-    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology:&dyn Topology, rng: &mut StdRng) -> bool
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
         for traffic in self.traffics.iter_mut()
         {
@@ -612,12 +738,13 @@ impl Traffic for TimeSequenced
         }
         return false;
     }
-    fn is_finished(&self) -> bool
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
     {
+        let rng = rng.expect("TimeSequenced: rng is required");
         //This is a bit silly for a time sequence
-        for traffic in self.traffics.iter()
+        for traffic in self.traffics.iter_mut()
         {
-            if !traffic.is_finished()
+            if !traffic.is_finished(Some(rng))
             {
                 return false;
             }
@@ -639,7 +766,7 @@ impl Traffic for TimeSequenced
             false
         }
     }
-    fn task_state(&self, task:usize, cycle:Time) -> Option<TaskTrafficState>
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
         let mut offset = cycle;
         let mut traffic_index = 0;

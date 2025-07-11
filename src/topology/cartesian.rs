@@ -1,7 +1,8 @@
 
-use crate::pattern::probabilistic::UniformPattern;
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::pattern::probabilistic::UniformPattern;
 use std::cell::RefCell;
-use ::rand::{Rng,rngs::StdRng};
+use ::rand::{Rng, rngs::StdRng};
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::config_parser::ConfigurationValue;
 //use topology::{Topology,Location,NeighbourRouterIteratorItem,TopologyBuilderArgument,new_topology};
@@ -9,9 +10,9 @@ use super::prelude::*;
 //use crate::routing::{RoutingInfo,Routing,CandidateEgress,RoutingBuilderArgument,RoutingNextCandidates};
 use crate::routing::prelude::*;
 use crate::matrix::Matrix;
-use crate::match_object_panic;
+use crate::{match_object_panic};
 use crate::routing::RoutingAnnotation;
-use crate::pattern::*; //For Valiant
+use crate::general_pattern::*; //For Valiant
 
 //extern crate itertools;
 use itertools::Itertools;
@@ -1051,6 +1052,157 @@ impl DOR
 		}
 	}
 }
+
+///A meta routing for Cartesian topologies employing links in a predefined order.
+///Changes the routing at each dimension
+#[derive(Debug)]
+pub struct GeneralDOR
+{
+	// selected_region_size: Vec<usize>,
+	region_logical_topology: Vec<Box<dyn Topology>>, // should be extracted from the topology...
+	routings: Vec<Box<dyn Routing>>,
+	order: Vec<usize>,
+}
+
+impl Routing for GeneralDOR
+{
+	fn next(&self, routing_info: &RoutingInfo, topology: &dyn Topology, current_router: usize, target_router: usize, target_server: Option<usize>, num_virtual_channels: usize, rng: &mut StdRng) -> Result<RoutingNextCandidates, Error> {
+
+		if current_router == target_router
+		{
+			let target_server = target_server.expect("target server was not given.");
+			for i in 0..topology.ports(current_router)
+			{
+				if let (Location::ServerPort(server),_link_class)=topology.neighbour(current_router, i)
+				{
+					if server==target_server
+					{
+						return Ok(RoutingNextCandidates{candidates:(0..num_virtual_channels).map(|vc|CandidateEgress::new(i,vc)).collect(),idempotent:true})
+					}
+				}
+			}
+			unreachable!();
+		}
+
+		//calculate the unaligned dimension
+		let cartesian_data = topology.cartesian_data().expect("DOR requires a Cartesian topology");
+		let up_current = cartesian_data.unpack(current_router);
+		let up_target = cartesian_data.unpack(target_router);
+		let dim = *self.order.iter().find(|&i| up_current[*i] != up_target[*i]).expect("There should be a dimension");
+
+		let current_logical = up_current[dim];
+		let target_logical = up_target[dim];
+		let selected_bri = &routing_info.meta.as_ref().unwrap()[dim].borrow();
+
+		let next_candidates = self.routings[dim].next(selected_bri, self.region_logical_topology[dim].as_ref(), current_logical, target_logical, target_server, num_virtual_channels, rng)?;
+
+		let mut final_candidates = vec![];
+		for CandidateEgress{port, virtual_channel, label, annotation, router_allows, estimated_remaining_hops} in next_candidates.clone().candidates
+		{
+			let Location::RouterPort {router_index: next_router, router_port:_port_logical} = self.region_logical_topology[dim].neighbour(current_logical, port).0 else { panic!("There should be a port")};
+			let next_physical = cartesian_data.pack(&up_current.iter().enumerate().map(|(i, &v)| if i == dim {next_router} else {v}).collect::<Vec<usize>>());
+			let physical_port = topology.neighbour_router_iter(current_router).find(|item| item.neighbour_router == next_physical).expect("port not found").port_index;
+			final_candidates.push(CandidateEgress{port:physical_port, virtual_channel, label, annotation, router_allows, estimated_remaining_hops});
+		}
+		// println!("GeneralDOR: current_router={} target_router={} dim={} current_logical={} target_logical={} selected_bri={:?} next_candidates={:?} final_candidates={:?}", current_router, target_router, dim, current_logical, target_logical, selected_bri, &next_candidates.candidates, final_candidates);
+
+		Ok(RoutingNextCandidates{candidates: final_candidates, idempotent: false})
+	}
+
+	fn initialize_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, target_router: usize, _target_server: Option<usize>, rng: &mut StdRng) {
+		let cartesian_data = topology.cartesian_data().expect("DOR requires a Cartesian topology");
+		let up_current = cartesian_data.unpack(current_router);
+		let up_target = cartesian_data.unpack(target_router);
+		let mut all_routing_info = vec![];
+
+		for (i,routing) in self.routings.iter().enumerate() {
+			if up_current[i] != up_target[i]
+			{
+				let routing_info = RefCell::new(RoutingInfo::new());
+				let current_logical = up_current[i];
+				let target_logical = up_target[i];
+				routing.initialize_routing_info(&routing_info, self.region_logical_topology[i].as_ref(), current_logical, target_logical, None, rng);
+				all_routing_info.push(routing_info);
+			}else {
+				all_routing_info.push(RefCell::new(RoutingInfo::new())); //is useless but its needed to keep the same size
+			}
+		}
+		routing_info.borrow_mut().meta = Some(all_routing_info);
+	}
+
+	fn update_routing_info(&self, routing_info: &RefCell<RoutingInfo>, topology: &dyn Topology, current_router: usize, current_port: usize, target_router: usize, target_server: Option<usize>, rng: &mut StdRng) {
+		let cartesian_data = topology.cartesian_data().expect("DOR requires a Cartesian topology");
+		let up_current = cartesian_data.unpack(current_router);
+		let up_target = cartesian_data.unpack(target_router);
+		let (_,link_class)  = topology.neighbour(current_router, current_port);
+
+		let bri = routing_info.borrow();
+
+		let current_logical = up_current[link_class];
+		let target_logical = up_target[link_class];
+		//get previous physical router with the port
+		let Location::RouterPort {router_index: previous_physical_router, router_port:_} = topology.neighbour(current_router, current_port).0 else { panic!("There should be a port")};
+		let up_previous = cartesian_data.unpack(previous_physical_router);
+		let previous_logical_router =up_previous[link_class];
+		//now get the logical port iterating the logical neighbours
+		let logical_port = self.region_logical_topology[link_class].neighbour_router_iter(current_logical).find(|item| item.neighbour_router == previous_logical_router).expect("port not found").port_index;
+
+		let routing_bri = &(bri.meta.as_ref().unwrap()[link_class]);
+		routing_bri.borrow_mut().hops+=1; // important!!
+		self.routings[link_class].update_routing_info(routing_bri, self.region_logical_topology[link_class].as_ref(), current_logical, logical_port, target_logical, target_server, rng);
+
+	}
+
+	fn initialize(&mut self, _topology: &dyn Topology, rng: &mut StdRng) {
+		for (i,routing) in self.routings.iter_mut().enumerate() {
+			routing.initialize(self.region_logical_topology[i].as_ref(), rng);
+		}
+	}
+}
+
+impl GeneralDOR
+{
+	pub fn new(arg: RoutingBuilderArgument) -> GeneralDOR
+	{
+		// let mut physical_to_logical = vec![];
+		// let mut logical_to_physical = vec![];
+		// let mut selected_region_size = vec![];
+		let mut region_logical_topology = vec![];
+		let mut routings = vec![];
+		let mut order = None;
+		match_object_panic!(arg.cv,"GeneralDOR",value,
+			// "physical_to_logical" => physical_to_logical = value.as_array().expect("bad value for selection_patterns").iter().map(|v|new_pattern(PatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			// "logical_to_physical" => logical_to_physical = value.as_array().expect("bad value for map_region").iter().map(|v|new_pattern(PatternBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			// "selected_region_size" => selected_region_size = value.as_array().expect("bad value for selected_size").iter().map(|v|v.as_usize().expect("bad value in selected_size")).collect(),
+			"region_logical_topology" => region_logical_topology = value.as_array().expect("bad value for region_logical_topology").iter().map(|v|new_topology(TopologyBuilderArgument{cv:v,plugs:arg.plugs,rng: &mut StdRng::from_entropy()})).collect(),
+			"routings" => routings = value.as_array().expect("bad value for routings").iter().map(|v|new_routing(RoutingBuilderArgument{cv:v,plugs:arg.plugs})).collect(),
+			"order" => order = Some(value.as_array().expect("bad value for order").iter().map(|v|v.as_usize().expect("bad value in order")).collect()),
+		);
+
+		let order = order.unwrap_or(routings.iter().enumerate().map(|(i, _)| i).collect());
+		//Check that the sizes are correct
+		// if physical_to_logical.len() != selected_region_size.len() {
+		// 	panic!("The number of selection_patterns and selected_size must be the same.");
+		// }
+		// if physical_to_logical.len() != routings.len() {
+		// 	panic!("The number of selection_patterns and routings must be the same.");
+		// }
+		// if logical_to_physical.len() != physical_to_logical.len() {
+		// 	panic!("The number of map_region and selection_patterns must be the same.");
+		// }
+		// if region_logical_topology.len() != logical_to_physical.len() {
+		// 	panic!("The number of region_logical_topology and map_region must be the same.");
+		// }
+
+		// let len = physical_to_logical.len();
+		GeneralDOR {
+			region_logical_topology,
+			routings,
+			order,
+		}
+	}
+}
+
 
 /// Valiant DOR. Proposed by Valiant for Multidimensional grids. Generally you should randomize n-1 dimensions, thereby employing shortest routes when the topology is just a path.
 /// `routing_info.selections=Some([k,r])` indicates that the `next` call should go toward `r` at dimension `randomized[k]`. `r` having been selected randomly previously.
@@ -2415,7 +2567,7 @@ pub struct Valiant4Hamming
 {
 	first: Box<dyn Routing>,
 	second: Box<dyn Routing>,
-	//pattern to select intermideate nodes
+	//general_pattern to select intermideate nodes
 	pattern:Box<dyn Pattern>,
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
@@ -2531,7 +2683,7 @@ impl Routing for Valiant4Hamming
 		let src_coord = cartesian_data.unpack(current_router);
 		let trg_coord = cartesian_data.unpack(target_router);
 
-		//let middle_server = self.pattern.get_destination(source_server,topology, rng);
+		//let middle_server = self.general_pattern.get_destination(source_server,topology, rng);
 		//let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 		let mut middle_router;
 		// =match middle_location
@@ -2546,7 +2698,7 @@ impl Routing for Valiant4Hamming
 		while not_valid_middle
 		{
 			not_valid_middle = false;
-			let middle_server = self.pattern.get_destination(source_server,topology, rng);
+			let middle_server = self.pattern.get_destination(source_server,Some(topology), rng);
 			let (middle_location,_link_class)=topology.server_neighbour(middle_server);
 			middle_router=match middle_location
 			{
@@ -2666,7 +2818,7 @@ impl Routing for Valiant4Hamming
 	{
 		self.first.initialize(topology,rng);
 		self.second.initialize(topology,rng);
-		self.pattern.initialize(topology.num_servers(), topology.num_servers(), topology, rng);
+		self.pattern.initialize(topology.num_servers(), topology.num_servers(), Some(topology), rng);
 	}
 	fn performed_request(&self, requested:&CandidateEgress, routing_info:&RefCell<RoutingInfo>, topology:&dyn Topology, current_router:usize, target_router:usize, target_server:Option<usize>, num_virtual_channels:usize, rng:&mut StdRng)
 	{
@@ -2698,7 +2850,7 @@ impl Valiant4Hamming
 		//let mut servers_per_router=None;
 		let mut first=None;
 		let mut second=None;
-		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //pattern to intermideate node
+		let mut pattern: Box<dyn Pattern> = Box::new(UniformPattern::uniform_pattern(true)); //general_pattern to intermideate node
 		let mut first_reserved_virtual_channels=vec![];
 		let mut second_reserved_virtual_channels=vec![];
 		let mut remove_target_dimensions_aligment = vec![];
@@ -2708,7 +2860,7 @@ impl Valiant4Hamming
 		match_object_panic!(arg.cv,"Valiant4Hamming",value,
 			"first" => first=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
 			"second" => second=Some(new_routing(RoutingBuilderArgument{cv:value,..arg})),
-		    "pattern" => pattern= Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("pattern not valid for Valiant4Hamming"),
+		    "pattern" => pattern= Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})).expect("general_pattern not valid for Valiant4Hamming"),
 			"first_reserved_virtual_channels" => first_reserved_virtual_channels=value.
 				as_array().expect("bad value for first_reserved_virtual_channels").iter()
 				.map(|v|v.as_f64().expect("bad value in first_reserved_virtual_channels") as usize).collect(),
@@ -2760,7 +2912,7 @@ pub struct AdaptiveValiantClos
 	second: Box<dyn Routing>,
 	///Whether to avoid selecting routers without attached servers. This helps to apply it to indirect networks.
 	// selection_exclude_indirect_routers: bool,
-	//pattern to select intermideate nodes
+	//general_pattern to select intermideate nodes
 	first_reserved_virtual_channels: Vec<usize>,
 	second_reserved_virtual_channels: Vec<usize>,
 }

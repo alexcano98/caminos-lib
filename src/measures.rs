@@ -363,7 +363,7 @@ impl TrafficStatistics
 		// ).collect();
 
 		//let max_tasks = cmp::max(cmp::max(self.generating_tasks_histogram.keys().max().unwrap_or(&0), self.waiting_tasks_histogram.keys().max().unwrap_or(&0)), self.finished_tasks_histogram.keys().max().unwrap_or(&0));
-		let max_tasks = self.cycle_last_consumed_message as usize / self.box_size +1;
+		let max_tasks = self.cycle_last_consumed_message as usize / self.box_size;
 		let generated_tasks_histogram = (0..max_tasks+1).map(|i|
 			ConfigurationValue::Number( self.generating_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x as f64).sum()
 		)).collect();
@@ -722,6 +722,8 @@ impl Statistics
 			}).collect();
 			let cycle_per_hop = extra.cycle_per_hop.iter().map(|x|ConfigurationValue::Number(*x as f64)).collect();
 			let context_content = vec![
+				(String::from("source"), ConfigurationValue::Number(packet.message.origin as f64)),
+				(String::from("destination"), ConfigurationValue::Number(packet.message.destination as f64)),
 				(String::from("hops"), ConfigurationValue::Number(hops as f64)),
 				(String::from("delay"), ConfigurationValue::Number(network_delay as f64)),
 				(String::from("cycle_into_network"), ConfigurationValue::Number(*packet.cycle_into_network.borrow() as f64)),

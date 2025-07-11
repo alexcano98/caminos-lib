@@ -1,3 +1,5 @@
+use crate::general_pattern::pattern::Pattern;
+use crate::general_pattern::GeneralPattern;
 use std::convert::TryInto;
 use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom};
 
@@ -7,7 +9,7 @@ use crate::config_parser::ConfigurationValue;
 use crate::topology::cartesian::CartesianData;//for CartesianTransform
 use crate::topology::{Topology};
 use crate::{match_object_panic};
-use crate::pattern::{new_pattern, Pattern, PatternBuilderArgument};
+use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 
 
 ///Just set `destination = origin`.
@@ -18,16 +20,16 @@ pub struct Identity
 {
 }
 
-impl Pattern for Identity
+impl GeneralPattern<usize, usize> for Identity
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         if source_size!=target_size
         {
             unimplemented!("The Identity pattern requires source_size({})=target_size({})",source_size,target_size);
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         origin
     }
@@ -35,7 +37,7 @@ impl Pattern for Identity
 
 impl Identity
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> Identity
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> Identity
     {
         match_object_panic!(arg.cv,"Identity",_value);
         Identity{
@@ -70,16 +72,16 @@ LinearTransform{
 pub struct LinearTransform
 {
     ///The Cartesian interpretation for the source vector
-    source_size: CartesianData,
+    pub(crate) source_size: CartesianData,
     ///A matrix of integers.
-    matrix: Vec<Vec<i32>>,
+    pub(crate) matrix: Vec<Vec<i32>>,
     ///The Cartesian interpretation for the destination vector
-    target_size: CartesianData,
+    pub(crate) target_size: CartesianData,
 }
 
-impl Pattern for LinearTransform
+impl GeneralPattern<usize, usize>for LinearTransform
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         if source_size!=self.source_size.size || target_size!=self.target_size.size
         {
@@ -100,7 +102,7 @@ impl Pattern for LinearTransform
             }
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         //use std::convert::TryInto;
         let up_origin=self.source_size.unpack(origin);
@@ -115,7 +117,7 @@ impl Pattern for LinearTransform
 
 impl LinearTransform
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> LinearTransform
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> LinearTransform
     {
         let mut source_size:Option<Vec<_>>=None;
         let mut matrix:Option<Vec<Vec<i32>>>=None;
@@ -213,9 +215,9 @@ pub struct RandomPermutation
     rng: Option<StdRng>,
 }
 
-impl Pattern for RandomPermutation
+impl GeneralPattern<usize, usize>for RandomPermutation
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if source_size!=target_size
         {
@@ -225,7 +227,7 @@ impl Pattern for RandomPermutation
         let rng= self.rng.as_mut().unwrap_or(rng);
         self.permutation.shuffle(rng);
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         self.permutation[origin]
     }
@@ -233,7 +235,7 @@ impl Pattern for RandomPermutation
 
 impl RandomPermutation
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RandomPermutation
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RandomPermutation
     {
         let mut rng = None;
         match_object_panic!(arg.cv,"RandomPermutation",value,
@@ -257,9 +259,9 @@ pub struct RandomInvolution
     permutation: Vec<usize>,
 }
 
-impl Pattern for RandomInvolution
+impl GeneralPattern<usize, usize>for RandomInvolution
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if source_size!=target_size
         {
@@ -323,7 +325,7 @@ impl Pattern for RandomInvolution
             max+=2;
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         self.permutation[origin]
     }
@@ -331,7 +333,7 @@ impl Pattern for RandomInvolution
 
 impl RandomInvolution
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RandomInvolution
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RandomInvolution
     {
         match_object_panic!(arg.cv,"RandomInvolution",_value);
         RandomInvolution{
@@ -352,9 +354,9 @@ pub struct FixedRandom
     rng: Option<StdRng>,
 }
 
-impl Pattern for FixedRandom
+impl GeneralPattern<usize, usize>for FixedRandom
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         self.map.reserve(source_size);
         let rng= self.rng.as_mut().unwrap_or(rng);
@@ -370,7 +372,7 @@ impl Pattern for FixedRandom
             self.map.push(elem);
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         self.map[origin]
     }
@@ -378,7 +380,7 @@ impl Pattern for FixedRandom
 
 impl FixedRandom
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> FixedRandom
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> FixedRandom
     {
         let mut allow_self = false;
         let mut rng = None;
@@ -409,9 +411,9 @@ pub struct CartesianFactor
     target_size: usize,
 }
 
-impl Pattern for CartesianFactor
+impl GeneralPattern<usize, usize>for CartesianFactor
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         self.target_size = target_size;
         if source_size!=self.cartesian_data.size
@@ -419,7 +421,7 @@ impl Pattern for CartesianFactor
             panic!("Sizes do not agree on CartesianFactor.");
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         let up_origin=self.cartesian_data.unpack(origin);
         let destination = up_origin.iter().zip(self.factors.iter()).map(|(&coord,&f)|coord as f64 * f).sum::<f64>() as usize;
@@ -429,7 +431,7 @@ impl Pattern for CartesianFactor
 
 impl CartesianFactor
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> CartesianFactor
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> CartesianFactor
     {
         let mut sides: Option<Vec<_>>=None;
         let mut factors=None;
@@ -453,7 +455,7 @@ impl CartesianFactor
 Interpretate the origin as with cartesian coordinates and apply transformations.
 May permute the dimensions if they have same side.
 May complement the dimensions.
-Order of composition is: multiplier, shift, permute, complement, project, randomize, pattern. If you need another order you may [compose](Composition) several of them.
+Order of composition is: multiplier, shift, permute, complement, project, randomize, general_pattern. If you need another order you may [compose](Composition) several of them.
 
 Example configuration:
 ```ignore
@@ -491,13 +493,13 @@ pub struct CartesianTransform
     ///Indicates dimensions in which to select a random coordinate.
     ///A random roll performed in each call to `get_destination`.
     random: Option<Vec<bool>>,
-    ///Optionally, set a pattern at coordinate. Use Identity for those coordinates with no operation.
+    ///Optionally, set a general_pattern at coordinate. Use Identity for those coordinates with no operation.
     patterns: Option<Vec<Box<dyn Pattern>>>,
 }
 
-impl Pattern for CartesianTransform
+impl GeneralPattern<usize, usize>for CartesianTransform
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if source_size!=target_size
         {
@@ -516,7 +518,7 @@ impl Pattern for CartesianTransform
             }
         }
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let up_origin=self.cartesian_data.unpack(origin);
         let up_multiplied=match self.multiplier
@@ -564,7 +566,7 @@ impl Pattern for CartesianTransform
 
 impl CartesianTransform
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> CartesianTransform
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> CartesianTransform
     {
         let mut sides:Option<Vec<_>>=None;
         let mut shift=None;
@@ -590,7 +592,7 @@ impl CartesianTransform
 			"random" => random=Some(value.as_array().expect("bad value for random").iter()
 				.map(|v|v.as_bool().expect("bad value in random")).collect()),
 			"patterns" => patterns=Some(value.as_array().expect("bad value for patterns").iter()
-				.map(|pcv|new_pattern(PatternBuilderArgument{cv:pcv,..arg})).collect()),
+				.map(|pcv|new_pattern(GeneralPatternBuilderArgument{cv:pcv,..arg})).collect()),
 		);
         let sides=sides.expect("There were no sides");
         //let permute=permute.expect("There were no permute");
@@ -609,16 +611,16 @@ impl CartesianTransform
 }
 
 
-/// Extend a pattern by giving it a Cartesian representation and a number of repetition periods per dimension.
+/// Extend a general_pattern by giving it a Cartesian representation and a number of repetition periods per dimension.
 /// E.g., it may translate a permutation on a 4x4 mesh into a 16x16 mesh.
 /// Or it may translate a permutation of routers of a 4x2x2 mesh into a server permutation of 8x8x8x8 by using `[8,2,4,4]` as repetitions.
 #[derive(Quantifiable)]
 #[derive(Debug)]
 pub struct CartesianTiling
 {
-    /// The original pattern.
+    /// The original general_pattern.
     pattern: Box<dyn Pattern>,
-    /// The Cartesian interpretation of the original pattern.
+    /// The Cartesian interpretation of the original general_pattern.
     base_cartesian_data: CartesianData,
     /// How much to repeat at each dimension.
     repetitions: Vec<usize>,
@@ -626,9 +628,9 @@ pub struct CartesianTiling
     final_cartesian_data: CartesianData,
 }
 
-impl Pattern for CartesianTiling
+impl GeneralPattern<usize, usize>for CartesianTiling
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         let factor: usize = self.repetitions.iter().product();
         assert_eq!(source_size % factor, 0);
@@ -637,7 +639,7 @@ impl Pattern for CartesianTiling
         let base_target_size = target_size / factor;
         self.pattern.initialize(base_source_size,base_target_size,topology,rng);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let up_origin=self.final_cartesian_data.unpack(origin);
         let n=up_origin.len();
@@ -656,19 +658,19 @@ impl Pattern for CartesianTiling
 
 impl CartesianTiling
 {
-    pub fn new(arg:PatternBuilderArgument) -> CartesianTiling
+    pub fn new(arg: GeneralPatternBuilderArgument) -> CartesianTiling
     {
         let mut pattern = None;
         let mut sides:Option<Vec<_>>=None;
         let mut repetitions:Option<Vec<_>> = None;
         match_object_panic!(arg.cv,"CartesianTiling",value,
-			"pattern" => pattern=Some(new_pattern(PatternBuilderArgument{cv:value,..arg})),
+			"pattern"  => pattern=Some(new_pattern(GeneralPatternBuilderArgument{cv:value,..arg})),
 			"sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
 				.map(|v|v.as_f64().expect("bad value in sides") as usize).collect()),
 			"repetitions" => repetitions = Some(value.as_array().expect("bad value for repetitions").iter()
 				.map(|v|v.as_f64().expect("bad value in repetitions") as usize).collect()),
 		);
-        let pattern=pattern.expect("There were no pattern");
+        let pattern=pattern.expect("There were no general_pattern");
         let sides=sides.expect("There were no sides");
         let repetitions=repetitions.expect("There were no repetitions");
         let n=sides.len();
@@ -704,9 +706,9 @@ pub struct CartesianEmbedding
     destination_cartesian_data: CartesianData,
 }
 
-impl Pattern for CartesianEmbedding
+impl GeneralPattern<usize, usize>for CartesianEmbedding
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, _topology:&dyn Topology, _rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
     {
         if source_size!=self.source_cartesian_data.size
         {
@@ -717,7 +719,7 @@ impl Pattern for CartesianEmbedding
             panic!("Destination sizes do not agree on CartesianEmbedding. target_size={target_size}, destinations_sides={sides:?}",target_size=target_size,sides=self.destination_cartesian_data.sides);
         }
     }
-    fn get_destination(&self, origin:usize, _topology:&dyn Topology, _rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
     {
         let up_origin=self.source_cartesian_data.unpack(origin);
         self.destination_cartesian_data.pack(&up_origin)
@@ -726,7 +728,7 @@ impl Pattern for CartesianEmbedding
 
 impl CartesianEmbedding
 {
-    pub fn new(arg:PatternBuilderArgument) -> CartesianEmbedding
+    pub fn new(arg: GeneralPatternBuilderArgument) -> CartesianEmbedding
     {
         let mut source_sides:Option<Vec<_>>=None;
         let mut destination_sides:Option<Vec<_>>=None;
@@ -757,7 +759,7 @@ impl CartesianEmbedding
 }
 
 /**
-Select a block in source/destination sets to send traffic according to a pattern and the remainder according to another. The `uncut_sides` parameter define a large block that may be the whole set, otherwise discarding elements from the end. The `cut_sides` parameter defines a subblock embedded in the former. This defines two sets of nodes: the ones in the subblock and the rest. A pattern can be provided for each of these two sets. It is possible to specify offsets and strides for the subblock.
+Select a block in source/destination sets to send traffic according to a general_pattern and the remainder according to another. The `uncut_sides` parameter define a large block that may be the whole set, otherwise discarding elements from the end. The `cut_sides` parameter defines a subblock embedded in the former. This defines two sets of nodes: the ones in the subblock and the rest. A general_pattern can be provided for each of these two sets. It is possible to specify offsets and strides for the subblock.
 
 For example, in a network with 150 servers we could do the following to see it as a `[3,10,5]` block with an `[3,4,3]` block embedded in it. The small block of 36 server selects destinations randomly inside it. The rest of the network, `150-36=114` servers also send randomly among themselves. No message is send between those two sets. The middle dimension has offset 1, so coordinates `[x,0,z]` are out of the small block. It has also stride 2, so it only includes odd `y` coordinates. More precisely, it includes those `[x,y,z]` with any `x`, `z<3`, and `y=2k+1` for `k<4`.
 ```ignore
@@ -772,7 +774,7 @@ CartesianCut{
 ```
 This same example would work for more than 150 servers, putting all that excess in the large set.
 
-Another notable example is to combine several of them. Here, we use a decomposition of the previous whole `[3,10,5]` block into two disjoint blocks of size `[3,5,5]`. The offset is chosen to make sure of both being disjoint (a packing) and covering the whole. Then we select a pattern for each block. Since the two patterns are disjoint the can be [composed](Composition) to obtain a pattern that follows each of the blocks.
+Another notable example is to combine several of them. Here, we use a decomposition of the previous whole `[3,10,5]` block into two disjoint blocks of size `[3,5,5]`. The offset is chosen to make sure of both being disjoint (a packing) and covering the whole. Then we select a general_pattern for each block. Since the two patterns are disjoint the can be [composed](Composition) to obtain a general_pattern that follows each of the blocks.
 ```ignore
 Composition{patterns:[
 	CartesianCut{
@@ -799,7 +801,7 @@ pub struct CartesianCut
     // start_margin: usize,
     // /// Some nodes out of the cube at the end.
     // end_margin: usize,
-    /// The source sides. Any node beyond its size goes directly to the remained pattern.
+    /// The source sides. Any node beyond its size goes directly to the remained general_pattern.
     uncut_cartesian_data: CartesianData,
     /// The block we cut
     cut_cartesian_data: CartesianData,
@@ -807,21 +809,21 @@ pub struct CartesianCut
     cut_offsets: Vec<usize>,
     /// At each dimension cut 1 stripe for each `cut_stride[dim]` uncut cells. Default to 1.
     cut_strides: Vec<usize>,
-    /// The pattern over the cut block.
+    /// The general_pattern over the cut block.
     cut_pattern: Box<dyn Pattern>,
-    /// The pattern over the rest.
+    /// The general_pattern over the rest.
     remainder_pattern: Box<dyn Pattern>,
 }
 
-impl Pattern for CartesianCut
+impl GeneralPattern<usize, usize>for CartesianCut
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         let cut_size = self.cut_cartesian_data.size;
         self.cut_pattern.initialize(cut_size,cut_size,topology,rng);
         self.remainder_pattern.initialize(source_size-cut_size,target_size-cut_size,topology,rng);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let cut_size = self.cut_cartesian_data.size;
         if origin >= self.uncut_cartesian_data.size
@@ -861,7 +863,7 @@ impl Pattern for CartesianCut
 
 impl CartesianCut
 {
-    pub fn new(arg:PatternBuilderArgument) -> CartesianCut
+    pub fn new(arg: GeneralPatternBuilderArgument) -> CartesianCut
     {
         let mut uncut_sides:Option<Vec<_>>=None;
         let mut cut_sides:Option<Vec<_>>=None;
@@ -954,18 +956,18 @@ impl CartesianCut
 
 /**
 Apply some other [Pattern] over a set of nodes whose indices have been remapped according to a [Pattern]-given permutation.
-A source `x` chooses as destination `map(pattern(invmap(x)))`, where `map` is the given permutation, `invmap` its inverse and `pattern` is the underlying pattern to apply. In other words, if `pattern(a)=b`, then destination of `map(a)` is set to `map(b)`. It can be seen as a [Composition] that manages building the inverse map.
+A source `x` chooses as destination `map(general_pattern(invmap(x)))`, where `map` is the given permutation, `invmap` its inverse and `general_pattern` is the underlying general_pattern to apply. In other words, if `general_pattern(a)=b`, then destination of `map(a)` is set to `map(b)`. It can be seen as a [Composition] that manages building the inverse map.
 
-Remapped nodes requires source and destination to be of the same size. The pattern creating the map is called once and must result in a permutation, as to be able to make its inverse.
+Remapped nodes requires source and destination to be of the same size. The general_pattern creating the map is called once and must result in a permutation, as to be able to make its inverse.
 
 For a similar operation on other types see [RemappedServersTopology](crate::topology::operations::RemappedServersTopology).
 
 Example building a cycle in random order.
 ```ignore
 RemappedNodes{
-	/// The underlying pattern to be used.
-	pattern: Circulant{generators:[1]},
-	/// The pattern defining the relabelling.
+	/// The underlying general_pattern to be used.
+	general_pattern: Circulant{generators:[1]},
+	/// The general_pattern defining the relabelling.
 	map: RandomPermutation,
 }
 ```
@@ -980,15 +982,15 @@ pub struct RemappedNodes
     /// Maps from outer indices to inner indices.
     /// The inverse of `from_base_map`.
     into_base_map: Vec<usize>,
-    /// The inner pattern to be applied.
+    /// The inner general_pattern to be applied.
     pattern: Box<dyn Pattern>,
-    /// The pattern to build the map vectors.
+    /// The general_pattern to build the map vectors.
     map: Box<dyn Pattern>,
 }
 
-impl Pattern for RemappedNodes
+impl GeneralPattern<usize, usize>for RemappedNodes
 {
-    fn initialize(&mut self, source_size:usize, target_size:usize, topology:&dyn Topology, rng: &mut StdRng)
+    fn initialize(&mut self, source_size:usize, target_size:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)
     {
         if source_size != target_size
         {
@@ -1011,7 +1013,7 @@ impl Pattern for RemappedNodes
         self.into_base_map = into_base_map.iter().map(|x|x.expect("node not mapped")).collect();
         self.pattern.initialize(n,n,topology,rng);
     }
-    fn get_destination(&self, origin:usize, topology:&dyn Topology, rng: &mut StdRng)->usize
+    fn get_destination(&self, origin:usize, topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
         let inner_origin = self.into_base_map[origin];
         let inner_dest = self.pattern.get_destination(inner_origin,topology,rng);
@@ -1021,21 +1023,96 @@ impl Pattern for RemappedNodes
 
 impl RemappedNodes
 {
-    pub(crate) fn new(arg:PatternBuilderArgument) -> RemappedNodes
+    pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> RemappedNodes
     {
         let mut pattern = None;
         let mut map = None;
         match_object_panic!(arg.cv, "RemappedNodes", value,
-			"pattern" => pattern = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
-			"map" => map = Some(new_pattern(PatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"pattern"  => pattern = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
+			"map" => map = Some(new_pattern(GeneralPatternBuilderArgument{cv:value,plugs:arg.plugs})),
 		);
-        let pattern = pattern.expect("There were no pattern in configuration of RemappedNodes.");
+        let pattern = pattern.expect("There were no general_pattern in configuration of RemappedNodes.");
         let map = map.expect("There were no map in configuration of RemappedNodes.");
         RemappedNodes{
             from_base_map: vec![],
             into_base_map: vec![],
             pattern,
             map,
+        }
+    }
+}
+
+/**
+Add a vector to the origin and get the result
+Example adding a vector `[1,0,0]` to each node in a 4x4x4 mesh.
+```ignore
+AddVector{
+    sides: [4,4,4],
+    vector: [1,0,0],
+    modulo: false, //Returns origin if it goes out of bounds.
+}
+```
+**/
+#[derive(Debug,Quantifiable)]
+pub struct AddVector
+{
+    ///sides
+    sides: CartesianData,
+    /// The vector to add to the origin.
+    vector: Vec<i32>,
+    /// Modular addition is used.
+    modulo: bool,
+}
+
+impl GeneralPattern<usize, usize>for AddVector
+{
+    fn initialize(&mut self, _source_size:usize, _target_size:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)
+    {
+    }
+    fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng)->usize
+    {
+        let up_origin=self.sides.unpack(origin);
+        // let up_destination:Vec<i32> = up_origin.iter().zip(self.vector.iter()).map(|(&coord,&v)|coord as i32 + v).collect();
+
+        let mut new_up_destination = vec![0usize;up_origin.len()];
+        for (index,&side) in up_origin.iter().enumerate()
+        {
+            if self.modulo
+            {
+                new_up_destination[index] = (side + self.vector[index] as usize).rem_euclid(self.sides.sides[index]);
+            }
+            else if side as i32 + self.vector[index] < 0 || side as i32 + self.vector[index] >= self.sides.sides[index] as i32
+            {
+                return origin;
+            } else {
+                new_up_destination[index] = (side as i32 + self.vector[index]) as usize;
+            }
+        }
+        // println!(" {:?}+{:?}={:?}",up_origin,self.vector,new_up_destination);
+        self.sides.pack(&new_up_destination)
+    }
+}
+
+impl AddVector
+{
+    pub fn new(arg: GeneralPatternBuilderArgument) -> AddVector
+    {
+        let mut vector = None;
+        let mut sides:Option<Vec<_>>=None;
+        let mut modulo = true;
+        match_object_panic!(arg.cv, "AddVector", value,
+            "sides" => sides = Some(value.as_array().expect("bad value for sides").iter()
+                .map(|v|v.as_usize().expect("bad value in sides")).collect()),
+            "shift" => vector = Some(value.as_array().expect("bad value for vector").iter()
+                .map(|v|v.as_i32().expect("bad value in vector")).collect()),
+            "modulo" => modulo = value.as_bool().expect("bad value for modulo"),
+        );
+        let vector = vector.expect("There were no vector in configuration of AddVector.");
+        let sides = sides.expect("There were no sides in configuration of AddVector.");
+        AddVector{
+            sides: CartesianData::new(&sides),
+            vector,
+            modulo,
         }
     }
 }

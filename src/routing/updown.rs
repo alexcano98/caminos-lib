@@ -8,20 +8,20 @@ Implementation of general Up/Down-like routings.
 */
 
 use ::rand::{rngs::StdRng};
-use crate::pattern::{new_pattern};
-use crate::PatternBuilderArgument;
+use crate::general_pattern::{new_pattern};
+use crate::general_pattern::GeneralPatternBuilderArgument;
 use crate::match_object_panic;
 use crate::config_parser::ConfigurationValue;
 use crate::routing::prelude::*;
 use crate::topology::{Topology,NeighbourRouterIteratorItem,Location};
 use crate::matrix::Matrix;
-use crate::pattern::Pattern;
+use crate::general_pattern::pattern::Pattern;
 
 /**
 Use shortest up/down paths from origin to destination. The up/down paths are understood as provided by `Topology::up_down_distance`.
 Receives the following parameters.
-* `routing_up_stage_patterns` (optional): a pattern which depends on source_server * num_servers + destination_server which is applied to the routing to select an up option in each up stage.
-* `port_pattern` (optional): apply a pattern to the port.
+* `routing_up_stage_patterns` (optional): a general_pattern which depends on source_server * num_servers + destination_server which is applied to the routing to select an up option in each up stage.
+* `port_pattern` (optional): apply a general_pattern to the port.
 * `upwards_sizes` (optional): the target size of the patterns for each up stage.
 * `port_pattern_source_sizes` (optional): the source size of the port_pattern for each up stage. (should be the up degree for the stage)
 
@@ -131,7 +131,7 @@ impl Routing for UpDown
 					if let Some(ref port_pattern) = self.port_pattern
 					{
 						let pattern = &port_pattern[next_link_class];
-						port_hash = pattern.get_destination(port_index,topology,rng)
+						port_hash = pattern.get_destination(port_index,Some(topology),rng)
 					}
 
 					if let Some(ref routing_pattern) = self.routing_up_stage_patterns
@@ -139,7 +139,7 @@ impl Routing for UpDown
 						let source_server = routing_info.source_server.unwrap();
 						let pair_index = source_server * topology.num_servers() + target_server.unwrap();
 						let pattern_stage = &routing_pattern[next_link_class];
-						if pattern_stage.get_destination(pair_index,topology,rng) != port_hash{
+						if pattern_stage.get_destination(pair_index,Some(topology),rng) != port_hash{
 							continue;
 						}
 					}
@@ -161,7 +161,7 @@ impl Routing for UpDown
 			let target_sizes = self.target_sizes.as_ref().expect("up_size was not given");
 			for (i,p) in pattern.iter_mut().enumerate()
 			{
-				p.initialize(topology.num_servers()*topology.num_servers(), target_sizes[i], topology, rng);
+				p.initialize(topology.num_servers()*topology.num_servers(), target_sizes[i], Some(topology), rng);
 			}
 		}
 		if let Some(ref mut pattern) = self.port_pattern
@@ -170,7 +170,7 @@ impl Routing for UpDown
 			let port_pattern_source_sizes = self.port_pattern_source_sizes.as_ref().expect("port_pattern_source_sizes was not given");
 			for (i,p) in pattern.iter_mut().enumerate()
 			{
-				p.initialize(port_pattern_source_sizes[i], target_sizes[i], topology, rng);
+				p.initialize(port_pattern_source_sizes[i], target_sizes[i], Some(topology), rng);
 			}
 		}
 	}
@@ -186,10 +186,10 @@ impl UpDown
 		let mut port_pattern_source_sizes = None;
 		match_object_panic!(arg.cv,"UpDown",value,
 			"routing_up_stage_patterns" => routing_up_stage_patterns = Some(value.as_array().expect("bad value for routing_up_stage_patterns").iter().map(|x|{
-				new_pattern(PatternBuilderArgument{cv:x,plugs:arg.plugs})
+				new_pattern(GeneralPatternBuilderArgument{cv:x,plugs:arg.plugs})
 			}).collect()),
 			"port_pattern" => port_pattern = Some(value.as_array().expect("bad value for port_pattern").iter().map(|x|{
-				new_pattern(PatternBuilderArgument{cv:x,plugs:arg.plugs})
+				new_pattern(GeneralPatternBuilderArgument{cv:x,plugs:arg.plugs})
 			}).collect()),
 			"upwards_sizes" => target_sizes = Some(value.as_array().expect("bad value for up_sizes").iter().map(|x|{
 				x.as_usize().expect("bad value for up_sizes")
