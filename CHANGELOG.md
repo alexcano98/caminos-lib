@@ -1,5 +1,10 @@
 # Change Log
 
+### 2025-07-11
+More breaking changes...
+
+Added `SubTopologyRouting`, which implements the TERA routing algorithm introduced in our paper.
+
 ## next, [0.6.4]
 
 Many things, including breaking changes...
