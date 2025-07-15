@@ -2176,7 +2176,9 @@ impl ActionProgress
 	pub fn new(action:&Action,size:usize)->ActionProgress
 	{
 		let bar = ProgressBar::new(size as u64);
-		bar.set_style(ProgressStyle::default_bar().template("{prefix} [{elapsed_precise}] {bar:30.blue/white.dim} {pos:5}/{len:5} {msg}"));
+		let style = ProgressStyle::default_bar();
+		let style = style.template("{prefix} [{elapsed_precise}] {bar:30.blue/white.dim} {pos:5}/{len:5} {msg}").expect("The style of the bar");
+		bar.set_style(style);
 		match action
 		{
 			Action::Pull => bar.set_prefix("pulling files"),
