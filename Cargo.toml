@@ -43,7 +43,7 @@ rpassword = "6.0"
 rprompt = "1.0"
 
 #For the progress bar.
-indicatif = "0.16"
+indicatif = "0.18"
 
 # Get the ticks per second to interpretate user and system time correctly.
 procfs = "0.12"
