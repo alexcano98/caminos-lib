@@ -5,7 +5,9 @@ Extra implementations of routing operations
 * Sum (struct SumRouting)
 * Stubborn
 * EachLengthSourceAdaptiveRouting
-
+* SubTopologyRouting (TERA)
+* FMLabel
+* RegionRouting
 */
 
 use std::default::Default;
@@ -776,21 +778,36 @@ impl AdaptiveStart
 }
 
 /**
-Routing that embeds a logical topology and a logical routing over the physical topology.
-Each router is mapped to a router in the logical topology.
-All logical connections are mapped to physical connections, and the remaining physical connections are used to opportunistically route.
-An opportunistic hop can be made if the hop nears the logical target router in the logical topology.
+Routing that embeds a logical topology and logical routing over a physical topology.
+This routing approach was used in the TERA routing proposal: (TODO: add reference).
+
+
+The implementation here is more generic than the original TERA algorithm, which was specifically designed for Full-mesh networks. As a result, this implementation introduces additional parameters and complexity.
+
+Nevertheless, the specific TERA routing algorithm described in the paper can be reproduced by setting the parameters appropriately. Configuration files matching the original TERA setup are available here: https://github.com/alexcano98/TERA-routing-HOTI-2025-reproducibility/tree/master
+
+
+Some description of the parameters used in this routing are:
+
+The `logical_topology` field represents an spanning topology, which must implement the `Topology` trait. Each physical router in the system is mapped to a corresponding router in the logical topology. All logical links from the logical topology must be mapped into the physical topology. In TERA this field represents the service topology.
+
+The `logical_routing` field specifies the routing algorithm used within the logical (service) topology. Logical links are only used by this routing algorithm.
+
+The `livelock_avoidance` parameter has to be included in this implementation for the cases when a packet goes back to the source router through a logical path. However, this parameter is not described in the TERA routing algorithm, as TERA implementation doesnt need to avoid livelocks.
+
+The `opportunistic_hops` parameter allows the routing to use physical links that are not part of the logical topology, or main paths in TERA. This is useful to increase performance.
+
 # Example
 ```ignore
 SubTopologyRouting{
-	logical_topology: Hamming{ //Hypercube
-		servers_per_router: 2, //useless
-		sides:[2,2],
+	logical_topology: Hamming{ //HyperX
+		servers_per_router: 2, // Required by the trait but not used in this context.
+		sides: [2, 2],
 	},
-	map:Identity,
-	logical_routing: DOR{order:[0,1]},
-	opportunistic_hops:true,
-	legend_name: "Hypercube-DOR opportunistic"
+	map: Identity, // Optional: apply a specific mapping from logical to physical topology.
+	logical_routing: DOR{order:[0,1]}, // Routing within the logical topology.
+	opportunistic_hops: true, //allow other hops that are not in the logical topology.
+	legend_name: "TERA-2D-HX2D"
 }
 ```
 **/
@@ -1338,9 +1355,13 @@ fn match_balance_algorithm(object: &ConfigurationValue) -> BalanceAlgorithm
 
 
 /**
-CGLabel for deadlock-free non-minimal routing in complete graphs without virtual channels.
-It orders all the links of a complete graph to allow taking 2-hop routes to the destination in a deadlock-free way.
-To be used in Sum routing along with Shortest.
+`FMLabel` is a non-minimal routing for Full-mesh (complete graph) networks, which doesnt need virtual channels to be deadlock-free.
+
+It assigns a numerical label to all links of the Full-mesh and ensures deadlock freedom traversing the labels in a strict increasing order.
+The non-minimal paths selected are of length 2.
+
+This labeling is intended to be used in combination with `Shortest` routing within the `Sum` routing strategy, allowing a mix of minimal and non-minimal paths.
+
 RINR and bRINR labelling algorithms are based on:
 
 Kwauk, Gyuyoung, et al. "Boomgate:
@@ -1348,25 +1369,53 @@ Deadlock avoidance in non-minimal routing for high-radix networks."
 2021 IEEE international symposium on high-performance computer architecture (HPCA).
 IEEE, 2021.
 
+The sRINR algorithm is a proposal from (TODO: add HOTI reference).
+
+
+This implementation of the sRINR algorithm is equivalent to the one described in the cited paper when the parameters `a = 0` and `b = 0`.
+However, this version extends the original by allowing `a` and `b` to be set to non-zero values, which can slightly increase the number of available paths.
+
 # Example
 ```ignore
-	CGLabel{
-		balance_algorithm: Boomgate,
+	FMLabel{
+		balance_algorithm: bRINR,
 		intermediate_selection_policy: RandomFilter{
 			elements_to_return: 1,
-		}, //Select one intermediate randomly
-	}
+		}, //Select one intermediate randomly. This is the default behaviour.
+	},
+	FMLabel{
+		balance_algorithm:sRINR{ //equivalent to sRINR in the cited paper
+			a:0,
+			b:0,
+		},
+		weight_repetition: true, //allows to have the same label in different links. Path should follow an strict increasing order of the labels.
+	},
+	Sum{
+		policy: TryBoth,
+		first_routing: Shortest, //Min paths
+		second_routing: FMLabel{ //Non-min paths
+			balance_algorithm:sRINR{
+				a:0,
+				b:0,
+			},
+			weight_repetition:true,
+		},
+		first_allowed_virtual_channels:[0],
+		second_allowed_virtual_channels:[0],
+		second_extra_label: 1, //To assign a different label to the non-minimal paths.
+		legend_name: "sRINR (+ MIN paths)",
+	},
 ```
 **/
 #[derive(Debug)]
-pub struct CGLabel
+pub struct FMLabel
 {
 	intermediates: Vec<Vec<Vec<usize>>>,
 	intermediate_filter: Box<dyn ManyToManyPattern>,
 	balance_algorithm: BalanceAlgorithm,
 	weight_repetition: bool,
 }
-impl Routing for CGLabel
+impl Routing for FMLabel
 {
 	fn next(&self, routing_info: &RoutingInfo, topology: &dyn Topology, current_router: usize, target_router: usize, target_server: Option<usize>, num_virtual_channels: usize, _rng: &mut StdRng) -> Result<RoutingNextCandidates, Error> {
 		if current_router == target_router
@@ -1767,19 +1816,19 @@ impl Routing for CGLabel
 	}
 }
 
-impl CGLabel
+impl FMLabel
 {
-	pub fn new(arg: RoutingBuilderArgument) -> CGLabel
+	pub fn new(arg: RoutingBuilderArgument) -> FMLabel
 	{
 		let mut balance_algorithm= BalanceAlgorithm::RINR;
 		let mut intermediate_selection_policy: Box<dyn ManyToManyPattern> = Box::new(RandomFilter::get_basic_random_filter()); //Select one intermediate
 		let mut weight_repetition = false;
-		match_object_panic!(arg.cv,"CGLabel",value,
+		match_object_panic!(arg.cv,"FMLabel",value,
 			"balance_algorithm" => balance_algorithm = match_balance_algorithm(value),
 			"intermediate_policy" => intermediate_selection_policy = new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, plugs:arg.plugs}),
 			"weight_repetition" => weight_repetition = value.as_bool().expect("bad value for weight_repetition"),
 		);
-		CGLabel {
+		FMLabel {
 			intermediates: vec![],
 			intermediate_filter: intermediate_selection_policy,
 			balance_algorithm,

@@ -9,12 +9,13 @@ see [`new_routing`](fn.new_routing.html) for documentation on the configuration 
 
 /// Contains Shortest, Valiant, Mindless, WeighedShortest.
 pub mod basic;
-/// Contains Sum, Stubborn, EachLengthSourceAdaptiveRouting
+/// Contains Sum, Stubborn, EachLengthSourceAdaptiveRouting, FMLabel, SubtopologyRouting (TERA), and more.
 pub mod extra;
-/// Contains ChannelsPerHop, ChannelsPerHopPerLinkClass, ChannelMap, AscendantChannelsWithLinkClass
+/// Contains ChannelsPerHop, ChannelsPerHopPerLinkClass, ChannelMap, AscendantChannelsWithLinkClass.
 pub mod channel_operations;
 /// Contains UpDown, UpDownStar.
 pub mod updown;
+///Contains polarized routing.
 pub mod polarized;
 
 use crate::topology::cartesian::GeneralDOR;
@@ -451,7 +452,7 @@ pub fn new_routing(arg: RoutingBuilderArgument) -> Box<dyn Routing>
 			"SubTopologyRouting" => Box::new(SubTopologyRouting::new(arg)),
 			"RegionRouting" => Box::new(RegionRouting::new(arg)),
 			"GeneralDOR" => Box::new(GeneralDOR::new(arg)),
-			"CGLabel" => Box::new(CGLabel::new(arg)),
+			"FMLabel" => Box::new(FMLabel::new(arg)),
 			_ => panic!("Unknown Routing {}",cv_name),
 		}
 	}
