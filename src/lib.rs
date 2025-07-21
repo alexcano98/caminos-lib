@@ -1491,7 +1491,7 @@ impl<'a> Simulation<'a>
 			let mut servers_cycle_last_consumed_message : Vec<Time> = self.shared.network.servers.iter().map(|s|s.statistics.cycle_last_consumed_message).collect();
 			let mut servers_missed_generations : Vec<usize> = self.shared.network.servers.iter().map(|s|s.statistics.current_measurement.missed_generations).collect();
 			//XXX There are more efficient ways to find percentiles than to sort them, but should not be notable in any case. See https://en.wikipedia.org/wiki/Selection_algorithm
-			servers_injected_load.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less));
+			servers_injected_load.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less)); //BE CAREFUL WITH IT, SOMETIMES IT CRASHES BECAUSE OF NOT HAVING TOTAL ORDERING
 			servers_accepted_load.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less));
 			servers_average_message_delay.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less));
 			servers_cycle_last_created_phit.sort_unstable();
