@@ -40,6 +40,7 @@ pub fn new_many_to_many_pattern(arg: GeneralPatternBuilderArgument) -> Box<dyn M
             "BlockSelection" => Box::new(resource_selection::BlockSelection::new(arg)),
             "LTileSelection" => Box::new(resource_selection::LTileSelection::new(arg)),
             "DiagonalSelection" => Box::new(resource_selection::DiagonalSelection::new(arg)),
+            "IterBlockSelection" => Box::new(resource_selection::IterBlockSelection::new(arg)),
             _ => panic!("Unknown many_to_many_pattern {}", cv_name),
         }
     } else {
