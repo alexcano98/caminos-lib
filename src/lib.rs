@@ -1493,6 +1493,8 @@ impl<'a> Simulation<'a>
 			//XXX There are more efficient ways to find percentiles than to sort them, but should not be notable in any case. See https://en.wikipedia.org/wiki/Selection_algorithm
 			servers_injected_load.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less));
 			servers_accepted_load.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less));
+			//convert NaNs or other non-numbers to 0.0
+			servers_average_message_delay.iter_mut().for_each(|x|if x.is_nan() {*x=0.0;} );
 			servers_average_message_delay.sort_by(|a,b|a.partial_cmp(b).unwrap_or(Ordering::Less));
 			servers_cycle_last_created_phit.sort_unstable();
 			servers_cycle_last_consumed_message.sort_unstable();
