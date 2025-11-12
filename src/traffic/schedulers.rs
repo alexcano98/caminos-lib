@@ -229,10 +229,14 @@ impl Scheduler for FIFOScheduler{
             self.active_traffics.push(traffic_index);
             self.next_traffic += 1;
 
+            println!("Allocated traffic {} to servers {:?}", traffic_index, self.task_traffics[traffic_index]);
+
             true
 
         } else {
-
+            println!("Traffic {} could not be allocated to servers {:?}", traffic_index, selected_servers);
+            //print the number of available servers and the number of tasks required
+            println!("Available servers: {}, required tasks: {}", selected_servers.len(), traffic_tasks);
             false
         }
     }
