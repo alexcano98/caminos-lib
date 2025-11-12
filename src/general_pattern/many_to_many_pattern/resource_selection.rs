@@ -3,12 +3,23 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::{SliceRandom, StdRng};
 use crate::general_pattern::{new_many_to_many_pattern, GeneralPattern, GeneralPatternBuilderArgument};
 use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
-use crate::match_object_panic;
+use crate::{match_object, match_object_panic};
 use crate::config_parser::ConfigurationValue;
 use crate::general_pattern::many_to_many_pattern::filters::IdentityFilter;
 use crate::topology::prelude::CartesianData;
 use crate::topology::Topology;
 
+
+#[derive(Debug, Quantifiable)]
+pub enum PartitioningSelection
+{
+    //Random partition
+    Random,
+    //Partition with more free servers
+    MaxFree,
+    //Partition with less free servers
+    MinFree,
+}
 
 /**
 Pattern which selects a number of elements from the list which are consecutive.
@@ -217,6 +228,7 @@ pub struct LTileSelection {
     origins: Vec<Vec<usize>>,
     vectors_from_origin: Vec<Vec<usize>>,
     cartesian_data: CartesianData,
+    selection_policy: PartitioningSelection,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
@@ -263,16 +275,46 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
                 }
             }
         }
-        //Return the elements with the origin point with the most elements
+
         let mut point = 0;
-        let mut elements = points_to_origins[0].len();
-        for i in 1..points_to_origins.len(){
-            if points_to_origins[i].len() > elements{
-                point = i;
-                elements = points_to_origins[i].len();
+        let to_select = param.extra.unwrap();
+
+        if let PartitioningSelection::Random = self.selection_policy {
+            let mut non_empty_points = vec![];
+            for i in 0..points_to_origins.len(){
+                if points_to_origins[i].len() >= to_select{
+                    non_empty_points.push(i);
+                }
+            }
+            if non_empty_points.is_empty(){
+                return vec![];
+            }
+            let random_point = non_empty_points.choose(&mut rand::thread_rng()).unwrap();
+            point = *random_point;
+
+        } else {
+            //Return the elements with the origin point following the selection policy
+            let mut elements = points_to_origins[0].len();
+            for i in 1..points_to_origins.len(){
+                match self.selection_policy {
+                    PartitioningSelection::MaxFree => {
+                        if points_to_origins[i].len() > elements && points_to_origins[i].len() >= to_select{
+                            point = i;
+                            elements = points_to_origins[i].len();
+                        }
+                    },
+                    PartitioningSelection::MinFree => {
+                        if points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select{
+                            point = i;
+                            elements = points_to_origins[i].len();
+                        }
+                    },
+                    _ => {}
+                }
             }
         }
-       //return the selected points sorted
+
+       //return the selected servers sorted
         let mut ret = points_to_origins[point].clone();
         ret.sort_by(|a, b| a.cmp(b));
         //return the first extra elements
@@ -283,8 +325,18 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
 impl LTileSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> LTileSelection {
         let mut servers_per_switch = None;
+        let mut selection_policy = PartitioningSelection::MaxFree;
         match_object_panic!(arg.cv,"LTileSelection",value,
             "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
+            "selection_policy" => {
+                if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=value {
+                    match cv_name.as_ref() {
+                        "Random" => selection_policy = PartitioningSelection::Random,
+                        "MaxFree" => selection_policy = PartitioningSelection::MaxFree,
+                        "MinFree" => selection_policy = PartitioningSelection::MinFree,
+                        _ => {panic!("Unknown selection policy {}", cv_name)}}
+                }
+            },
         );
         let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
         LTileSelection {
@@ -293,6 +345,7 @@ impl LTileSelection {
             origins: vec![],
             vectors_from_origin: vec![],
             cartesian_data: CartesianData::new(&vec![]),
+            selection_policy
         }
     }
 }
@@ -311,6 +364,7 @@ pub struct DiagonalSelection {
     n: usize,
     origins: Vec<Vec<usize>>,
     cartesian_data: CartesianData,
+    selection_policy: PartitioningSelection,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
@@ -351,15 +405,47 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
             }
 
         }
-        //Return the elements with the origin point with the most elements
+
+
         let mut point = 0;
-        let mut elements = points_to_origins[0].len();
-        for i in 1..points_to_origins.len(){
-            if points_to_origins[i].len() > elements{
-                point = i;
-                elements = points_to_origins[i].len();
+        let to_select = param.extra.unwrap();
+
+        if let PartitioningSelection::Random = self.selection_policy {
+            let mut non_empty_points = vec![];
+            for i in 0..points_to_origins.len(){
+                if points_to_origins[i].len() >= to_select{
+                    non_empty_points.push(i);
+                }
+            }
+            if non_empty_points.is_empty(){
+                return vec![];
+            }
+            let random_point = non_empty_points.choose(&mut rand::thread_rng()).unwrap();
+            point = *random_point;
+
+        } else {
+            //Return the elements with the origin point following the selection policy
+            let mut elements = points_to_origins[0].len();
+            for i in 1..points_to_origins.len(){
+                match self.selection_policy {
+                    PartitioningSelection::MaxFree => {
+                        if points_to_origins[i].len() > elements && points_to_origins[i].len() >= to_select{
+                            point = i;
+                            elements = points_to_origins[i].len();
+                        }
+                    },
+                    PartitioningSelection::MinFree => {
+                        if points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select{
+                            point = i;
+                            elements = points_to_origins[i].len();
+                        }
+                    },
+                    _ => {}
+                }
             }
         }
+
+
         //return the selected points sorted
         let mut ret = points_to_origins[point].clone();
         ret.sort_by(|a, b| a.cmp(b));
@@ -371,8 +457,18 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
 impl DiagonalSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> DiagonalSelection {
         let mut servers_per_switch = None;
+        let mut selection_policy = PartitioningSelection::MaxFree;
         match_object_panic!(arg.cv,"DiagonalSelection",value,
             "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
+            "selection_policy" => {
+                if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=value {
+                    match cv_name.as_ref() {
+                        "Random" => selection_policy = PartitioningSelection::Random,
+                        "MaxFree" => selection_policy = PartitioningSelection::MaxFree,
+                        "MinFree" => selection_policy = PartitioningSelection::MinFree,
+                        _ => {panic!("Unknown selection policy {}", cv_name)}}
+                }
+            },
         );
         let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
         DiagonalSelection {
@@ -380,6 +476,7 @@ impl DiagonalSelection {
             n: 0,
             origins: vec![],
             cartesian_data: CartesianData::new(&vec![]),
+            selection_policy
         }
     }
 }
