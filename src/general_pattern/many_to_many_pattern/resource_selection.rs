@@ -304,7 +304,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
                         }
                     },
                     PartitioningSelection::MinFree => {
-                        if points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select{
+                        if (points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select) || elements < to_select{
                             point = i;
                             elements = points_to_origins[i].len();
                         }
@@ -435,22 +435,24 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
                         }
                     },
                     PartitioningSelection::MinFree => {
-                        if points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select{
+                        if (points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select) || elements < to_select{
                             point = i;
                             elements = points_to_origins[i].len();
                         }
                     },
-                    _ => {}
+                    _ => {panic!("Unknown selection policy")}
                 }
             }
         }
-
-
+        //print everthing to debug
+        // println!("Selected point: {}", point);
+        // println!("To select: {}", to_select);
+        // println!("Points to origins: {:?}", points_to_origins);
         //return the selected points sorted
         let mut ret = points_to_origins[point].clone();
         ret.sort_by(|a, b| a.cmp(b));
         //return the first extra elements
-        ret.into_iter().take(param.extra.unwrap()).collect()
+        ret.into_iter().take(to_select).collect()
     }
 }
 
