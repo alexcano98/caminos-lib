@@ -14,6 +14,7 @@ use std::any::Any;
 
 use crate::routing::*;
 use crate::match_object_panic;
+use crate::topology::NeighbourRouterIteratorItem;
 
 /**
 The Polarized routing algorithm.
@@ -330,6 +331,69 @@ impl Polarized
 			empty_count: if enable_statistics {Some(RefCell::new(0))} else {None},
 			best_count: if enable_statistics {Some(RefCell::new([0,0,0]))} else {None},
 		}
+	}
+
+	pub fn esquinas(&self, source: usize, destination: usize, topology: &dyn Topology) -> Vec<usize>
+	{
+		self.esquinas_aux(source, destination, source, topology).1
+	}
+
+	//returns a boolean indicating if the current switch is a corner
+	//If not a corner, the list returns other corners
+	fn esquinas_aux(&self, source: usize, destination: usize, current: usize, topology:&dyn Topology) -> (bool, Vec<usize>)
+	{
+		let a = topology.distance(source, current);
+		let b = topology.distance(current, destination);
+		if a >= b{ //Nearer to the destination than the source, no corner
+			return (false, vec![]);
+		}else { //Am I a corner?
+			let mut iam_a_corner = true; //true until proven false
+			let mut downstream_corners = Vec::new();
+			for NeighbourRouterIteratorItem{neighbour_router, ..} in topology.neighbour_router_iter(current)
+			{
+				let a2 = topology.distance(source, neighbour_router);
+				let b2 = topology.distance(neighbour_router, destination);
+				if a-b < a2-b2 || (a-b == a2-b2 && a2 > a){ //valid candidate in polarized routing when near the source
+					if self.es_esquina_directa(source, destination, neighbour_router, topology) //it has no valid candidates next hop
+					{
+						downstream_corners.push(neighbour_router);
+					}else {
+						let (iam_a_corner_nei, corners_nei) = self.esquinas_aux(source, destination, neighbour_router, topology); //recursive call
+						if iam_a_corner_nei{
+							downstream_corners.extend(corners_nei);
+						} else {
+							iam_a_corner = false; //not a corner since one option is not a corner
+						}
+					}
+				}else {
+					continue //no valid candidate
+				}
+			}
+			if iam_a_corner {
+				(iam_a_corner, vec![current])
+			}else {
+				(iam_a_corner, downstream_corners)
+			}
+		}
+	}
+
+	fn es_esquina_directa(&self, source: usize, destination: usize, current: usize, topology:&dyn Topology) -> bool
+	{
+		//a current router is a corner if no valid next hop is available
+		let mut corner = true;
+		let a = topology.distance(source, current);
+		let b = topology.distance(current, destination);
+
+		for NeighbourRouterIteratorItem{neighbour_router, ..} in topology.neighbour_router_iter(current)
+		{
+			let a2 = topology.distance(source, neighbour_router);
+			let b2 = topology.distance(neighbour_router, destination);
+			if a-b < a2-b2 || (a-b == a2-b2 && a2 > a) { //valid candidate in polarized routing when near the source
+				corner = false;
+				break;
+			}
+		}
+		return corner;
 	}
 }
 
