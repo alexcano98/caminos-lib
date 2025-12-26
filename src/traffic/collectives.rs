@@ -616,6 +616,78 @@ mod tests {
     }
 
     #[test]
+    fn test_allreduce_optimal_size() {
+        let tasks = 65536;
+        let data_size = 1048576;
+        let cv = get_all_reduce_optimal(tasks, data_size, None);
+        let mut rng = StdRng::seed_from_u64(0);
+        println!("All reduce optimal");
+        println!("{}", cv.format_terminal());
+
+        let traffic_builder = super::TrafficBuilderArgument {
+            cv: &cv,
+            rng: &mut rng,
+            plugs: &Plugs::default(),
+            topology: None,
+        };
+        let mut t = new_traffic(traffic_builder);
+
+        let iterations = 16; //6 +6
+        assert_eq!(t.number_tasks(), tasks);
+        for iteration in 0..iterations // extract all messages for reduce-scatter
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size /(2 << iteration));
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+
+        assert_eq!(t.is_finished(Some(&mut rng)), false);
+
+        for iteration in 0..iterations // extract all messages for all-gather
+        {
+            let mut messages = vec![];
+
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+            }
+
+            for i in 0..tasks {
+                let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+                assert_eq!(message.size, data_size /(2 << (iterations - iteration - 1)));
+                messages.push(message);
+            }
+
+            //now check that tasks are done and their state is FinishedGenerating. also traffic is not finished.
+            for i in 0..tasks {
+                assert_eq!(t.should_generate(i, 0, &mut rng), false);
+            }
+
+            for i in 0..messages.len() {
+                assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+            }
+        }
+        assert_eq!(t.is_finished(Some(&mut rng)), true);
+    }
+
+
+    #[test]
     fn test_allreduce_ring() {
         let tasks = 64;
         let data_size = 128;
@@ -724,6 +796,47 @@ mod tests {
         }
         assert_eq!(t.is_finished(Some(&mut rng)), true);
     }
+
+    //
+    // #[test]
+    // fn test_all2all_size() {
+    //     let rounds = 1;
+    //     let tasks = 100_000;
+    //     let data_size = 16_000_000;
+    //     let cv = get_all2all(tasks, data_size, rounds, None);
+    //     println!("All2All");
+    //     println!("{}", cv.format_terminal());
+    //
+    //     let mut rng = StdRng::seed_from_u64(0);
+    //     let traffic_builder = super::TrafficBuilderArgument {
+    //         cv: &cv,
+    //         rng: &mut rng,
+    //         plugs: &Plugs::default(),
+    //         topology: None,
+    //     };
+    //
+    //     let mut t = new_traffic(traffic_builder);
+    //
+    //     assert_eq!(t.number_tasks(), tasks);
+    //     for iteration in 0..rounds // extract all messages
+    //     {
+    //         let mut messages = vec![];
+    //
+    //         for i in 0..tasks {
+    //             for _ in 0..(tasks -1){
+    //                 assert_eq!(t.should_generate(i, 0, &mut rng), true); //inserting all2all
+    //                 let message = t.generate_message(i, 0, None, &mut rng).unwrap();
+    //                 assert_eq!(message.size, (data_size / (tasks-1))/rounds );
+    //                 messages.push(message);
+    //             }
+    //         }
+    //         assert_eq!(t.is_finished(Some(&mut rng)), false);
+    //         for i in 0..messages.len() {
+    //             assert_eq!(t.consume(messages[i].destination, &*messages[i], 0, None, &mut rng), true);
+    //         }
+    //     }
+    //     assert_eq!(t.is_finished(Some(&mut rng)), true);
+    // }
 
     #[test]
     fn test_all2all_cg(){
