@@ -64,7 +64,15 @@ pub fn flatten_configuration_value(value:&ConfigurationValue) -> ConfigurationVa
 	let mut names = BTreeMap::new();//name -> range
 	let experiments = flatten_configuration_value_gather_names(value, &mut names);
 	//println!("got names {:?}",names);
-	expand_named_experiments_range(experiments,&names)
+	let expanded = expand_named_experiments_range(experiments,&names);
+	if names.is_empty() {
+		expanded
+	} else {
+		// If there were named experiments, we might have exposed nested Experiments inside Objects.
+		// We need to flatten them.
+		let mut names2 = BTreeMap::new();
+		flatten_configuration_value_gather_names(&expanded, &mut names2)
+	}
 }
 
 
@@ -151,24 +159,13 @@ fn flatten_configuration_value_gather_names(value:&ConfigurationValue, names:&mu
 				names.insert(name.to_string(),experiments.len());
 			}
 			//value.clone()
-			let mut r=vec![ vec![] ];
+			let mut r=vec![];
 			for v in experiments
 			{
 				let fv=flatten_configuration_value_gather_names(v,names);
-				if let ConfigurationValue::Experiments(vlist) = fv
-				{
-					//r=vec_product(&r,&vlist);
-					vec_product_inplace(&mut r, &vlist);
-				}
-				else
-				{
-					for x in r.iter_mut()
-					{
-						x.push(fv.clone());
-					}
-				}
+				r.push(fv);
 			}
-			ConfigurationValue::Experiments(r.iter().map(|values|ConfigurationValue::NamedExperiments(name.to_string(),values.clone())).collect())
+			ConfigurationValue::NamedExperiments(name.to_string(),r)
 		},
 		&ConfigurationValue::Where(ref v, ref _expr) =>
 		{
@@ -2936,4 +2933,3 @@ mod tests {
 		assert_eq!(flatten_configuration_value(&original),target);
 	}
 }
-
