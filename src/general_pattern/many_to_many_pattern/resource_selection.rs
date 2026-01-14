@@ -3,7 +3,7 @@ use quantifiable_derive::Quantifiable;
 use rand::prelude::{SliceRandom, StdRng};
 use crate::general_pattern::{new_many_to_many_pattern, GeneralPattern, GeneralPatternBuilderArgument};
 use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
-use crate::{match_object, match_object_panic};
+use crate::{match_object_panic};
 use crate::config_parser::ConfigurationValue;
 use crate::general_pattern::many_to_many_pattern::filters::IdentityFilter;
 use crate::topology::prelude::CartesianData;
@@ -78,6 +78,14 @@ impl ConsecutiveSelection {
     }
 }
 
+#[derive(Quantifiable, Debug)]
+pub enum BlockOrder{
+    AscendingID,
+    DescendingID,
+    MoreAvailable,
+    LessAvailable,
+    Random
+}
 
 /**
 Pattern which selects a number of elements from the list which are in the same row.
@@ -93,7 +101,7 @@ pub struct BlockSelection
     pub(crate) block_size: usize,
     pub(crate) selection_inside_block: Box<dyn ManyToManyPattern>,
     pub(crate) number_of_blocks: usize,
-    pub(crate) random_block_selection: bool,
+    pub(crate) block_order: BlockOrder,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
@@ -123,16 +131,33 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
         }
         //select the block with most elements to allocate the elements
         let mut ordered_blocks = block_occupation.iter().enumerate().collect::<Vec<_>>();
-        if self.random_block_selection{
-            //discard full blocks
-            // ordered_blocks.retain(|a| a.1.len() < self.block_size);
-            ordered_blocks.shuffle(rng);
-        }else {
-            ordered_blocks.sort_by(|a, b| if a.1 != b.1 {b.1.len().cmp(&a.1.len())} else {a.0.cmp(&b.0)});
+        match self.block_order{
+            BlockOrder::AscendingID => {
+                ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
+            },
+            BlockOrder::DescendingID => {
+                ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
+            },
+            BlockOrder::MoreAvailable => {
+                ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+            },
+            BlockOrder::LessAvailable => {
+                ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
+            }
+            BlockOrder::Random => {
+                ordered_blocks.shuffle(rng);
+            }
         }
+        // if self.random_block_selection{
+        //     //discard full blocks
+        //     // ordered_blocks.retain(|a| a.1.len() < self.block_size);
+        //     ordered_blocks.shuffle(rng);
+        // }else {
+        //     ordered_blocks.sort_by(|a, b| if a.1 != b.1 {b.1.len().cmp(&a.1.len())} else {a.0.cmp(&b.0)});
+        // }
         let mut partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
         let mut selected = vec![];
-        let mut last =1; //just a random number
+        let mut last =1; //just a random number different to 0
 
         while last != selected.len() && selected.len() < to_select{
             last = selected.len();
@@ -165,15 +190,24 @@ impl BlockSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> BlockSelection {
         let mut block_size = None;
         let mut selection_inside_block: Option<Box<dyn ManyToManyPattern>> = Some(Box::new( IdentityFilter{}));
-        let mut random_block_selection = false;
+        let mut block_order = BlockOrder::MoreAvailable;
         match_object_panic!(arg.cv,"BlockSelection",value,
             "block_size" => block_size= Some(value.as_usize().unwrap()),
             "selection_inside_block" => selection_inside_block = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, ..arg})),
-            "random_block_selection" => random_block_selection = value.as_bool().unwrap(),
+            "block_order" => if let ConfigurationValue::Object(order,_) = value{
+                match order.as_str() {
+                    "AscendingID" => block_order = BlockOrder::AscendingID,
+                    "DescendingID" => block_order = BlockOrder::DescendingID,
+                    "MoreAvailable" => block_order = BlockOrder::MoreAvailable,
+                    "LessAvailable" => block_order = BlockOrder::LessAvailable,
+                    "Random" => block_order = BlockOrder::Random,
+                    _ => panic!("Unknown block order {}", order),
+                }
+            }
         );
         let block_size = block_size.expect("distance is required");
         let selection_inside_block = selection_inside_block.unwrap();
-        BlockSelection { block_size, selection_inside_block, number_of_blocks: 0, random_block_selection }
+        BlockSelection { block_size, selection_inside_block, number_of_blocks: 0, block_order }
     }
 }
 
@@ -563,6 +597,7 @@ mod test {
     use rand::SeedableRng;
     use crate::general_pattern::GeneralPattern;
     use crate::general_pattern::many_to_many_pattern::filters::{IdentityFilter, MinFilter};
+    use crate::general_pattern::many_to_many_pattern::resource_selection::BlockOrder::{MoreAvailable, Random};
     use crate::topology::prelude::CartesianData;
 
     #[test]
@@ -598,7 +633,7 @@ mod test {
             block_size: 2,
             selection_inside_block: Box::new(IdentityFilter{}),
             number_of_blocks: 0,
-            random_block_selection: false,
+            block_order: MoreAvailable,
         };
         block_selection.initialize(1000, 1000, None, &mut rng);
         let param = ManyToManyParam{
@@ -626,7 +661,7 @@ mod test {
             block_size: 2,
             selection_inside_block: Box::new(MinFilter{}),
             number_of_blocks: 0,
-            random_block_selection: false,
+            block_order: MoreAvailable,
         };
         let param = ManyToManyParam{
             origin: None,
@@ -652,7 +687,7 @@ mod test {
             block_size: 64,
             selection_inside_block: Box::new(IdentityFilter{}),
             number_of_blocks: 0,
-            random_block_selection: false,
+            block_order: MoreAvailable,
         };
         block_selection.initialize(512, 512, None, &mut rng);
         let param = ManyToManyParam{
@@ -671,7 +706,7 @@ mod test {
             block_size: 64,
             selection_inside_block: Box::new(MinFilter{}),
             number_of_blocks: 0,
-            random_block_selection: false,
+            block_order: MoreAvailable,
         };
         block_selection.initialize(512, 512, None, &mut rng);
         let param = ManyToManyParam{
@@ -692,10 +727,10 @@ mod test {
                 block_size: 64,
                 selection_inside_block: Box::new(MinFilter{}),
                 number_of_blocks: 0,
-                random_block_selection: false,
+                block_order: MoreAvailable,
             }),
             number_of_blocks: 0,
-            random_block_selection: false,
+            block_order: MoreAvailable,
         };
 
         block_selection.initialize(512, 512, None, &mut rng);
@@ -717,10 +752,10 @@ mod test {
                 block_size: 64,
                 selection_inside_block: Box::new(MinFilter{}),
                 number_of_blocks: 0,
-                random_block_selection: false,
+                block_order: MoreAvailable,
             }),
             number_of_blocks: 0,
-            random_block_selection: false,
+            block_order: MoreAvailable,
         };
 
         block_selection.initialize(512, 512, None, &mut rng);
@@ -779,7 +814,7 @@ mod test {
             block_size: 2,
             selection_inside_block: Box::new(IdentityFilter{}),
             number_of_blocks: 0,
-            random_block_selection: true,
+            block_order: Random,
         };
         block_selection.initialize(1000, 1000, None, &mut rng);
         let param = ManyToManyParam{
@@ -797,7 +832,7 @@ mod test {
             block_size: 5,
             selection_inside_block: Box::new(IdentityFilter{}),
             number_of_blocks: 0,
-            random_block_selection: true,
+            block_order: Random,
         };
         block_selection.initialize(1000, 1000, None, &mut rng);
         let param = ManyToManyParam{
@@ -942,7 +977,7 @@ mod test {
                 block_size: 2,
                 selection_inside_block: Box::new(crate::general_pattern::many_to_many_pattern::filters::IdentityFilter{}),
                 number_of_blocks: 0,
-                random_block_selection: false,
+                block_order: MoreAvailable,
             }),
             selection_inside_block: Box::new(crate::general_pattern::many_to_many_pattern::filters::MinFilter{}),
         };
@@ -972,7 +1007,7 @@ mod test {
                 block_size: 4,
                 selection_inside_block: Box::new(IdentityFilter{}),
                 number_of_blocks: 0, //it will be initialized later...
-                random_block_selection: false,
+                block_order: MoreAvailable,
             }),
             selection_inside_block: Box::new(MinFilter{}),
         };
