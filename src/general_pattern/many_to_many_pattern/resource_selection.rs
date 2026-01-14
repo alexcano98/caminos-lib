@@ -10,17 +10,6 @@ use crate::topology::prelude::CartesianData;
 use crate::topology::Topology;
 
 
-#[derive(Debug, Quantifiable)]
-pub enum PartitioningSelection
-{
-    //Random partition
-    Random,
-    //Partition with more free servers
-    MaxFree,
-    //Partition with less free servers
-    MinFree,
-}
-
 /**
 Pattern which selects a number of elements from the list which are consecutive.
 ```ignore
@@ -114,21 +103,24 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
     }
 
     fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+
+        let to_select = param.extra.unwrap();
+        if param.list.len() < to_select{
+            return vec![]; // Cant allocate it.
+        }
+
         //check that the list is ordered
         for i in 0..param.list.len()-1{
             assert!(param.list[i] < param.list[i+1]);
         }
+
         let mut block_occupation = vec![vec![]; self.number_of_blocks];
         for i in 0..param.list.len(){
             let element = param.list[i];
             let block = element / self.block_size;
             block_occupation[block].push(element);
         }
-        let to_select = param.extra.unwrap();
 
-        if param.list.len() < to_select{
-            return vec![]; // Cant allocate it.
-        }
         //select the block with most elements to allocate the elements
         let mut ordered_blocks = block_occupation.iter().enumerate().collect::<Vec<_>>();
         match self.block_order{
@@ -164,11 +156,13 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
             let mut index_block = 0;
             while index_block < partitions_ordered.len() && selected.len() < to_select{
                 let mut block_elements = partitions_ordered[index_block].clone();
-                let param_filter_pattern = ManyToManyParam{ list: block_elements.clone(), extra: Some(cmp::min(to_select - selected.len(), block_elements.len())), ..Default::default()};
-                let filtered = self.selection_inside_block.get_destination(param_filter_pattern, topology, rng);
-                block_elements.retain( |a| !filtered.contains(a) );
-                selected.extend(filtered);
-                partitions_ordered[index_block] = block_elements;
+                if block_elements.len() != 0{
+                    let param_filter_pattern = ManyToManyParam{ list: block_elements.clone(), extra: Some(cmp::min(to_select - selected.len(), block_elements.len())), ..Default::default()};
+                    let filtered = self.selection_inside_block.get_destination(param_filter_pattern, topology, rng);
+                    block_elements.retain( |a| !filtered.contains(a) );
+                    selected.extend(filtered);
+                    partitions_ordered[index_block] = block_elements;
+                }
                 index_block += 1;
             }
 
@@ -262,7 +256,7 @@ pub struct LTileSelection {
     origins: Vec<Vec<usize>>,
     vectors_from_origin: Vec<Vec<usize>>,
     cartesian_data: CartesianData,
-    selection_policy: PartitioningSelection,
+    block_order: BlockOrder,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
@@ -292,7 +286,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
         self.vectors_from_origin = vectors_from_origin;
     }
 
-    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
+    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
 
@@ -310,41 +304,32 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
             }
         }
 
-        let mut point = 0;
         let to_select = param.extra.unwrap();
 
-        if let PartitioningSelection::Random = self.selection_policy {
-            let mut non_empty_points = vec![];
-            for i in 0..points_to_origins.len(){
-                if points_to_origins[i].len() >= to_select{
-                    non_empty_points.push(i);
-                }
+        let mut ordered_blocks = points_to_origins.iter().enumerate().collect::<Vec<_>>();
+        match self.block_order{
+            BlockOrder::AscendingID => {
+                ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
+            },
+            BlockOrder::DescendingID => {
+                ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
+            },
+            BlockOrder::MoreAvailable => {
+                ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+            },
+            BlockOrder::LessAvailable => {
+                ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
             }
-            if non_empty_points.is_empty(){
-                return vec![];
+            BlockOrder::Random => {
+                ordered_blocks.shuffle(rng);
             }
-            let random_point = non_empty_points.choose(&mut rand::thread_rng()).unwrap();
-            point = *random_point;
+        }
 
-        } else {
-            //Return the elements with the origin point following the selection policy
-            let mut elements = points_to_origins[0].len();
-            for i in 1..points_to_origins.len(){
-                match self.selection_policy {
-                    PartitioningSelection::MaxFree => {
-                        if points_to_origins[i].len() > elements && points_to_origins[i].len() >= to_select{
-                            point = i;
-                            elements = points_to_origins[i].len();
-                        }
-                    },
-                    PartitioningSelection::MinFree => {
-                        if (points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select) || elements < to_select{
-                            point = i;
-                            elements = points_to_origins[i].len();
-                        }
-                    },
-                    _ => {}
-                }
+        let mut point = 0;
+        for i in 0..ordered_blocks.len(){
+            if ordered_blocks[i].1.len() >= to_select{
+                point = ordered_blocks[i].0;
+                break;
             }
         }
 
@@ -359,18 +344,19 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
 impl LTileSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> LTileSelection {
         let mut servers_per_switch = None;
-        let mut selection_policy = PartitioningSelection::MaxFree;
+        let mut block_order = BlockOrder::MoreAvailable;
         match_object_panic!(arg.cv,"LTileSelection",value,
             "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
-            "selection_policy" => {
-                if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=value {
-                    match cv_name.as_ref() {
-                        "Random" => selection_policy = PartitioningSelection::Random,
-                        "MaxFree" => selection_policy = PartitioningSelection::MaxFree,
-                        "MinFree" => selection_policy = PartitioningSelection::MinFree,
-                        _ => {panic!("Unknown selection policy {}", cv_name)}}
+            "block_order" => if let ConfigurationValue::Object(order,_) = value{
+                match order.as_str() {
+                    "AscendingID" => block_order = BlockOrder::AscendingID,
+                    "DescendingID" => block_order = BlockOrder::DescendingID,
+                    "MoreAvailable" => block_order = BlockOrder::MoreAvailable,
+                    "LessAvailable" => block_order = BlockOrder::LessAvailable,
+                    "Random" => block_order = BlockOrder::Random,
+                    _ => panic!("Unknown block order {}", order),
                 }
-            },
+            }
         );
         let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
         LTileSelection {
@@ -379,7 +365,7 @@ impl LTileSelection {
             origins: vec![],
             vectors_from_origin: vec![],
             cartesian_data: CartesianData::new(&vec![]),
-            selection_policy
+            block_order
         }
     }
 }
@@ -398,7 +384,7 @@ pub struct DiagonalSelection {
     n: usize,
     origins: Vec<Vec<usize>>,
     cartesian_data: CartesianData,
-    selection_policy: PartitioningSelection,
+    block_order: BlockOrder,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
@@ -418,7 +404,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
         self.origins = origins;
     }
 
-    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
+    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
         let diagonal_vector = vec![1; self.origins[0].len()];
@@ -441,43 +427,35 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
         }
 
 
-        let mut point = 0;
         let to_select = param.extra.unwrap();
 
-        if let PartitioningSelection::Random = self.selection_policy {
-            let mut non_empty_points = vec![];
-            for i in 0..points_to_origins.len(){
-                if points_to_origins[i].len() >= to_select{
-                    non_empty_points.push(i);
-                }
+        let mut ordered_blocks = points_to_origins.iter().enumerate().collect::<Vec<_>>();
+        match self.block_order{
+            BlockOrder::AscendingID => {
+                ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
+            },
+            BlockOrder::DescendingID => {
+                ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
+            },
+            BlockOrder::MoreAvailable => {
+                ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+            },
+            BlockOrder::LessAvailable => {
+                ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
             }
-            if non_empty_points.is_empty(){
-                return vec![];
-            }
-            let random_point = non_empty_points.choose(&mut rand::thread_rng()).unwrap();
-            point = *random_point;
-
-        } else {
-            //Return the elements with the origin point following the selection policy
-            let mut elements = points_to_origins[0].len();
-            for i in 1..points_to_origins.len(){
-                match self.selection_policy {
-                    PartitioningSelection::MaxFree => {
-                        if points_to_origins[i].len() > elements && points_to_origins[i].len() >= to_select{
-                            point = i;
-                            elements = points_to_origins[i].len();
-                        }
-                    },
-                    PartitioningSelection::MinFree => {
-                        if (points_to_origins[i].len() < elements && points_to_origins[i].len() >= to_select) || elements < to_select{
-                            point = i;
-                            elements = points_to_origins[i].len();
-                        }
-                    },
-                    _ => {panic!("Unknown selection policy")}
-                }
+            BlockOrder::Random => {
+                ordered_blocks.shuffle(rng);
             }
         }
+
+        let mut point = 0;
+        for i in 0..ordered_blocks.len(){
+            if ordered_blocks[i].1.len() >= to_select{
+                point = ordered_blocks[i].0;
+                break;
+            }
+        }
+
         //print everthing to debug
         // println!("Selected point: {}", point);
         // println!("To select: {}", to_select);
@@ -493,18 +471,19 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
 impl DiagonalSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> DiagonalSelection {
         let mut servers_per_switch = None;
-        let mut selection_policy = PartitioningSelection::MaxFree;
+        let mut block_order = BlockOrder::MoreAvailable;
         match_object_panic!(arg.cv,"DiagonalSelection",value,
             "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
-            "selection_policy" => {
-                if let &ConfigurationValue::Object(ref cv_name, ref _cv_pairs)=value {
-                    match cv_name.as_ref() {
-                        "Random" => selection_policy = PartitioningSelection::Random,
-                        "MaxFree" => selection_policy = PartitioningSelection::MaxFree,
-                        "MinFree" => selection_policy = PartitioningSelection::MinFree,
-                        _ => {panic!("Unknown selection policy {}", cv_name)}}
+            "block_order" => if let ConfigurationValue::Object(order,_) = value{
+                match order.as_str() {
+                    "AscendingID" => block_order = BlockOrder::AscendingID,
+                    "DescendingID" => block_order = BlockOrder::DescendingID,
+                    "MoreAvailable" => block_order = BlockOrder::MoreAvailable,
+                    "LessAvailable" => block_order = BlockOrder::LessAvailable,
+                    "Random" => block_order = BlockOrder::Random,
+                    _ => panic!("Unknown block order {}", order),
                 }
-            },
+            }
         );
         let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
         DiagonalSelection {
@@ -512,7 +491,7 @@ impl DiagonalSelection {
             n: 0,
             origins: vec![],
             cartesian_data: CartesianData::new(&vec![]),
-            selection_policy
+            block_order
         }
     }
 }
@@ -883,6 +862,7 @@ mod test {
             origins: vec![],
             vectors_from_origin: vec![],
             cartesian_data: CartesianData::new(&vec![]),
+            block_order: MoreAvailable,
         };
         ltile_selection.initialize(512, 512, None, &mut rng);
         let param = ManyToManyParam{
@@ -927,6 +907,7 @@ mod test {
             n: 0,
             origins: vec![],
             cartesian_data: CartesianData::new(&vec![]),
+            block_order: MoreAvailable,
         };
         diagonal_selection.initialize(512, 512, None, &mut rng);
         let list = (0..512).collect::<Vec<usize>>();
