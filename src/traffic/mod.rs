@@ -13,6 +13,7 @@ mod extra;
 mod basic;
 mod operations;
 mod schedulers;
+mod datacenter_distributions;
 
 use crate::traffic::collectives::MPICollective;
 use crate::AsMessage;
@@ -277,6 +278,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"Wavefront" | "All2AllLinear" => MiniApp::new(cv_name.clone(), arg),
 			"MessageSizeModifier" => Box::new(extra::MessageSizeModifier::new(arg)),
 			"FIFOScheduler" => Box::new(schedulers::FIFOScheduler::new(arg)),
+			"SyntheticTrafficDistribution" => Box::new(datacenter_distributions::SyntheticTrafficDistribution::new(arg)),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}
