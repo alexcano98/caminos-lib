@@ -291,10 +291,10 @@ impl Traffic for MessageSizeModifier {
 	{
 		let id = u128::from_le_bytes(message.payload()[0..16].try_into().expect("bad payload"));
 		let sub_message_payload = &message.payload()[16..];
-		let original_size = self.original_size.get(&id).expect("MessageSizeModifier: message not found");
+		let original_size = self.original_size.remove(&id).expect("MessageSizeModifier: message not found");
 		let mut inner_message = ReferredPayload::from(message);
 		inner_message.payload = sub_message_payload;
-		inner_message.size = *original_size;
+		inner_message.size = original_size;
 		self.traffic.consume(task, &inner_message, cycle, topology, rng)
 	}
 	fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool
