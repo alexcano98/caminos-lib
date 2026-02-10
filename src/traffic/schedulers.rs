@@ -259,8 +259,21 @@ impl FIFOScheduler{
 			"traffics" => traffics = {
                 if let ConfigurationValue::Array(a ) = value{
 
-                    Some(a.iter().map(|v| new_traffic(TrafficBuilderArgument{cv: v, rng: arg.rng, ..arg})).collect())
-
+                    let mut lista_traficos = vec![];
+                    for i in 0..a.len(){
+                        if let ConfigurationValue::Expression(expr) = &a[i]{
+                             if let Ok(ConfigurationValue::Array(lista)) = evaluate(expr, arg.cv, Path::new(&""))
+                            {
+                                lista_traficos.extend(lista.iter().map(|a| new_traffic(TrafficBuilderArgument{cv: a, rng: arg.rng, ..arg})));
+                            }else{
+                                panic!("bad expression for traffics")
+                            }
+                        }else{
+                            lista_traficos.push(new_traffic(TrafficBuilderArgument{cv: &a[i], rng: arg.rng, ..arg}));
+                        }
+                    }
+                    //Some(a.iter().map(|v| new_traffic(TrafficBuilderArgument{cv: v, rng: arg.rng, ..arg})).collect())
+                    Some(lista_traficos)
                 } else if let ConfigurationValue::Expression(expr) = value{
 
                     if let Ok(ConfigurationValue::Array(lista)) = evaluate(expr, arg.cv, Path::new(&""))
