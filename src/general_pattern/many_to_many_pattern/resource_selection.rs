@@ -96,24 +96,36 @@ fn sort_blocks(ordered_blocks: &mut Vec<(usize, &Vec<usize>)>, order: BlockOrder
     }
 }
 
-fn select_from_ordered_blocks(ordered_blocks: Vec<(usize, &Vec<usize>)>, to_select: usize) -> Vec<usize> {
-    let partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
+fn select_from_ordered_blocks_with_pattern(ordered_blocks: Vec<(usize, &Vec<usize>)>, to_select: usize, selection_inside_block: &dyn ManyToManyPattern, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+    let mut partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
     let mut selected = vec![];
+    let mut last = 1; //just a random number different to 0
 
-    for mut block_elements in partitions_ordered {
-        if selected.len() >= to_select {
-            break;
+    while last != selected.len() && selected.len() < to_select{
+        last = selected.len();
+        let mut index_block = 0;
+        while index_block < partitions_ordered.len() && selected.len() < to_select{
+            let mut block_elements = partitions_ordered[index_block].clone();
+            if block_elements.len() != 0{
+                block_elements.sort();
+                let param_filter_pattern = ManyToManyParam{ list: block_elements.clone(), extra: Some(cmp::min(to_select - selected.len(), block_elements.len())), ..Default::default()};
+                let filtered = selection_inside_block.get_destination(param_filter_pattern, topology, rng);
+                block_elements.retain( |a| !filtered.contains(a) );
+                selected.extend(filtered);
+                partitions_ordered[index_block] = block_elements;
+            }
+            index_block += 1;
         }
-        block_elements.sort();
-        let needed = to_select - selected.len();
-        let take = cmp::min(needed, block_elements.len());
-        selected.extend(block_elements.into_iter().take(take));
+
+        while selected.len() > to_select{
+            selected.remove(selected.len() -1);
+        }
     }
 
-    if selected.len() < to_select {
+    if selected.len() < to_select{
         vec![]
-    } else {
-        selected.sort();
+    }else {
+        selected.sort_by(|a, b| a.cmp(&b));
         selected
     }
 }
@@ -167,36 +179,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
         let mut ordered_blocks = block_occupation.iter().enumerate().collect::<Vec<_>>();
         sort_blocks(&mut ordered_blocks, self.block_order, rng);
 
-        let mut partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
-        let mut selected = vec![];
-        let mut last =1; //just a random number different to 0
-
-        while last != selected.len() && selected.len() < to_select{
-            last = selected.len();
-            let mut index_block = 0;
-            while index_block < partitions_ordered.len() && selected.len() < to_select{
-                let mut block_elements = partitions_ordered[index_block].clone();
-                if block_elements.len() != 0{
-                    let param_filter_pattern = ManyToManyParam{ list: block_elements.clone(), extra: Some(cmp::min(to_select - selected.len(), block_elements.len())), ..Default::default()};
-                    let filtered = self.selection_inside_block.get_destination(param_filter_pattern, topology, rng);
-                    block_elements.retain( |a| !filtered.contains(a) );
-                    selected.extend(filtered);
-                    partitions_ordered[index_block] = block_elements;
-                }
-                index_block += 1;
-            }
-
-            while selected.len() > to_select{
-                selected.remove(selected.len() -1);
-            }
-        }
-
-        if selected.len() < to_select{
-            vec![]
-        }else {
-            selected.sort_by(|a, b| a.cmp(&b));
-            selected
-        }
+        select_from_ordered_blocks_with_pattern(ordered_blocks, to_select, self.selection_inside_block.as_ref(), topology, rng)
     }
 }
 
@@ -277,12 +260,14 @@ pub struct LTileSelection {
     vectors_from_origin: Vec<Vec<usize>>,
     cartesian_data: CartesianData,
     block_order: BlockOrder,
+    selection_inside_block: Box<dyn ManyToManyPattern>,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
 {
-    fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
+    fn initialize(&mut self, source_size: usize, target_size: usize, topology: Option<&dyn Topology>, rng: &mut StdRng) {
         assert_eq!(source_size, target_size);
+        self.selection_inside_block.initialize(source_size, target_size, topology, rng);
         //check that is a square number
         let n_switches = source_size/self.servers_per_switch;
         let n = (n_switches as f64).sqrt() as usize;
@@ -306,7 +291,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
         self.vectors_from_origin = vectors_from_origin;
     }
 
-    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+    fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
 
@@ -329,7 +314,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
         let mut ordered_blocks = points_to_origins.iter().enumerate().collect::<Vec<_>>();
         sort_blocks(&mut ordered_blocks, self.block_order, rng);
 
-        select_from_ordered_blocks(ordered_blocks, to_select)
+        select_from_ordered_blocks_with_pattern(ordered_blocks, to_select, self.selection_inside_block.as_ref(), topology, rng)
     }
 }
 
@@ -337,8 +322,10 @@ impl LTileSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> LTileSelection {
         let mut servers_per_switch = None;
         let mut block_order = BlockOrder::MoreAvailable;
+        let mut selection_inside_block: Option<Box<dyn ManyToManyPattern>> = Some(Box::new( IdentityFilter{}));
         match_object_panic!(arg.cv,"LTileSelection",value,
             "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
+            "selection_inside_block" => selection_inside_block = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, ..arg})),
             "block_order" => if let ConfigurationValue::Object(order,_) = value{
                 match order.as_str() {
                     "AscendingID" => block_order = BlockOrder::AscendingID,
@@ -351,13 +338,15 @@ impl LTileSelection {
             }
         );
         let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
+        let selection_inside_block = selection_inside_block.unwrap();
         LTileSelection {
             servers_per_switch,
             n: 0,
             origins: vec![],
             vectors_from_origin: vec![],
             cartesian_data: CartesianData::new(&vec![]),
-            block_order
+            block_order,
+            selection_inside_block
         }
     }
 }
@@ -377,11 +366,13 @@ pub struct DiagonalSelection {
     origins: Vec<Vec<usize>>,
     cartesian_data: CartesianData,
     block_order: BlockOrder,
+    selection_inside_block: Box<dyn ManyToManyPattern>,
 }
 
 impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
-    fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
+    fn initialize(&mut self, source_size: usize, target_size: usize, topology: Option<&dyn Topology>, rng: &mut StdRng) {
         assert_eq!(source_size, target_size);
+        self.selection_inside_block.initialize(source_size, target_size, topology, rng);
         //check that is a square number
         let n_switches = source_size/self.servers_per_switch;
         let n = (n_switches as f64).sqrt() as usize;
@@ -396,7 +387,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
         self.origins = origins;
     }
 
-    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+    fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
         let diagonal_vector = vec![1; self.origins[0].len()];
@@ -424,7 +415,7 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
         let mut ordered_blocks = points_to_origins.iter().enumerate().collect::<Vec<_>>();
         sort_blocks(&mut ordered_blocks, self.block_order, rng);
 
-        select_from_ordered_blocks(ordered_blocks, to_select)
+        select_from_ordered_blocks_with_pattern(ordered_blocks, to_select, self.selection_inside_block.as_ref(), topology, rng)
     }
 }
 
@@ -432,8 +423,10 @@ impl DiagonalSelection {
     pub fn new(arg: GeneralPatternBuilderArgument) -> DiagonalSelection {
         let mut servers_per_switch = None;
         let mut block_order = BlockOrder::MoreAvailable;
+        let mut selection_inside_block: Option<Box<dyn ManyToManyPattern>> = Some(Box::new( IdentityFilter{}));
         match_object_panic!(arg.cv,"DiagonalSelection",value,
             "servers_per_switch" => servers_per_switch= Some(value.as_usize().unwrap()),
+            "selection_inside_block" => selection_inside_block = Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv: value, ..arg})),
             "block_order" => if let ConfigurationValue::Object(order,_) = value{
                 match order.as_str() {
                     "AscendingID" => block_order = BlockOrder::AscendingID,
@@ -446,12 +439,14 @@ impl DiagonalSelection {
             }
         );
         let servers_per_switch = servers_per_switch.expect("servers_per_switch is required");
+        let selection_inside_block = selection_inside_block.unwrap();
         DiagonalSelection {
             servers_per_switch,
             n: 0,
             origins: vec![],
             cartesian_data: CartesianData::new(&vec![]),
-            block_order
+            block_order,
+            selection_inside_block
         }
     }
 }
@@ -823,6 +818,7 @@ mod test {
             vectors_from_origin: vec![],
             cartesian_data: CartesianData::new(&vec![]),
             block_order: MoreAvailable,
+            selection_inside_block: Box::new(IdentityFilter{}),
         };
         ltile_selection.initialize(512, 512, None, &mut rng);
         let param = ManyToManyParam{
@@ -868,6 +864,7 @@ mod test {
             origins: vec![],
             cartesian_data: CartesianData::new(&vec![]),
             block_order: MoreAvailable,
+            selection_inside_block: Box::new(IdentityFilter{}),
         };
         diagonal_selection.initialize(512, 512, None, &mut rng);
         let list = (0..512).collect::<Vec<usize>>();
