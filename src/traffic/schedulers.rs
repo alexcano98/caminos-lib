@@ -124,6 +124,9 @@ impl Traffic for FIFOScheduler{
         let finished = self.active_traffics.clone().into_iter().filter(|&t| self.traffics[t].is_finished(Some(rng))).collect::<Vec<usize>>();
         if finished.len() > 0 {
             self.active_traffics.retain(|t| !finished.contains(t));
+            for server in self.server_occupation_map.iter_mut(){
+                server.retain(|&t| !finished.contains(&t));
+            }
             while self.allocate_next(rng){}
         }
 
