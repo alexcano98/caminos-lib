@@ -67,13 +67,55 @@ impl ConsecutiveSelection {
     }
 }
 
-#[derive(Quantifiable, Debug)]
+#[derive(Quantifiable, Debug, Clone, Copy)]
 pub enum BlockOrder{
     AscendingID,
     DescendingID,
     MoreAvailable,
     LessAvailable,
     Random
+}
+
+fn sort_blocks(ordered_blocks: &mut Vec<(usize, &Vec<usize>)>, order: BlockOrder, rng: &mut StdRng) {
+    match order{
+        BlockOrder::AscendingID => {
+            ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
+        },
+        BlockOrder::DescendingID => {
+            ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
+        },
+        BlockOrder::MoreAvailable => {
+            ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        },
+        BlockOrder::LessAvailable => {
+            ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
+        }
+        BlockOrder::Random => {
+            ordered_blocks.shuffle(rng);
+        }
+    }
+}
+
+fn select_from_ordered_blocks(ordered_blocks: Vec<(usize, &Vec<usize>)>, to_select: usize) -> Vec<usize> {
+    let partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
+    let mut selected = vec![];
+
+    for mut block_elements in partitions_ordered {
+        if selected.len() >= to_select {
+            break;
+        }
+        block_elements.sort();
+        let needed = to_select - selected.len();
+        let take = cmp::min(needed, block_elements.len());
+        selected.extend(block_elements.into_iter().take(take));
+    }
+
+    if selected.len() < to_select {
+        vec![]
+    } else {
+        selected.sort();
+        selected
+    }
 }
 
 /**
@@ -123,30 +165,8 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for BlockSelection
 
         //select the block with most elements to allocate the elements
         let mut ordered_blocks = block_occupation.iter().enumerate().collect::<Vec<_>>();
-        match self.block_order{
-            BlockOrder::AscendingID => {
-                ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
-            },
-            BlockOrder::DescendingID => {
-                ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
-            },
-            BlockOrder::MoreAvailable => {
-                ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-            },
-            BlockOrder::LessAvailable => {
-                ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
-            }
-            BlockOrder::Random => {
-                ordered_blocks.shuffle(rng);
-            }
-        }
-        // if self.random_block_selection{
-        //     //discard full blocks
-        //     // ordered_blocks.retain(|a| a.1.len() < self.block_size);
-        //     ordered_blocks.shuffle(rng);
-        // }else {
-        //     ordered_blocks.sort_by(|a, b| if a.1 != b.1 {b.1.len().cmp(&a.1.len())} else {a.0.cmp(&b.0)});
-        // }
+        sort_blocks(&mut ordered_blocks, self.block_order, rng);
+
         let mut partitions_ordered = ordered_blocks.iter().map(|a| a.1.clone()).collect::<Vec<Vec<usize>>>();
         let mut selected = vec![];
         let mut last =1; //just a random number different to 0
@@ -307,37 +327,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
         let to_select = param.extra.unwrap();
 
         let mut ordered_blocks = points_to_origins.iter().enumerate().collect::<Vec<_>>();
-        match self.block_order{
-            BlockOrder::AscendingID => {
-                ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
-            },
-            BlockOrder::DescendingID => {
-                ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
-            },
-            BlockOrder::MoreAvailable => {
-                ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-            },
-            BlockOrder::LessAvailable => {
-                ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
-            }
-            BlockOrder::Random => {
-                ordered_blocks.shuffle(rng);
-            }
-        }
+        sort_blocks(&mut ordered_blocks, self.block_order, rng);
 
-        let mut point = 0;
-        for i in 0..ordered_blocks.len(){
-            if ordered_blocks[i].1.len() >= to_select{
-                point = ordered_blocks[i].0;
-                break;
-            }
-        }
-
-       //return the selected servers sorted
-        let mut ret = points_to_origins[point].clone();
-        ret.sort_by(|a, b| a.cmp(b));
-        //return the first extra elements
-        ret.into_iter().take(param.extra.unwrap()).collect()
+        select_from_ordered_blocks(ordered_blocks, to_select)
     }
 }
 
@@ -430,41 +422,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
         let to_select = param.extra.unwrap();
 
         let mut ordered_blocks = points_to_origins.iter().enumerate().collect::<Vec<_>>();
-        match self.block_order{
-            BlockOrder::AscendingID => {
-                ordered_blocks.sort_by(|a, b| a.0.cmp(&b.0));
-            },
-            BlockOrder::DescendingID => {
-                ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
-            },
-            BlockOrder::MoreAvailable => {
-                ordered_blocks.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-            },
-            BlockOrder::LessAvailable => {
-                ordered_blocks.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
-            }
-            BlockOrder::Random => {
-                ordered_blocks.shuffle(rng);
-            }
-        }
+        sort_blocks(&mut ordered_blocks, self.block_order, rng);
 
-        let mut point = 0;
-        for i in 0..ordered_blocks.len(){
-            if ordered_blocks[i].1.len() >= to_select{
-                point = ordered_blocks[i].0;
-                break;
-            }
-        }
-
-        //print everthing to debug
-        // println!("Selected point: {}", point);
-        // println!("To select: {}", to_select);
-        // println!("Points to origins: {:?}", points_to_origins);
-        //return the selected points sorted
-        let mut ret = points_to_origins[point].clone();
-        ret.sort_by(|a, b| a.cmp(b));
-        //return the first extra elements
-        ret.into_iter().take(to_select).collect()
+        select_from_ordered_blocks(ordered_blocks, to_select)
     }
 }
 
