@@ -4,6 +4,7 @@ use std::rc::Rc;
 use crate::ConfigurationValue;
 use quantifiable_derive::Quantifiable;
 use rand::prelude::StdRng;
+use rand::seq::SliceRandom;
 use crate::general_pattern::many_to_many_pattern::{ManyToManyParam, ManyToManyPattern};
 use crate::general_pattern::prelude::Pattern;
 use crate::{match_object_panic, AsMessage, Message, Time};
@@ -250,12 +251,14 @@ impl FIFOScheduler{
         let mut traffics: Option<Vec<Box<dyn Traffic>>> =None;
         let mut resource_selection = None;
         let mut task_mapping = None;
-        let mut finish_when = None;
+        let mut finish_when: Option<Vec<usize>> = None;
+        let mut shuffle = false;
         // let mut tasks_per_server = 1; //default value
 
         match_object_panic!(arg.cv,"FIFOScheduler",value,
             "extra_number" => (),
             "servers" => total_servers = Some(value.as_usize().expect("bad value for servers")),
+            "shuffle" => shuffle = value.as_bool().expect("bad value for shuffle"),
 			"traffics" => traffics = {
                 if let ConfigurationValue::Array(a ) = value{
 
@@ -293,7 +296,26 @@ impl FIFOScheduler{
             // "tasks_per_server" => tasks_per_server = value.as_usize().expect("bad value for tasks_per_server"),
 		);
         let total_servers = total_servers.expect("servers is required");
-        let traffics = traffics.expect("traffics is required");
+        let mut traffics = traffics.expect("traffics is required");
+
+        if shuffle {
+            let mut p: Vec<usize> = (0..traffics.len()).collect();
+            p.shuffle(arg.rng);
+
+            let mut new_traffics = Vec::with_capacity(traffics.len());
+            let mut temp_traffics: Vec<Option<Box<dyn Traffic>>> = traffics.into_iter().map(Some).collect();
+            for &old_index in &p {
+                new_traffics.push(temp_traffics[old_index].take().unwrap());
+            }
+            traffics = new_traffics;
+
+            if let Some(ref mut fw) = finish_when {
+                for idx in fw.iter_mut() {
+                    *idx = p.iter().position(|&x| x == *idx).expect("finish_when index out of bounds");
+                }
+            }
+        }
+
         let task_traffics = vec![vec![]; traffics.len()];
         let mut resource_selection = resource_selection.expect("resource_selection is required");
         resource_selection.initialize(total_servers, total_servers, None, arg.rng);
@@ -340,6 +362,7 @@ pub struct FIFOSchedulerBuilderCV{
     pub task_mapping: ConfigurationValue,
     //optional
     pub finish_when: Option<Vec<usize>>,
+    pub shuffle: Option<bool>,
     // pub tasks_per_server: usize,
 }
 
@@ -354,6 +377,10 @@ pub fn create_fifo_scheduler_cv(args: FIFOSchedulerBuilderCV) -> ConfigurationVa
 
     if let Some(finish_when) = args.finish_when {
         vec.push(("finish_when".to_string(), ConfigurationValue::Array(finish_when.into_iter().map(|v| ConfigurationValue::Number(v as f64)).collect())));
+    }
+
+    if let Some(shuffle) = args.shuffle {
+        vec.push(("shuffle".to_string(), if shuffle { ConfigurationValue::True } else { ConfigurationValue::False }));
     }
 
     ConfigurationValue::Object("FIFOScheduler".to_string(), vec)
@@ -384,6 +411,7 @@ mod tests {
             resource_selection: ConfigurationValue::Object("RandomSelection".to_string(), vec![]),
             task_mapping: ConfigurationValue::Object("Identity".to_string(), vec![]),
             finish_when: None,
+            shuffle: None,
         });
 
         let mut scheduler = FIFOScheduler::new(TrafficBuilderArgument{
@@ -430,7 +458,7 @@ mod tests {
             resource_selection: ConfigurationValue::Object("ConsecutiveSelection".to_string(), vec![]),
             task_mapping: ConfigurationValue::Object("Identity".to_string(), vec![]),
             finish_when: Some(vec![0]),
-
+            shuffle: None,
         });
 
         let mut scheduler = FIFOScheduler::new(TrafficBuilderArgument{
