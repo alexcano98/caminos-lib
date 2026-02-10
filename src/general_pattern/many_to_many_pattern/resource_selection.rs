@@ -26,6 +26,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for ConsecutiveSelection
     }
 
     fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, _rng: &mut rand::prelude::StdRng) -> Vec<usize> {
+        if param.list.len() < param.extra.unwrap() {
+            return vec![];
+        }
         //check that the list is ordered
         for i in 0..param.list.len()-1{
             assert!(param.list[i] < param.list[i+1]);
@@ -228,7 +231,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for RandomSelection
         let mut selected = vec![];
         let mut list = param.list.clone();
         //check that the size of the list is greater than the extra
-        assert!(list.len() >= param.extra.unwrap());
+        if list.len() < param.extra.unwrap() {
+            return vec![];
+        }
         list.shuffle(rng);
         for i in 0..param.extra.unwrap(){
             selected.push(list[i]);
@@ -292,6 +297,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for LTileSelection
     }
 
     fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+        if param.list.len() < param.extra.unwrap() {
+            return vec![];
+        }
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
 
@@ -388,6 +396,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for DiagonalSelection{
     }
 
     fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+        if param.list.len() < param.extra.unwrap() {
+            return vec![];
+        }
         let list = param.list.clone();
         let mut points_to_origins = vec![vec![]; self.origins.len()];
         let diagonal_vector = vec![1; self.origins[0].len()];
@@ -480,6 +491,9 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for IterBlockSelection {
     fn get_destination(&self, param: ManyToManyParam, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
         let mut available_servers = param.list.clone();
         let to_select = param.extra.unwrap();
+        if available_servers.len() < to_select {
+            return vec![];
+        }
         let mut selected_servers = vec![];
 
         while to_select > selected_servers.len(){
