@@ -354,36 +354,78 @@ impl TrafficStatistics
 
 	pub fn parse_statistics(&self) -> ConfigurationValue
 	{
-		let max = self.histogram_messages_delay.clone().into_keys().max().unwrap();
-		let messages_latency_histogram = (0..max+1).map(|i|
-			ConfigurationValue::Number(self.histogram_messages_delay.get(&i).unwrap_or(&0).clone() as f64)
-		).collect();
+		let max = self.histogram_messages_delay.keys().max().cloned().unwrap_or(0);
+		let messages_latency_histogram = if self.histogram_messages_delay.is_empty()
+		{
+			vec![]
+		}
+		else
+		{
+			(0..max+1).map(|i|
+				ConfigurationValue::Number(self.histogram_messages_delay.get(&i).unwrap_or(&0).clone() as f64)
+			).collect()
+		};
 		// let messages_network_latency_histogram = (0..max+1).map(|i|
 		// 	ConfigurationValue::Number(self.histogram_messages_network_delay.get(&i).unwrap_or(&0).clone() as f64)
 		// ).collect();
 
 		//let max_tasks = cmp::max(cmp::max(self.generating_tasks_histogram.keys().max().unwrap_or(&0), self.waiting_tasks_histogram.keys().max().unwrap_or(&0)), self.finished_tasks_histogram.keys().max().unwrap_or(&0));
-		let max_tasks = self.cycle_last_consumed_message as usize / self.box_size;
-		let generated_tasks_histogram = (0..max_tasks+1).map(|i|
-			ConfigurationValue::Number(
-				self.generating_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
-		)).collect();
-		let waiting_tasks_histogram = (0..max_tasks+1).map(|i|
-			ConfigurationValue::Number( self.waiting_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
-		)).collect();
-		let finished_generating_tasks_histogram = (0..max_tasks+1).map(|i|
-			ConfigurationValue::Number( self.finished_generating_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
-		)).collect();
-		let finished_tasks_histogram = (0..max_tasks+1).map(|i|
-			ConfigurationValue::Number( self.finished_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
-		)).collect();
+		let box_size = if self.box_size > 0 { self.box_size } else { 1 };
+		let max_tasks = self.cycle_last_consumed_message as usize / box_size;
+		let generated_tasks_histogram = if self.generating_tasks_histogram.is_empty()
+		{
+			vec![]
+		}
+		else
+		{
+			(0..max_tasks+1).map(|i|
+				ConfigurationValue::Number(
+					self.generating_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
+			)).collect()
+		};
+		let waiting_tasks_histogram = if self.waiting_tasks_histogram.is_empty()
+		{
+			vec![]
+		}
+		else
+		{
+			(0..max_tasks+1).map(|i|
+				ConfigurationValue::Number( self.waiting_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
+			)).collect()
+		};
+		let finished_generating_tasks_histogram = if self.finished_generating_tasks_histogram.is_empty()
+		{
+			vec![]
+		}
+		else
+		{
+			(0..max_tasks+1).map(|i|
+				ConfigurationValue::Number( self.finished_generating_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
+			)).collect()
+		};
+		let finished_tasks_histogram = if self.finished_tasks_histogram.is_empty()
+		{
+			vec![]
+		}
+		else
+		{
+			(0..max_tasks+1).map(|i|
+				ConfigurationValue::Number( self.finished_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
+			)).collect()
+		};
 
 		let mut traffic_content = vec![
 			(String::from("total_consumed_messages"),ConfigurationValue::Number(self.total_consumed_messages as f64)),
 			(String::from("total_consumed_phits"),ConfigurationValue::Number(self.total_consumed_phits as f64)),
 			(String::from("total_created_messages"),ConfigurationValue::Number(self.total_created_messages as f64)),
 			(String::from("total_created_phits"),ConfigurationValue::Number(self.total_created_phits as f64)),
-			(String::from("total_message_delay"),ConfigurationValue::Number((self.total_message_delay/cmp::max(self.total_consumed_messages as u64, 1u64))as f64)),
+			(String::from("total_message_delay"),ConfigurationValue::Number(
+				if self.total_consumed_messages > 0 {
+					(self.total_message_delay as f64) / (self.total_consumed_messages as f64)
+				} else {
+					0.0
+				}
+			)),
 			(String::from("cycle_last_created_message"),ConfigurationValue::Number(self.cycle_last_created_message as f64)),
 			(String::from("cycle_last_consumed_message"),ConfigurationValue::Number(self.cycle_last_consumed_message as f64)),
 			(String::from("message_latency_histogram"),ConfigurationValue::Array(messages_latency_histogram)),
@@ -401,7 +443,7 @@ impl TrafficStatistics
 			let temporal_created_phits = self.temporal_statistics.iter().map(|m|ConfigurationValue::Number(m.created_phits as f64)).collect();
 			let temporal_message_delay = self.temporal_statistics.iter().map(|m|
 				if m.consumed_messages != 0 {
-					ConfigurationValue::Number((m.total_message_delay/m.consumed_messages as u64)as f64)
+					ConfigurationValue::Number((m.total_message_delay as f64)/(m.consumed_messages as f64))
 				} else {
 					ConfigurationValue::Number(0f64)
 				}
@@ -979,5 +1021,3 @@ impl From<ReportColumnKind> for ReportColumn
 		}
 	}
 }
-
-
