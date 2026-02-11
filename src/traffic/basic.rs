@@ -507,8 +507,9 @@ pub fn build_message_cv(args: BuildMessageCVArgs) -> ConfigurationValue {
 
 
 /**
-
-Do nothing until the cycle_to_wake is reached, where the traffic finishes. It is useful to make a task wait for a certain time.
+Two different ways to configurate a Sleep:
+-Do nothing for a number of cycles `cycles_to_sleep` since the first time `should_generate` is called.
+-Do nothing until cycle_to_wake is reached.
 ```ignore
 Sleep{
     cycle_to_wake: 1000,
@@ -521,12 +522,16 @@ Sleep{
 #[derive(Debug)]
 pub struct Sleep
 {
+    ///Number of cycles to sleep.
+    cycle_to_wake: Option<Time>,
+    ///Cycles to sleep
+    cycles_to_sleep: Option<Time>,
     ///Number of tasks applying this traffic.
-    cycle_to_wake: Time,
-    ///Number of tasks
     tasks: usize,
     /// Is finished
     finished: bool,
+    /// The cycle when the traffic started.
+    start_cycle: Option<Time>,
 }
 
 impl Traffic for Sleep
@@ -550,7 +555,13 @@ impl Traffic for Sleep
 
     fn should_generate(&mut self, _task:usize, cycle:Time, _rng: &mut StdRng) -> bool
     {
-        if cycle >= self.cycle_to_wake as u64 {
+        if self.start_cycle.is_none() {
+            self.start_cycle = Some(cycle);
+            if self.cycle_to_wake.is_none() { //if cycle to wake is none, cycles to sleep should be something!
+                self.cycle_to_wake = Some(cycle + self.cycles_to_sleep.unwrap());
+            }
+        }
+        if cycle >= self.cycle_to_wake.unwrap(){
             self.finished = true;
         }
         false
@@ -571,18 +582,25 @@ impl Sleep
     pub fn new(arg:TrafficBuilderArgument) -> Sleep
     {
         let mut cycle_to_wake=None;
+        let mut cycles_to_sleep=None;
         let mut tasks=None;
 
         match_object_panic!(arg.cv,"Sleep",value,
 			"cycle_to_wake" => cycle_to_wake=Some(value.as_time().expect("bad value for cycle_to_wake")),
+            "cycles_to_sleep" => cycles_to_sleep=Some(value.as_time().expect("bad value for cycles_to_sleep")),
 			"tasks" | "servers" => tasks=Some(value.as_f64().expect("bad value for tasks") as usize),
 		);
-        let cycle_to_wake=cycle_to_wake.expect("There were no cycle_to_wake");
+        //let cycle_to_wake=cycle_to_wake.expect("There were no cycle_to_wake");
         let tasks=tasks.expect("There were no tasks");
+        if cycle_to_wake.is_some() == cycles_to_sleep.is_some(){
+            panic!("Bad configuration of sleep")
+        }
         Sleep {
             cycle_to_wake,
+            cycles_to_sleep,
             tasks,
             finished: false,
+            start_cycle: None,
         }
     }
 }
