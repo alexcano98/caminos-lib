@@ -1018,8 +1018,12 @@ pub struct SendMessageToVector
 {
     ///Number of tasks applying this traffic.
     tasks: usize,
-    ///The destinations of each message
-    destinations: Vec<Vec<usize>>,
+    ///The destinations of each message for one round
+    base_destinations: Vec<Vec<usize>>,
+    ///The current destinations buffer
+    current_destinations: Vec<Vec<usize>>,
+    ///Rounds remaining per task
+    task_rounds_remaining: Vec<usize>,
     ///The size of each sent message.
     message_size: usize,
     ///Set of generated messages.
@@ -1032,7 +1036,14 @@ impl Traffic for SendMessageToVector
 {
     fn generate_message(&mut self, origin:usize, cycle:Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Result<Rc<Message>,TrafficError>
     {
-        let destination = self.destinations[origin].pop();
+        if self.current_destinations[origin].is_empty() {
+            if self.task_rounds_remaining[origin] > 0 {
+                self.task_rounds_remaining[origin] -= 1;
+                self.current_destinations[origin] = self.base_destinations[origin].clone();
+            }
+        }
+
+        let destination = self.current_destinations[origin].pop();
         if let Some(destination) = destination {
             if destination == origin {
                 return Err(TrafficError::SelfMessage);
@@ -1054,12 +1065,12 @@ impl Traffic for SendMessageToVector
     }
 
     fn should_generate(&mut self, task: usize, _cycle: Time, _rng: &mut StdRng) -> bool {
-        !self.destinations[task].is_empty()
+        !self.current_destinations[task].is_empty() || self.task_rounds_remaining[task] > 0
     }
 
     fn probability_per_cycle(&self, task:usize) -> f32
     {
-        if self.destinations[task].is_empty() {
+        if self.current_destinations[task].is_empty() && self.task_rounds_remaining[task] == 0 {
             0.0
         } else {
             1.0
@@ -1078,12 +1089,12 @@ impl Traffic for SendMessageToVector
 
     fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool
     {
-        self.destinations.iter().all(|d| d.is_empty()) && self.generated_messages.is_empty()
+        self.current_destinations.iter().all(|d| d.is_empty()) && self.task_rounds_remaining.iter().all(|&r| r == 0) && self.generated_messages.is_empty()
     }
 
     fn task_state(&mut self, task:usize, _cycle:Time) -> Option<TaskTrafficState>
     {
-        if self.destinations[task].is_empty() {
+        if self.current_destinations[task].is_empty() && self.task_rounds_remaining[task] == 0 {
             Some(FinishedGenerating)
         } else {
             Some(Generating)
@@ -1127,17 +1138,17 @@ impl SendMessageToVector
         let mut one_to_many_pattern = destinations.expect("There were no destinations");
         one_to_many_pattern.initialize(tasks, tasks, None, arg.rng);
         let message_size=message_size.expect("There were no message_size");
-        let mut destinations_matrix = vec![vec![]; tasks];
+        let mut base_destinations = vec![vec![]; tasks];
         for i in 0..tasks {
             let dest_vector = one_to_many_pattern.get_destination(i, None, &mut arg.rng).into_iter().rev().collect::<Vec<usize>>(); //reverse for pop
-            for _ in 0..rounds {
-                destinations_matrix[i].extend(dest_vector.clone());
-            }
+            base_destinations[i] = dest_vector;
         }
 
         SendMessageToVector {
             tasks,
-            destinations: destinations_matrix,
+            base_destinations,
+            current_destinations: vec![vec![]; tasks],
+            task_rounds_remaining: vec![rounds; tasks],
             message_size,
             generated_messages: BTreeSet::new(),
             next_id: 0,
