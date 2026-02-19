@@ -243,7 +243,7 @@ Returns the neighbours in a hypercube
 #[derive(Debug, Quantifiable)]
 pub struct HypercubeNeighbours
 {
-    dimensions: u32,
+    dimensions: usize,
 }
 
 impl GeneralPattern<usize, Vec<usize>> for HypercubeNeighbours{
@@ -252,11 +252,11 @@ impl GeneralPattern<usize, Vec<usize>> for HypercubeNeighbours{
         assert!(source_size.is_power_of_two());
         //panic if source size is different to neighbour.len()
         assert_eq!(source_size, target_size);
-        self.dimensions = source_size.ilog2();
+        self.dimensions = source_size.ilog2() as usize;
 
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
-        let mut local_neighbours = Vec::with_capacity(self.dimensions as usize);
+        let mut local_neighbours = Vec::with_capacity(self.dimensions);
         for j in 0..self.dimensions{
             local_neighbours.push(param ^ (1 << j));
         }
