@@ -7,7 +7,6 @@ use crate::event::Time;
 use crate::traffic::{Traffic, TrafficBuilderArgument, TrafficError, TaskTrafficState};
 use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
 use crate::general_pattern::pattern::Pattern;
-use crate::quantify::Quantifiable;
 use quantifiable_derive::Quantifiable;
 use std::f64::consts::PI;
 

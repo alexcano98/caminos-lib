@@ -1,5 +1,4 @@
 use crate::general_pattern::pattern::{get_cartesian_transform_from_builder, get_composition_pattern_cv, get_linear_transform, BuildCartesianTransformCV, BuildCompositionCV, BuildLinearTransformCV};
-use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::rc::Rc;
 use quantifiable_derive::Quantifiable;

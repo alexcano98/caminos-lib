@@ -28,7 +28,6 @@ the message was created until the cycle in its consumption was completed. Note t
 */
 
 
-use std::cmp;
 use std::collections::HashMap;
 use std::path::Path;
 use std::convert::TryInto;
