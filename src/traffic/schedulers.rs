@@ -68,24 +68,26 @@ pub struct FIFOScheduler
 
 impl Traffic for FIFOScheduler{
     fn generate_message(&mut self, origin: usize, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
-        let index_traffic = self.index_to_generate[origin].pop_front().unwrap();
-        let sub_origin = self.task_traffics[index_traffic].iter().position(|&v| v == origin).unwrap();
-        let message = self.traffics[index_traffic].generate_message(sub_origin, cycle, topology, rng)?;
-        let destination_real =  self.task_traffics[index_traffic][message.destination];
+        let total_index_traffic = self.index_to_generate[origin].pop_front().unwrap();
+        let sub_origin = self.task_traffics[total_index_traffic].iter().position(|&v| v == origin).unwrap();
+        let message = self.traffics[total_index_traffic].generate_message(sub_origin, cycle, topology, rng)?;
+        let destination_real =  self.task_traffics[total_index_traffic][message.destination];
 
         let mut payload = Vec::with_capacity(message.payload().len() + 4);
-        let index_convert = index_traffic as u32;
+        let index_convert = total_index_traffic as u32;
         let i_bytes = bytemuck::bytes_of(&index_convert);
         payload.extend_from_slice(&i_bytes);
         payload.extend_from_slice(message.payload());
 
-        self.statistics.track_created_message(cycle, message.size, Some( index_traffic ));
+        self.statistics.track_created_message(cycle, message.size, Some(total_index_traffic));
 
+        let active_traffic_index = self.active_traffics.iter().position(|i|*i == total_index_traffic).expect("It should be active");
 
         Ok(Rc::new(Message{
             origin,
             destination: destination_real,
             payload,
+            id_traffic: Some(active_traffic_index),
             ..*message
         }))
     }
