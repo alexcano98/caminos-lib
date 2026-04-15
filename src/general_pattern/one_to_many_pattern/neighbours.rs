@@ -781,8 +781,6 @@ mod tests {
         let arg = crate::general_pattern::GeneralPatternBuilderArgument{
             cv: &cv,
             plugs: &plugs,
-            topology: None,
-            rng: &mut rng,
         };
         let mut hn = super::HypercubeNeighbours::new(arg);
         hn.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
