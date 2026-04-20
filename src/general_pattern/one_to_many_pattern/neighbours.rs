@@ -180,15 +180,22 @@ impl KingNeighbours{
     pub fn new(arg: GeneralPatternBuilderArgument) -> KingNeighbours {
         let mut sides = None;
         let mut distance = None;
+        let mut modular = false;
         match_object_panic!(arg.cv,"KingNeighbours",value,
             "sides" => sides = Some(value.as_array().expect("bad value for sides").iter().map(|v|v.as_usize().expect("bad value in sides")).collect()),
             "distance" => distance = Some(value.as_usize().expect("bad value for distance")),
+            "modular" => modular = value.as_bool().expect("bad value for modular"),
         );
         let sides: Vec<usize> = sides.expect("There were no sides in configuration of KingNeighbours.");
         let distance = distance.expect("There were no distance in configuration of KingNeighbours.");
 
         let vector_neighbours = Self::get_vectors_in_king_distance(&(sides.clone()), distance);
-        let neighbours = get_non_modular_neighbours_from_vector(&sides, &vector_neighbours);
+        let neighbours =  if modular
+        {
+            get_modular_neighbours_from_vector(&sides, &vector_neighbours)
+        }else {
+            get_non_modular_neighbours_from_vector(&sides, &vector_neighbours)
+        };
 
         KingNeighbours {
             neighbours,
