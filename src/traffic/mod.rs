@@ -92,6 +92,7 @@ pub trait Traffic : Quantifiable + Debug
 		// r<p
 	}
 	///Indicates the state of the task within the traffic.
+	/// TODO: Can this be eliminated? Only useful for traffics that contain subtraffics?
 	fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>;
 
 	/// Indicates the number of tasks in the traffic.
@@ -279,6 +280,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"MessageSizeModifier" => Box::new(extra::MessageSizeModifier::new(arg)),
 			"FIFOScheduler" => Box::new(schedulers::FIFOScheduler::new(arg)),
 			"SyntheticTrafficDistribution" => Box::new(datacenter_distributions::SyntheticTrafficDistribution::new(arg)),
+			"StatisticsCollector" => Box::new(extra::StatisticsCollector::new(arg)),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}

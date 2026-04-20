@@ -16,6 +16,7 @@ use crate::topology::cartesian::CartesianData;
 use crate::topology::Topology;
 use crate::traffic::{build_traffic_map_cv, build_traffic_sum_cv, new_traffic, BuildTrafficMapCVArgs, BuildTrafficSumCVArgs, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::basic::{build_send_message_to_vector_cv, SendMessageToVectorCVBuilder};
+use crate::measures::TrafficStatistics;
 
 /**
 Traffic which allows a task from a traffic to generate a message when it has enough credits.
@@ -352,6 +353,113 @@ pub fn get_message_size_modifier(args: BuildMessageSizeModifierCVArgs) -> Config
 	];
 
 	ConfigurationValue::Object("MessageSizeModifier".to_string(), arg_vec)
+}
+
+
+/**
+Traffic which collects statistics of a Traffic below. It doesnt do anything else
+```ignore
+TrafficStatistics{
+	traffic: All2All{...},
+}
+```
+ **/
+
+#[derive(Debug, Quantifiable)]
+pub struct StatisticsCollector {
+	traffic: Box<dyn Traffic>,
+	statistics: TrafficStatistics,
+}
+
+impl Traffic for StatisticsCollector {
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError> {
+        let result = self.traffic.generate_message(origin, cycle, topology, rng);
+
+        if let Ok(message) = &result {
+            self.statistics.track_created_message(cycle, message.size);
+        }
+        result
+    }
+
+    fn probability_per_cycle(&self, task:usize) -> f32 {
+        self.traffic.probability_per_cycle(task)
+    }
+
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool {
+        let consumed = self.traffic.consume(task, message, cycle, topology, rng);
+        if consumed {
+            self.statistics.track_consumed_message(message.origin(), task, cycle, cycle - message.creation_cycle(), message.size());
+        }
+        consumed
+    }
+
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool {
+        self.traffic.is_finished(rng)
+    }
+
+    fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool {
+        let gen = self.traffic.should_generate(task, cycle, rng);
+		if gen{
+			self.statistics.track_task_state(task, TaskTrafficState::Generating, cycle);
+		}else { 
+			self.statistics.track_task_state(task, TaskTrafficState::UnspecifiedWait, cycle);
+		}
+		gen
+    }
+
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState> {
+        self.traffic.task_state(task, cycle)
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.traffic.number_tasks()
+    }
+
+    fn get_statistics(&self) -> Option<TrafficStatistics> {
+        Some(self.statistics.clone())
+    }
+}
+
+impl StatisticsCollector {
+    pub fn new(arg: TrafficBuilderArgument) -> StatisticsCollector {
+        let mut traffic = None;
+        let mut statistics_temporal_step = None;
+        let mut box_size = None;
+
+        match_object_panic!(arg.cv, "StatisticsCollector", value,
+            "traffic" => traffic = Some(new_traffic(TrafficBuilderArgument{cv:value, plugs:arg.plugs, topology:arg.topology, rng:arg.rng})),
+            "temporal_step" => statistics_temporal_step = Some(value.as_time().expect("bad value for statistics_temporal_step")),
+            "box_size" => box_size = Some(value.as_usize().expect("bad value for box_size")),
+        );
+
+        let traffic = traffic.expect("Traffic is required for StatisticsCollector");
+        let number_tasks = traffic.number_tasks();
+        let statistics = TrafficStatistics::new(
+			number_tasks,
+	        statistics_temporal_step.expect("statistics_temporal_step is required for StatisticsCollector"),
+	        box_size.expect("box_size is required for StatisticsCollector"),
+		);
+
+        StatisticsCollector {
+            traffic,
+            statistics,
+        }
+    }
+}
+
+pub struct BuildStatisticsCollectorCVArgs {
+    pub traffic: ConfigurationValue,
+    pub temporal_step: Time,
+    pub box_size: usize,
+}
+
+pub fn get_statistics_collector_cv(args: BuildStatisticsCollectorCVArgs) -> ConfigurationValue {
+    let arg_vec = vec![
+        ("traffic".to_string(), args.traffic),
+        ("temporal_step".to_string(), ConfigurationValue::Number(args.temporal_step as f64)),
+        ("box_size".to_string(), ConfigurationValue::Number(args.box_size as f64))
+    ];
+    ConfigurationValue::Object("StatisticsCollector".to_string(), arg_vec)
 }
 
 /**

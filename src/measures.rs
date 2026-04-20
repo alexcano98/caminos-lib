@@ -155,7 +155,7 @@ pub struct TrafficStatistics
 	///If non-zero then creates statistics for intervals of the given number of cycles.
 	pub temporal_step: Time,
 	///Current measurment for temporal statistics.
-	pub current_measurement: TrafficMeasurement,
+	//pub current_measurement: TrafficMeasurement,
 	///The periodic measurements requested by non-zero statistics_temporal_step.
 	pub temporal_statistics: Vec<TrafficMeasurement>,
 	/// The total number of messages created.
@@ -170,8 +170,6 @@ pub struct TrafficStatistics
 	pub total_message_delay: Time,
 	/// The total network delay of all packets.
 	pub total_message_network_delay: Time,
-	/// The statistics of other subtraffic.
-	pub sub_traffic_statistics: Option<Vec<TrafficStatistics>>,
 	/// Box size histogram
 	pub box_size: usize,
 	/// Messages histogram
@@ -188,6 +186,10 @@ pub struct TrafficStatistics
 	pub finished_tasks_histogram: HashMap<usize, Vec<usize>>,
 	///WaitingData Tasks
 	pub waiting_data_histogram: HashMap<usize, Vec<usize>>,
+	///Comm Matrix of tasks
+	pub comm_matrix: Vec<Vec<usize>>,
+	/// The statistics of other subtraffic.
+	pub sub_traffic_statistics: Option<Vec<TrafficStatistics>>,
 }
 
 #[derive(Clone,Default,Quantifiable,Debug)]
@@ -203,11 +205,11 @@ pub struct TrafficMeasurement
 
 impl TrafficStatistics
 {
-	pub fn new(tasks: usize, temporal_step:Time, box_size: usize, sub_traffic_statistics: Option<Vec<TrafficStatistics>>)-> TrafficStatistics
+	pub fn new(tasks: usize, temporal_step:Time, box_size: usize) -> TrafficStatistics
 	{
 		TrafficStatistics {
 			tasks,
-			current_measurement: TrafficMeasurement::default(),
+			//current_measurement: TrafficMeasurement::default(),
 			cycle_last_created_message: 0,
 			cycle_last_consumed_message: 0,
 			temporal_step,
@@ -218,7 +220,6 @@ impl TrafficStatistics
 			total_consumed_phits: 0,
 			total_message_delay: 0,
 			total_message_network_delay: 0,
-			sub_traffic_statistics,
 			box_size,
 			histogram_messages_delay: HashMap::new(),
 			// histogram_messages_network_delay: HashMap::new(),
@@ -227,6 +228,8 @@ impl TrafficStatistics
 			finished_generating_tasks_histogram: HashMap::new(),
 			finished_tasks_histogram: HashMap::new(),
 			waiting_data_histogram: HashMap::new(),
+			comm_matrix: vec![vec![0; tasks]; tasks],
+			sub_traffic_statistics: None,
 		}
 	}
 	// fn reset(&mut self, next_cycle: Time)
@@ -235,9 +238,14 @@ impl TrafficStatistics
 	// 	self.current_measurement.begin_cycle=next_cycle;
 	// }
 
+	pub fn set_subtraffic_statistics(&mut self, stats: Vec<TrafficStatistics>)
+	{
+		self.sub_traffic_statistics = Some(stats);
+	}
+
 	/// Called when a task recieves a message.
-	//	pub fn track_consumed_message(&mut self, cycle: Time, total_delay:Time, injection_delay:Time, size: usize, subtraffic: Option<usize>)
-	pub fn track_consumed_message(&mut self, cycle: Time, total_delay:Time, size: usize, subtraffic: Option<usize>)
+	//	pub fn track_consumed_message(&mut self, cycle: Time, total_delay:Time, injection_delay:Time, size: usize)
+	pub fn track_consumed_message(&mut self, origin_task: usize, destination_task: usize, cycle: Time, total_delay:Time, size: usize)
 	{
 		// if delay < 0
 		// {
@@ -253,6 +261,7 @@ impl TrafficStatistics
 		self.total_message_delay+=total_delay;
 		// self.total_message_network_delay+= message_network_delay;
 		self.total_consumed_phits+=size;
+		self.comm_matrix[origin_task][destination_task]+=size;
 
 		if let Some(m) = self.current_temporal_measurement(cycle)
 		{
@@ -264,18 +273,9 @@ impl TrafficStatistics
 		self.histogram_messages_delay.entry(total_delay as usize/self.box_size).and_modify(|e| *e+=1).or_insert(1);
 		// self.histogram_messages_network_delay.entry(message_network_delay as usize/self.box_size).and_modify(|e| *e+=1).or_insert(1);
 
-		if let Some(subtraffic) = subtraffic
-		{
-			if let Some(sub) = self.sub_traffic_statistics.as_mut()
-			{
-				sub[subtraffic].track_consumed_message(cycle, total_delay, size, None);
-			}else {
-				panic!("Subtraffic statistics not initialized");
-			}
-		}
 	}
 	/// Called each time the traffic creates a message.
-	pub fn track_created_message(&mut self, cycle: Time, size:usize, subtraffic: Option<usize>)
+	pub fn track_created_message(&mut self, cycle: Time, size:usize)
 	{
 		self.cycle_last_created_message = cycle;
 		self.total_created_messages+=1;
@@ -285,16 +285,6 @@ impl TrafficStatistics
 			m.created_messages+=1;
 			m.created_phits+=size;
 		}
-		if let Some(subtraffic) = subtraffic
-		{
-			if let Some(sub) = self.sub_traffic_statistics.as_mut()
-			{
-				sub[subtraffic].track_created_message(cycle,size,None);
-			}else {
-				panic!("Subtraffic statistics not initialized");
-			}
-		}
-
 	}
 
 	pub fn current_temporal_measurement(&mut self, cycle: Time) -> Option<&mut TrafficMeasurement>
@@ -311,7 +301,7 @@ impl TrafficStatistics
 		} else { None }
 	}
 
-	pub fn track_task_state(&mut self, task: usize, state: TaskTrafficState, cycle: Time, subtraffic: Option<usize>)
+	pub fn track_task_state(&mut self, task: usize, state: TaskTrafficState, cycle: Time)
 	{
 		match state
 		{
@@ -340,15 +330,6 @@ impl TrafficStatistics
 			_ => panic!("Invalid task state to take metrics"), //| TaskTrafficState::WaitingData
 
 		};
-		if let Some(subtraffic) = subtraffic
-		{
-			if let Some(sub) = self.sub_traffic_statistics.as_mut()
-			{
-				sub[subtraffic].track_task_state(task, state, cycle, None);
-			}else {
-				panic!("Subtraffic statistics not initialized");
-			}
-		}
 	}
 
 	pub fn parse_statistics(&self) -> ConfigurationValue
@@ -412,7 +393,8 @@ impl TrafficStatistics
 				ConfigurationValue::Number( self.finished_tasks_histogram.get(&i).unwrap_or(&vec![]).iter().map(|x|*x).sum::<usize>() as f64
 			)).collect()
 		};
-
+		let communication_matrix = self.comm_matrix.iter().map(|row|ConfigurationValue::Array(row.iter().map(|x|ConfigurationValue::Number(*x as f64)).collect())).collect();
+		
 		let mut traffic_content = vec![
 			(String::from("total_consumed_messages"),ConfigurationValue::Number(self.total_consumed_messages as f64)),
 			(String::from("total_consumed_phits"),ConfigurationValue::Number(self.total_consumed_phits as f64)),
@@ -428,6 +410,7 @@ impl TrafficStatistics
 			(String::from("cycle_last_created_message"),ConfigurationValue::Number(self.cycle_last_created_message as f64)),
 			(String::from("cycle_last_consumed_message"),ConfigurationValue::Number(self.cycle_last_consumed_message as f64)),
 			(String::from("message_latency_histogram"),ConfigurationValue::Array(messages_latency_histogram)),
+			(String::from("communication_matrix"), ConfigurationValue::Array(communication_matrix)),
 			// (String::from("message_network_latency_histogram"),ConfigurationValue::Array(messages_network_latency_histogram)),
 			(String::from("generating_tasks_histogram"),ConfigurationValue::Array(generated_tasks_histogram)),
 			(String::from("waiting_tasks_histogram"),ConfigurationValue::Array(waiting_tasks_histogram)),
