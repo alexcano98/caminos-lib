@@ -1,4 +1,5 @@
 pub mod neighbours;
+mod operations;
 
 use crate::config_parser::ConfigurationValue;
 use crate::general_pattern::{GeneralPattern, GeneralPatternBuilderArgument};
@@ -22,6 +23,7 @@ pub(super) fn new_one_to_many_pattern(arg: GeneralPatternBuilderArgument) -> Box
             "BinaryTreeNeighbours" => Box::new(neighbours::BinaryTreeNeighbours::new(arg)),
             "AllNeighbours" => Box::new(neighbours::AllNeighbours::new(arg)),
             "ImmediateNeighbours" => Box::new(neighbours::ImmediateNeighbours::new(arg)),
+            "Composition" => Box::new(operations::Composition::new(arg)),
             _ => panic!("Unknown OneToManyPattern {}", cv_name),
         }
     } else {
