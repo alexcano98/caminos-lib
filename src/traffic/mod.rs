@@ -277,6 +277,7 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"Stencil" | "SendMessageToVector" => Box::new(SendMessageToVector::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
 			"Wavefront" | "All2AllLinear" => MiniApp::new(cv_name.clone(), arg),
+			"AMR" => Box::new(extra::AMR::new(arg)),
 			"MessageSizeModifier" => Box::new(extra::MessageSizeModifier::new(arg)),
 			"FIFOScheduler" => Box::new(schedulers::FIFOScheduler::new(arg)),
 			"SyntheticTrafficDistribution" => Box::new(datacenter_distributions::SyntheticTrafficDistribution::new(arg)),

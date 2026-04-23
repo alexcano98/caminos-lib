@@ -241,6 +241,19 @@ impl KingNeighbours{
 
 }
 
+pub fn get_king_neighbours_cv(sides: Vec<usize>, distance: usize, modular: bool) -> ConfigurationValue
+{
+    let sides = sides.iter().map(|v| ConfigurationValue::Number(*v as f64)).collect();
+    let distance = ConfigurationValue::Number(distance as f64);
+    let boolean = if modular { ConfigurationValue::True} else { ConfigurationValue::False };
+    ConfigurationValue::Object("KingNeighbours".parse().unwrap(), vec![
+        ("sides".to_string(), ConfigurationValue::Array(sides)),
+        ("distance".to_string(), distance),
+        ("modular".to_string(), boolean),
+        ]
+    )
+}
+
 /**
 Returns the neighbours in a hypercube
 ```ignore
