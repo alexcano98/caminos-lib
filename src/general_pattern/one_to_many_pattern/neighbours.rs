@@ -241,7 +241,7 @@ impl KingNeighbours{
 
 }
 
-pub fn get_king_neighbours_cv(sides: Vec<usize>, distance: usize, modular: bool) -> ConfigurationValue
+pub fn get_king_neighbours_cv(sides: &Vec<usize>, distance: usize, modular: bool) -> ConfigurationValue
 {
     let sides = sides.iter().map(|v| ConfigurationValue::Number(*v as f64)).collect();
     let distance = ConfigurationValue::Number(distance as f64);
