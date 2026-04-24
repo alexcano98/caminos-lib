@@ -513,7 +513,7 @@ impl Block{
 		if to_refine.is_empty(){
 			return;
 		}
-		if max_levels <= self.level{
+		if max_levels == self.level +1{ //dont refine more
 			to_refine.retain(|&a| a != self.id.unwrap()); //So in case it needs to be removed its done
 			return;
 		}
@@ -585,6 +585,7 @@ pub enum NeighbouringPattern {
 
 /**
 Adaptive Mesh Refinement traffic kernel.
+Simulates one step of the communications of a refined mesh.
 
 ## AMR (Adaptive Mesh Refinement)
 ```ignore
@@ -595,7 +596,6 @@ Adaptive Mesh Refinement traffic kernel.
 		block_label: Identity{},
 		neighbour_selection: KingNeighbours, // a NeigbouringPattern latter match with a pattern
 		refinement_pattern: RandomFilter{...},
-		derefinement_pattern: RandomFilter{...},
 		message_size: 256, //between big neighbour blocks
 	}
 ```
@@ -616,7 +616,7 @@ pub struct AMR {
 	tasks_to_block: Vec<Vec<usize>>,
 	block_to_task: Vec<usize>,
 	neighbour_patterns: Vec<Box<dyn OneToManyPattern>>, //Pattern depending on the grid of refinement.
-	refinement_pattern: Box<dyn ManyToManyPattern>,
+	refinement_pattern: Vec<Box<dyn ManyToManyPattern>>,
 	// derefinement_pattern: Box<dyn ManyToManyPattern>,
 	message_size: usize,
 	messages_to_consume:usize,
@@ -692,7 +692,9 @@ impl AMR {
 					_ => panic!("bad value for neighbour_pattern"),
 				}
 			),
-			"refinement_pattern" => refinement_pattern=Some(new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
+			"refinement_pattern" => refinement_pattern=Some(
+				value.as_array().expect("bad value for meshblock_space").iter().map(|v| new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:v, plugs:arg.plugs})).collect::<Vec<Box<dyn ManyToManyPattern>>>()
+			),
 			"message_size" => message_size=Some(value.as_usize().expect("bad value for message_size")),
 		);
 		let tasks = tasks.expect("tasks is required for AMRStep");
@@ -802,19 +804,22 @@ impl AMR {
 	}
 
 	fn refine_mesh_and_update_variables(&mut self) {
-		let param = ManyToManyParam {
-			list: (0..self.total_meshblocks).collect(),
-			origin: None,
-			current: None,
-			destination: None,
-			extra: None,
-		};
-		let mut to_refine = self.refinement_pattern.get_destination(param, None, &mut self.rng);
-		let mut id_start_label = 0;
-		for i in 0..self.meshblocks_roots.len() {
-			id_start_label = self.meshblocks_roots[i].refine_and_relabel_tree(&mut to_refine, self.max_levels, &mut self.sub_meshblock_label, &self.meshblock_spaces_by_level, id_start_label, &mut self.rng);
+		for refinement_round in 0..self.refinement_pattern.len()
+		{
+			let param = ManyToManyParam {
+				list: (0..self.total_meshblocks).collect(),
+				origin: None,
+				current: None,
+				destination: None,
+				extra: None,
+			};
+			let mut to_refine = self.refinement_pattern[refinement_round].get_destination(param, None, &mut self.rng);
+			let mut id_start_label = 0;
+			for i in 0..self.meshblocks_roots.len() {
+				id_start_label = self.meshblocks_roots[i].refine_and_relabel_tree(&mut to_refine, self.max_levels, &mut self.sub_meshblock_label, &self.meshblock_spaces_by_level, id_start_label, &mut self.rng);
+			}
+			self.total_meshblocks = id_start_label;
 		}
-		self.total_meshblocks = id_start_label;
 	}
 
 	fn assign_blocks_to_tasks(&mut self) {
@@ -853,7 +858,7 @@ impl AMR {
 				let neighbours = self.neighbour_patterns[level].get_destination(cartesian_levels[level].pack(&*block_coords), None, &mut self.rng.clone());
 				let mut final_neighbours = HashSet::new();
 
-				for k in 0..neighbours.len() {
+				for k in neighbours {
 					let neighbour_coord = cartesian_levels[level].unpack(k);
 					let root_block = neighbour_coord.clone().iter_mut().map(|x| *x / 2usize.pow(level as u32)).collect::<Vec<usize>>();
 					let root_offset = self.meshblock_label.get_destination(cartesian_levels[0].pack(&root_block), None, &mut self.rng.clone()); //its ID??
@@ -1497,5 +1502,59 @@ mod tests {
 		amr.should_generate(0, 0, &mut rng);
 
 
+	}
+
+	#[test]
+	fn test_amr_z_filling() {
+		let mut rng = StdRng::seed_from_u64(0);
+		let plugs = Plugs::default();
+
+		let amr_cv = ConfigurationValue::Object("AMR".to_string(), vec![
+			("tasks".to_string(), ConfigurationValue::Number(64.0)),
+			("meshblock_space".to_string(), ConfigurationValue::Array(vec![
+				ConfigurationValue::Number(4.0),
+				ConfigurationValue::Number(4.0),
+				ConfigurationValue::Number(4.0),
+			])),
+			("max_levels".to_string(), ConfigurationValue::Number(2.0)),
+			("meshblock_label".to_string(), ConfigurationValue::Object("LinearTransform".to_string(), vec![
+				("source_size".to_string(), ConfigurationValue::Array(vec![
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+				])),
+				("target_size".to_string(), ConfigurationValue::Array(vec![
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+				])),
+				("matrix".to_string(), ConfigurationValue::Array(vec![
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0)]),
+				])),
+				("legend_name".to_string(), ConfigurationValue::Literal("Z-filling".to_string())),
+			])),
+			("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
+			("refinement_pattern".to_string(), ConfigurationValue::Object("RandomFilter".to_string(), vec![
+				("source".to_string(), ConfigurationValue::False),
+				("destination".to_string(), ConfigurationValue::False),
+				("elements_to_return".to_string(), ConfigurationValue::Number(0.0)),
+			])),
+			("message_size".to_string(), ConfigurationValue::Number(16.0)),
+		]);
+
+		let traffic_builder = TrafficBuilderArgument {
+			cv: &amr_cv,
+			rng: &mut rng,
+			plugs: &plugs,
+			topology: None,
+		};
+
+		let mut amr = AMR::new(traffic_builder);
+		assert_eq!(amr.tasks, 64);
+		assert_eq!(amr.total_meshblocks, 64);
 	}
 }
