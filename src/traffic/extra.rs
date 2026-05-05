@@ -490,13 +490,13 @@ impl Block{
 		final_vector_of_children
 	}
 
-	fn refine_block(&mut self, sub_meshblock_label: &mut Box<dyn Pattern>, rng: &mut StdRng){
+	fn refine_block(&mut self){
 		let mut children_blocks = vec![];
 		let children_coordinates = Self::get_ordered_children_coordinates_from_block_coord(&self.coordinates);
 		for j in 0..children_coordinates.len(){
 			children_blocks.push(
 				Block{
-					id: Some(sub_meshblock_label.get_destination(j, None, rng)),
+					id: Some(j),
 					coordinates: children_coordinates[j].clone(),
 					children: vec![],
 					level: self.level + 1,
@@ -504,12 +504,12 @@ impl Block{
 			);
 		}
 		//order children by subblock_label
-		children_blocks.sort_by(|a, b| a.id.unwrap().cmp(&b.id.unwrap()));
+		// children_blocks.sort_by(|a, b| a.id.unwrap().cmp(&b.id.unwrap()));
 		self.children = children_blocks;
 		self.id = None;
 	}
 
-	fn refine_tree(&mut self, to_refine: &mut Vec<usize>, max_levels: usize, sub_meshblock_label: &mut Box<dyn Pattern>, spaces_by_level:&Vec<Vec<usize>>, rng: &mut StdRng){
+	fn refine_tree(&mut self, to_refine: &mut Vec<usize>, max_levels: usize, spaces_by_level:&Vec<Vec<usize>>){
 		if to_refine.is_empty(){
 			return;
 		}
@@ -524,7 +524,7 @@ impl Block{
 			}
 			if to_refine.contains(&id){
 				//refine this block
-				self.refine_block(sub_meshblock_label, rng);
+				self.refine_block();
 				to_refine.retain(|&a| a != id); //So in case it needs to be removed its done
 			}
 		}else {
@@ -532,7 +532,7 @@ impl Block{
 				panic!("Should have kids!")
 			}
 			for child in self.children.iter_mut() {
-				child.refine_tree(to_refine, max_levels, sub_meshblock_label, spaces_by_level, rng);
+				child.refine_tree(to_refine, max_levels, spaces_by_level);
 			}
 		}
 	}
@@ -556,9 +556,9 @@ impl Block{
 		}
 	}
 
-	pub fn refine_and_relabel_tree(&mut self, to_refine: &mut Vec<usize>, max_levels: usize, sub_meshblock_label: &mut Box<dyn Pattern>, spaces_by_level:&Vec<Vec<usize>>, start_id_relabeling: usize, rng: &mut StdRng) ->usize{
+	pub fn refine_and_relabel_tree(&mut self, to_refine: &mut Vec<usize>, max_levels: usize, spaces_by_level:&Vec<Vec<usize>>, start_id_relabeling: usize) ->usize{
 		if !to_refine.is_empty(){
-			self.refine_tree(to_refine, max_levels, sub_meshblock_label, spaces_by_level, rng);
+			self.refine_tree(to_refine, max_levels, spaces_by_level);
 		}
 		self.relabel_tree(start_id_relabeling)
 	}
@@ -612,7 +612,6 @@ pub struct AMR {
 	total_meshblocks: usize,
 	max_levels: usize,
 	meshblock_label: Box<dyn Pattern>,
-	sub_meshblock_label: Box<dyn Pattern>, // set labels to sublocks
 	tasks_to_block: Vec<Vec<usize>>,
 	block_to_task: Vec<usize>,
 	neighbour_patterns: Vec<Box<dyn OneToManyPattern>>, //Pattern depending on the grid of refinement.
@@ -674,7 +673,6 @@ impl AMR {
 		let mut meshblock_space = None;
 		let mut max_levels = None;
 		let mut meshblock_label = None;
-		let mut sub_meshblock_label = None;
 		let mut neighbour_pattern = None;
 		let mut refinement_pattern = None;
 		let mut message_size = None;
@@ -684,7 +682,6 @@ impl AMR {
 			"meshblock_space" => meshblock_space=Some(value.as_array().expect("bad value for meshblock_space").iter().map(|v| v.as_usize().expect("bad value for meshblock_space")).collect()),
 			"max_levels" => max_levels=Some(value.as_usize().expect("bad value for max_levels")),
 			"meshblock_label" => meshblock_label=Some(new_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
-			"sub_meshblock_label" => sub_meshblock_label=Some(new_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
 			"neighbour_selection" => neighbour_pattern=Some(
 				match value.as_str().expect("bad value for neighbour_pattern") {
 					"KingNeighbours" => NeighbouringPattern::KingNeighbours,
@@ -735,8 +732,6 @@ impl AMR {
 		let message_size = message_size.expect("message_size is required for AMRStep");
 		let mut meshblock_label = meshblock_label.expect("meshblock_label is required for AMRStep");
 		meshblock_label.initialize(total_meshblocks, total_meshblocks, arg.topology, arg.rng);
-		let mut sub_meshblock_label = sub_meshblock_label.expect("sub_meshblock_label is required for AMRStep");
-		sub_meshblock_label.initialize(2usize.pow(dimensions as u32), 2usize.pow(dimensions as u32), arg.topology, arg.rng);
 
 
 		let mut meshblocks_roots = vec![];
@@ -766,7 +761,6 @@ impl AMR {
 			total_meshblocks,
 			max_levels,
 			meshblock_label,
-			sub_meshblock_label,
 			tasks_to_block,
 			block_to_task: vec![],
 			neighbour_patterns,
@@ -816,7 +810,7 @@ impl AMR {
 			let mut to_refine = self.refinement_pattern[refinement_round].get_destination(param, None, &mut self.rng);
 			let mut id_start_label = 0;
 			for i in 0..self.meshblocks_roots.len() {
-				id_start_label = self.meshblocks_roots[i].refine_and_relabel_tree(&mut to_refine, self.max_levels, &mut self.sub_meshblock_label, &self.meshblock_spaces_by_level, id_start_label, &mut self.rng);
+				id_start_label = self.meshblocks_roots[i].refine_and_relabel_tree(&mut to_refine, self.max_levels, &self.meshblock_spaces_by_level, id_start_label);
 			}
 			self.total_meshblocks = id_start_label;
 		}
@@ -1098,6 +1092,7 @@ fn get_all2all_linear(task_space: Vec<usize>, message_size: usize, rounds: usize
 
 #[cfg(test)]
 mod tests {
+	use std::vec;
 	use super::*;
 
 	#[test]
@@ -1306,20 +1301,6 @@ mod tests {
 
 	#[test]
 	fn test_block_struct() {
-		use rand::SeedableRng;
-		use crate::general_pattern::GeneralPatternBuilderArgument;
-		use crate::config_parser::ConfigurationValue;
-		use crate::Plugs;
-		use crate::general_pattern::new_pattern;
-
-		let mut rng = StdRng::seed_from_u64(0);
-		let plugs = Plugs::default();
-		let identity_cv = ConfigurationValue::Object("Identity".to_string(), vec![]);
-		let mut sub_meshblock_label = new_pattern(GeneralPatternBuilderArgument {
-			cv: &identity_cv,
-			plugs: &plugs,
-		});
-		sub_meshblock_label.initialize(8, 8, None, &mut rng);
 
 		let mut root_block = Block {
 			id: Some(0),
@@ -1329,7 +1310,7 @@ mod tests {
 		};
 
 		// Test refine_block
-		root_block.refine_block(&mut sub_meshblock_label, &mut rng);
+		root_block.refine_block();
 		assert_eq!(root_block.children.len(), 8);
 		assert!(root_block.id.is_none());
 		for i in 0..8 {
@@ -1343,9 +1324,9 @@ mod tests {
 
 		// Test refine_and_relabel_tree
 		let mut to_refine = vec![0, 7];
-		let max_levels = 2;
-		let spaces_by_level = vec![vec![2,2,2], vec![4,4,4]];
-		let next_id = root_block.refine_and_relabel_tree(&mut to_refine, max_levels, &mut sub_meshblock_label, &spaces_by_level, 0, &mut rng);
+		let max_levels = 3;
+		let spaces_by_level = vec![vec![1,1,1], vec![2,2,2], vec![4,4,4]];
+		let next_id = root_block.refine_and_relabel_tree(&mut to_refine, max_levels, &spaces_by_level, 0);
 
 		assert_eq!(next_id, 22);
 
@@ -1371,9 +1352,9 @@ mod tests {
 			("meshblock_space".to_string(), ConfigurationValue::Array(meshblock_space.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())),
 			("max_levels".to_string(), ConfigurationValue::Number(max_levels as f64)),
 			("meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
-			("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
 			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
-			("refinement_pattern".to_string(), ConfigurationValue::Object("MinFilter".to_string(), vec![])),
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Object("MinFilter".to_string(), vec![])])),
 			("message_size".to_string(), ConfigurationValue::Number(message_size as f64)),
 		]);
 
@@ -1428,13 +1409,13 @@ mod tests {
 			("meshblock_space".to_string(), ConfigurationValue::Array(meshblock_space.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())),
 			("max_levels".to_string(), ConfigurationValue::Number(max_levels as f64)),
 			("meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
-			("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
 			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
-			("refinement_pattern".to_string(), ConfigurationValue::Object("RandomFilter".to_string(), vec![
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ ConfigurationValue::Object("RandomFilter".to_string(), vec![
 				("elements_to_return".to_string(), ConfigurationValue::Number(2f64)),
 				("source".to_string(), ConfigurationValue::False),
 				("destination".to_string(), ConfigurationValue::False),
-			])),
+			])])),
 			("message_size".to_string(), ConfigurationValue::Number(message_size as f64)),
 		]);
 
@@ -1480,13 +1461,13 @@ mod tests {
 			("meshblock_space".to_string(), ConfigurationValue::Array(meshblock_space.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())),
 			("max_levels".to_string(), ConfigurationValue::Number(max_levels as f64)),
 			("meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
-			("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
 			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
-			("refinement_pattern".to_string(), ConfigurationValue::Object("RandomFilter".to_string(), vec![
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Object("RandomFilter".to_string(), vec![
 				("elements_to_return".to_string(), ConfigurationValue::Number(0f64)),
 				("source".to_string(), ConfigurationValue::False),
 				("destination".to_string(), ConfigurationValue::False),
-			])),
+			])])),
 			("message_size".to_string(), ConfigurationValue::Number(message_size as f64)),
 		]);
 
@@ -1536,13 +1517,13 @@ mod tests {
 				])),
 				("legend_name".to_string(), ConfigurationValue::Literal("Z-filling".to_string())),
 			])),
-			("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
 			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
-			("refinement_pattern".to_string(), ConfigurationValue::Object("RandomFilter".to_string(), vec![
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ ConfigurationValue::Object("RandomFilter".to_string(), vec![
 				("source".to_string(), ConfigurationValue::False),
 				("destination".to_string(), ConfigurationValue::False),
 				("elements_to_return".to_string(), ConfigurationValue::Number(0.0)),
-			])),
+			])])),
 			("message_size".to_string(), ConfigurationValue::Number(16.0)),
 		]);
 
