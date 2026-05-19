@@ -13,6 +13,7 @@ mod extra;
 mod basic;
 mod operations;
 mod schedulers;
+mod datacenter_distributions;
 
 use crate::traffic::collectives::MPICollective;
 use crate::AsMessage;
@@ -91,6 +92,7 @@ pub trait Traffic : Quantifiable + Debug
 		// r<p
 	}
 	///Indicates the state of the task within the traffic.
+	/// TODO: Can this be eliminated? Only useful for traffics that contain subtraffics?
 	fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>;
 
 	/// Indicates the number of tasks in the traffic.
@@ -275,8 +277,11 @@ pub fn new_traffic(arg:TrafficBuilderArgument) -> Box<dyn Traffic>
 			"Stencil" | "SendMessageToVector" => Box::new(SendMessageToVector::new(arg)),
 			"AllReduce" | "ScatterReduce" | "AllGather" | "All2All" => MPICollective::new(cv_name.clone(), arg),
 			"Wavefront" | "All2AllLinear" => MiniApp::new(cv_name.clone(), arg),
+			"AMR" => Box::new(extra::AMR::new(arg)),
 			"MessageSizeModifier" => Box::new(extra::MessageSizeModifier::new(arg)),
 			"FIFOScheduler" => Box::new(schedulers::FIFOScheduler::new(arg)),
+			"SyntheticTrafficDistribution" => Box::new(datacenter_distributions::SyntheticTrafficDistribution::new(arg)),
+			"StatisticsCollector" => Box::new(extra::StatisticsCollector::new(arg)),
 			_ => panic!("Unknown traffic {}",cv_name),
 		}
 	}

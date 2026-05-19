@@ -1,5 +1,6 @@
+use std::cmp;
+use std::collections::{HashSet, VecDeque};
 use crate::general_pattern::pattern::{get_cartesian_transform_from_builder, get_composition_pattern_cv, get_linear_transform, BuildCartesianTransformCV, BuildCompositionCV, BuildLinearTransformCV};
-use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::rc::Rc;
 use quantifiable_derive::Quantifiable;
@@ -9,14 +10,19 @@ use crate::{match_object_panic, Message, Time};
 
 use crate::AsMessage;
 use crate::config_parser::ConfigurationValue;
-use crate::general_pattern::{new_pattern, GeneralPatternBuilderArgument};
-use crate::general_pattern::one_to_many_pattern::neighbours::{immediate_neighbours_cv_builder, ImmediateNeighboursCVBuilder};
+use crate::general_pattern::{new_one_to_many_pattern, new_pattern, GeneralPatternBuilderArgument};
+use crate::general_pattern::many_to_many_pattern::{new_many_to_many_pattern, ManyToManyParam, ManyToManyPattern};
+use crate::general_pattern::one_to_many_pattern::neighbours::{get_king_neighbours_cv, immediate_neighbours_cv_builder, ImmediateNeighboursCVBuilder};
+use crate::general_pattern::one_to_many_pattern::OneToManyPattern;
 use crate::general_pattern::pattern::extra::{get_candidates_selection, get_cartesian_transform, get_hotspot_destination};
+use crate::general_pattern::prelude::Pattern;
 use crate::packet::ReferredPayload;
 use crate::topology::cartesian::CartesianData;
 use crate::topology::Topology;
 use crate::traffic::{build_traffic_map_cv, build_traffic_sum_cv, new_traffic, BuildTrafficMapCVArgs, BuildTrafficSumCVArgs, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
 use crate::traffic::basic::{build_send_message_to_vector_cv, SendMessageToVectorCVBuilder};
+use crate::measures::TrafficStatistics;
+use crate::traffic::TaskTrafficState::{FinishedGenerating, Generating};
 
 /**
 Traffic which allows a task from a traffic to generate a message when it has enough credits.
@@ -355,6 +361,545 @@ pub fn get_message_size_modifier(args: BuildMessageSizeModifierCVArgs) -> Config
 	ConfigurationValue::Object("MessageSizeModifier".to_string(), arg_vec)
 }
 
+
+/**
+Traffic which collects statistics of a Traffic below. It doesnt do anything else
+```ignore
+TrafficStatistics{
+	traffic: All2All{...},
+}
+```
+ **/
+
+#[derive(Debug, Quantifiable)]
+pub struct StatisticsCollector {
+	traffic: Box<dyn Traffic>,
+	statistics: TrafficStatistics,
+}
+
+impl Traffic for StatisticsCollector {
+    fn generate_message(&mut self, origin:usize, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> Result<Rc<Message>,TrafficError> {
+        let result = self.traffic.generate_message(origin, cycle, topology, rng);
+
+        if let Ok(message) = &result {
+            self.statistics.track_created_message(cycle, message.size);
+        }
+        result
+    }
+
+    fn probability_per_cycle(&self, task:usize) -> f32 {
+        self.traffic.probability_per_cycle(task)
+    }
+
+    fn consume(&mut self, task:usize, message: &dyn AsMessage, cycle:Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool {
+        let consumed = self.traffic.consume(task, message, cycle, topology, rng);
+        if consumed {
+            self.statistics.track_consumed_message(message.origin(), task, cycle, cycle - message.creation_cycle(), message.size());
+        }
+        consumed
+    }
+
+    fn is_finished(&mut self, rng: Option<&mut StdRng>) -> bool {
+        self.traffic.is_finished(rng)
+    }
+
+    fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool {
+        let gen = self.traffic.should_generate(task, cycle, rng);
+		if gen{
+			self.statistics.track_task_state(task, TaskTrafficState::Generating, cycle);
+		}else { 
+			self.statistics.track_task_state(task, TaskTrafficState::UnspecifiedWait, cycle);
+		}
+		gen
+    }
+
+    fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState> {
+        self.traffic.task_state(task, cycle)
+    }
+
+    fn number_tasks(&self) -> usize {
+        self.traffic.number_tasks()
+    }
+
+    fn get_statistics(&self) -> Option<TrafficStatistics> {
+        Some(self.statistics.clone())
+    }
+}
+
+impl StatisticsCollector {
+    pub fn new(arg: TrafficBuilderArgument) -> StatisticsCollector {
+        let mut traffic = None;
+        let mut statistics_temporal_step = None;
+        let mut box_size = None;
+
+        match_object_panic!(arg.cv, "StatisticsCollector", value,
+            "traffic" => traffic = Some(new_traffic(TrafficBuilderArgument{cv:value, plugs:arg.plugs, topology:arg.topology, rng:arg.rng})),
+            "temporal_step" => statistics_temporal_step = Some(value.as_time().expect("bad value for statistics_temporal_step")),
+            "box_size" => box_size = Some(value.as_usize().expect("bad value for box_size")),
+        );
+
+        let traffic = traffic.expect("Traffic is required for StatisticsCollector");
+        let number_tasks = traffic.number_tasks();
+        let statistics = TrafficStatistics::new(
+			number_tasks,
+	        statistics_temporal_step.expect("statistics_temporal_step is required for StatisticsCollector"),
+	        box_size.expect("box_size is required for StatisticsCollector"),
+		);
+
+        StatisticsCollector {
+            traffic,
+            statistics,
+        }
+    }
+}
+
+pub struct BuildStatisticsCollectorCVArgs {
+    pub traffic: ConfigurationValue,
+    pub temporal_step: Time,
+    pub box_size: usize,
+}
+
+pub fn get_statistics_collector_cv(args: BuildStatisticsCollectorCVArgs) -> ConfigurationValue {
+    let arg_vec = vec![
+        ("traffic".to_string(), args.traffic),
+        ("temporal_step".to_string(), ConfigurationValue::Number(args.temporal_step as f64)),
+        ("box_size".to_string(), ConfigurationValue::Number(args.box_size as f64))
+    ];
+    ConfigurationValue::Object("StatisticsCollector".to_string(), arg_vec)
+}
+
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct Block{
+	id: Option<usize>,
+	coordinates: Vec<usize>,
+	children: Vec<Block>,
+	level: usize,
+}
+
+impl Block{
+
+	fn get_ordered_children_coordinates_from_block_coord(b_coord: &Vec<usize>) -> Vec<Vec<usize>>{
+		let sub_space_children_cartesian_data = CartesianData::new(&vec![2; b_coord.len()]);
+		let children_coord_start = b_coord.clone().into_iter().map(|x| x * 2).collect::<Vec<usize>>();
+		let mut final_vector_of_children = vec![];
+		for j in 0..sub_space_children_cartesian_data.size{
+			let local_vector = sub_space_children_cartesian_data.unpack(j);
+			final_vector_of_children.push(children_coord_start.clone().into_iter().zip(local_vector.iter()).map(|(a, b)| a + b).collect::<Vec<usize>>());
+		}
+		final_vector_of_children
+	}
+
+	fn refine_block(&mut self){
+		let mut children_blocks = vec![];
+		let children_coordinates = Self::get_ordered_children_coordinates_from_block_coord(&self.coordinates);
+		for j in 0..children_coordinates.len(){
+			children_blocks.push(
+				Block{
+					id: Some(j),
+					coordinates: children_coordinates[j].clone(),
+					children: vec![],
+					level: self.level + 1,
+				}
+			);
+		}
+		//order children by subblock_label
+		// children_blocks.sort_by(|a, b| a.id.unwrap().cmp(&b.id.unwrap()));
+		self.children = children_blocks;
+		self.id = None;
+	}
+
+	fn refine_tree(&mut self, to_refine: &mut Vec<usize>, max_levels: usize, spaces_by_level:&Vec<Vec<usize>>){
+		if to_refine.is_empty(){
+			return;
+		}
+		if max_levels == self.level +1{ //dont refine more
+			to_refine.retain(|&a| a != self.id.unwrap()); //So in case it needs to be removed its done
+			return;
+		}
+
+		if let Some(id) = self.id{
+			if self.children.len() != 0{
+				panic!("Trying to refine a block that has not been refined yet, but it has children. This should not happen.")
+			}
+			if to_refine.contains(&id){
+				//refine this block
+				self.refine_block();
+				to_refine.retain(|&a| a != id); //So in case it needs to be removed its done
+			}
+		}else {
+			if self.children.len() == 0{
+				panic!("Should have kids!")
+			}
+			for child in self.children.iter_mut() {
+				child.refine_tree(to_refine, max_levels, spaces_by_level);
+			}
+		}
+	}
+
+	fn relabel_tree(&mut self, start_id_relabeling: usize)-> usize{
+		if let Some(_) = self.id {
+			if !self.children.is_empty() {
+				panic!("Shouldnt have children")
+			}
+			self.id = Some(start_id_relabeling);
+			start_id_relabeling + 1
+		} else {
+			if self.children.is_empty() {
+				panic!("Should have children")
+			}
+			let mut next_id = start_id_relabeling;
+			for child in self.children.iter_mut() {
+				next_id = child.relabel_tree(next_id);
+			}
+			next_id
+		}
+	}
+
+	pub fn refine_and_relabel_tree(&mut self, to_refine: &mut Vec<usize>, max_levels: usize, spaces_by_level:&Vec<Vec<usize>>, start_id_relabeling: usize) ->usize{
+		if !to_refine.is_empty(){
+			self.refine_tree(to_refine, max_levels, spaces_by_level);
+		}
+		self.relabel_tree(start_id_relabeling)
+	}
+
+	pub fn all_internal_meshblocks_list(&self) -> Vec<&Block>
+	{
+		let mut list = vec![];
+		if let Some(_) = self.id{
+			assert_eq!(self.children.len(), 0);
+			list.push(self);
+		}else {
+			for child in self.children.iter(){
+				list.extend(child.all_internal_meshblocks_list());
+			}
+		}
+		list
+	}
+}
+
+pub enum NeighbouringPattern {
+	KingNeighbours,
+	ManhattanNeighbours,
+}
+
+/**
+Adaptive Mesh Refinement traffic kernel.
+Simulates one step of the communications of a refined mesh.
+
+## AMR (Adaptive Mesh Refinement)
+```ignore
+	AMR{
+		tasks: 512,
+		meshblock_space:[8, 8, 8], //1 meshblock per task to init
+		max_levels: 3, //number of levels of refinement
+		block_label: Identity{},
+		neighbour_selection: KingNeighbours, // a NeigbouringPattern latter match with a pattern
+		refinement_pattern: RandomFilter{...},
+		message_size: 256, //between big neighbour blocks
+	}
+```
+**/
+#[derive(Quantifiable)]
+#[derive(Debug)]
+pub struct AMR {
+	tasks: usize,
+	task_messages_to_send: Vec<VecDeque<(usize, usize)>>,
+	meshblock_spaces_by_level: Vec<Vec<usize>>,
+	meshblocks_roots: Vec<Block>,
+	// all_meshblocks_list: &'a Vec<Block>,
+	dimensions: usize,
+	total_meshblocks: usize,
+	max_levels: usize,
+	meshblock_label: Box<dyn Pattern>,
+	tasks_to_block: Vec<Vec<usize>>,
+	block_to_task: Vec<usize>,
+	neighbour_patterns: Vec<Box<dyn OneToManyPattern>>, //Pattern depending on the grid of refinement.
+	refinement_pattern: Vec<Box<dyn ManyToManyPattern>>,
+	// derefinement_pattern: Box<dyn ManyToManyPattern>,
+	message_size: usize,
+	messages_to_consume:usize,
+	messages_consumed:usize,
+	rng: StdRng,
+}
+
+impl Traffic for AMR {
+	fn generate_message(&mut self, origin: usize, cycle: Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Result<Rc<Message>, TrafficError> {
+		let Some((destination, size)) = self.task_messages_to_send[origin].pop_front() else { panic!("Shouldn't be happening") };
+		Ok(Rc::new(Message { origin, destination, size, creation_cycle: cycle, payload: vec![], id_traffic: None }))
+	}
+
+	fn probability_per_cycle(&self, task: usize) -> f32 {
+		if self.task_messages_to_send[task].len() > 0{
+			1.0
+		}	else {
+			0.0
+		}
+	}
+
+	fn consume(&mut self, task: usize, message: &dyn AsMessage, _cycle: Time, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> bool {
+		self.messages_consumed+=1;
+		task == message.destination()
+	}
+
+	fn is_finished(&mut self, _rng: Option<&mut StdRng>) -> bool {
+		self.messages_to_consume == self.messages_consumed
+	}
+
+	fn should_generate(&mut self, task: usize, _cycle: Time, _rng: &mut StdRng) -> bool {
+		self.task_messages_to_send[task].len() > 0
+	}
+
+	fn task_state(&mut self, task: usize, _cycle: Time) -> Option<TaskTrafficState> {
+		if self.task_messages_to_send[task].len() > 0{
+			Some(Generating)
+		}	else {
+			Some(FinishedGenerating)
+		}
+	}
+
+	fn number_tasks(&self) -> usize {
+		self.tasks
+	}
+
+	fn get_statistics(&self) -> Option<TrafficStatistics> {
+		None
+	}
+}
+
+impl AMR {
+	pub fn new(arg: TrafficBuilderArgument) -> AMR {
+		let mut tasks = None;
+		let mut meshblock_space = None;
+		let mut max_levels = None;
+		let mut meshblock_label = None;
+		let mut neighbour_pattern = None;
+		let mut refinement_pattern = None;
+		let mut message_size = None;
+
+		match_object_panic!(arg.cv,"AMR",value,
+			"tasks" => tasks=Some(value.as_usize().expect("bad value for tasks")),
+			"meshblock_space" => meshblock_space=Some(value.as_array().expect("bad value for meshblock_space").iter().map(|v| v.as_usize().expect("bad value for meshblock_space")).collect()),
+			"max_levels" => max_levels=Some(value.as_usize().expect("bad value for max_levels")),
+			"meshblock_label" => meshblock_label=Some(new_pattern(GeneralPatternBuilderArgument{cv:value, plugs:arg.plugs})),
+			"neighbour_selection" => neighbour_pattern=Some(
+				match value.as_str().expect("bad value for neighbour_pattern") {
+					"KingNeighbours" => NeighbouringPattern::KingNeighbours,
+					"ManhattanNeighbours" => NeighbouringPattern::ManhattanNeighbours,
+					_ => panic!("bad value for neighbour_pattern"),
+				}
+			),
+			"refinement_pattern" => refinement_pattern=Some(
+				value.as_array().expect("bad value for meshblock_space").iter().map(|v| new_many_to_many_pattern(GeneralPatternBuilderArgument{cv:v, plugs:arg.plugs})).collect::<Vec<Box<dyn ManyToManyPattern>>>()
+			),
+			"message_size" => message_size=Some(value.as_usize().expect("bad value for message_size")),
+		);
+		let tasks = tasks.expect("tasks is required for AMRStep");
+		let meshblock_space: Vec<usize> = meshblock_space.expect("meshblock_space is required for AMRStep");
+		let dimensions = meshblock_space.len();
+		let max_levels = max_levels.expect("max_levels is required for AMRStep");
+		let mut meshblock_spaces_by_level: Vec<Vec<usize>> = vec![];
+		let mut iter = meshblock_space.clone();
+		for _ in 0..max_levels {
+			meshblock_spaces_by_level.push(iter.clone());
+			iter.iter_mut().for_each(|x| *x *= 2);
+		}
+		// let sub_meshblock_space = vec![2; dimensions];
+
+		let mut neighbour_patterns: Vec<Box<dyn OneToManyPattern>> = vec![];
+		match neighbour_pattern.expect("neighbour_pattern is required for AMRStep") {
+			NeighbouringPattern::KingNeighbours => {
+				for i in 0..max_levels {
+					neighbour_patterns.push(
+						new_one_to_many_pattern(GeneralPatternBuilderArgument {
+							cv: &get_king_neighbours_cv(&meshblock_spaces_by_level[i], 1, true),
+							plugs: arg.plugs
+						})
+					);
+				}
+			}
+			NeighbouringPattern::ManhattanNeighbours => {
+				panic!("ManhattanNeighbours is not implemented yet")
+			}
+		};
+		let meshblocks_cartesian_data = CartesianData::new(&meshblock_space);
+		let total_meshblocks = meshblocks_cartesian_data.size;
+		for i in 0..neighbour_patterns.len() {
+			neighbour_patterns[i].initialize(total_meshblocks * 2usize.pow(dimensions as u32).pow(i as u32), total_meshblocks * 2usize.pow(dimensions as u32).pow(i as u32), arg.topology, arg.rng);
+		}
+
+		let refinement_pattern = refinement_pattern.expect("refinement_pattern is required for AMRStep");
+		let message_size = message_size.expect("message_size is required for AMRStep");
+		let mut meshblock_label = meshblock_label.expect("meshblock_label is required for AMRStep");
+		meshblock_label.initialize(total_meshblocks, total_meshblocks, arg.topology, arg.rng);
+
+
+		let mut meshblocks_roots = vec![];
+		for i in 0..total_meshblocks {
+			let coordinates = meshblocks_cartesian_data.unpack(i);
+			let block = Block {
+				id: Some(meshblock_label.get_destination(i, None, arg.rng)),
+				coordinates,
+				children: vec![],
+				level: 0,
+			};
+			meshblocks_roots.push(block);
+		}
+		//now sort the blocks by ID so ID 0 is first and goes incrementally
+		meshblocks_roots.sort_by(|a, b| a.id.unwrap().cmp(&b.id.unwrap()));
+		// let all_meshblocks_list = &meshblocks_roots;
+		let task_messages_to_send = vec![VecDeque::new(); tasks];
+		let tasks_to_block = vec![vec![]; tasks];
+
+		let mut traffic = AMR {
+			tasks,
+			task_messages_to_send,
+			meshblock_spaces_by_level,
+			meshblocks_roots,
+			// all_meshblocks_list,
+			dimensions,
+			total_meshblocks,
+			max_levels,
+			meshblock_label,
+			tasks_to_block,
+			block_to_task: vec![],
+			neighbour_patterns,
+			refinement_pattern,
+			message_size,
+			messages_to_consume: 0,
+			messages_consumed: 0,
+			rng: arg.rng.clone(),
+		};
+		traffic.refine_mesh_and_update_variables();
+		traffic.assign_blocks_to_tasks();
+		traffic.generate_amr_step_messages();
+		//Print some stats about the number of blocks per task, size to transmit (min and max in both)
+		println!("AMR initialized with {} tasks and {} total meshblocks. Each task has between {} and {} blocks, and will send messages between {} and {}.",
+			traffic.tasks,
+			traffic.total_meshblocks,
+			traffic.tasks_to_block.iter().map(|b| b.len()).min().unwrap(),
+			traffic.tasks_to_block.iter().map(|b| b.len()).max().unwrap(),
+			traffic.task_messages_to_send.iter().map(|b| b.len()).min().unwrap(),
+			traffic.task_messages_to_send.iter().map(|b| b.len()).max().unwrap()
+		);
+
+		//print len of messages of all tasks:
+		println!("len of all messages of all tasks: {:?}", traffic.task_messages_to_send.iter().map(|b| b.len()).collect::<Vec<usize>>());
+		traffic
+	}
+
+	fn get_all_meshblocks_list(&self) -> Vec<&Block> {
+		let mut list = vec![];
+		for root in &self.meshblocks_roots {
+			list.extend(root.all_internal_meshblocks_list());
+		}
+		//list.sort_by_key(|b| b.id.unwrap()); //No need of ordering!
+		list
+	}
+
+	fn refine_mesh_and_update_variables(&mut self) {
+		for refinement_round in 0..self.refinement_pattern.len()
+		{
+			let param = ManyToManyParam {
+				list: (0..self.total_meshblocks).collect(),
+				origin: None,
+				current: None,
+				destination: None,
+				extra: None,
+			};
+			let mut to_refine = self.refinement_pattern[refinement_round].get_destination(param, None, &mut self.rng);
+			let mut id_start_label = 0;
+			for i in 0..self.meshblocks_roots.len() {
+				id_start_label = self.meshblocks_roots[i].refine_and_relabel_tree(&mut to_refine, self.max_levels, &self.meshblock_spaces_by_level, id_start_label);
+			}
+			self.total_meshblocks = id_start_label;
+		}
+	}
+
+	fn assign_blocks_to_tasks(&mut self) {
+		let blocks_per_task = self.total_meshblocks / self.tasks;
+		let mut remaining = self.total_meshblocks % self.tasks;
+		let mut assigned = 0;
+		self.block_to_task = vec![0; self.total_meshblocks];
+		for i in 0..self.tasks {
+			for _ in 0..blocks_per_task {
+				self.tasks_to_block[i].push(assigned);
+				self.block_to_task[assigned] = i;
+				assigned += 1;
+			}
+			if remaining != 0 {
+				self.tasks_to_block[i].push(assigned);
+				self.block_to_task[assigned] = i;
+				assigned += 1;
+				remaining -= 1;
+			}
+		}
+		if assigned != self.total_meshblocks {
+			panic!("Not all blocks were assigned to tasks")
+		}
+	}
+
+	fn generate_amr_step_messages(&mut self) {
+		// let all_meshblocks_list:Vec<(Vec<usize>, usize)> = self.get_all_meshblocks_list().iter().map(|b| (b.coordinates.clone(), b.level)).collect();
+		let all_meshblocks_list = self.get_all_meshblocks_list();
+		let mut task_messages_to_send = vec![VecDeque::new(); self.tasks];
+		let cartesian_levels: Vec<CartesianData> = (0..self.max_levels).map(|level| CartesianData::new(&self.meshblock_spaces_by_level[level])).collect();
+		for i in 0..self.tasks {
+			for j in 0..self.tasks_to_block[i].len() {
+				let block_id = self.tasks_to_block[i][j];
+				let block_coords = all_meshblocks_list[block_id].coordinates.clone();
+				let level = all_meshblocks_list[block_id].level.clone();
+				let neighbours = self.neighbour_patterns[level].get_destination(cartesian_levels[level].pack(&*block_coords), None, &mut self.rng.clone());
+				let mut final_neighbours = HashSet::new();
+
+				for k in neighbours {
+					let neighbour_coord = cartesian_levels[level].unpack(k);
+					let root_block = neighbour_coord.clone().iter_mut().map(|x| *x / 2usize.pow(level as u32)).collect::<Vec<usize>>();
+					let root_offset = self.meshblock_label.get_destination(cartesian_levels[0].pack(&root_block), None, &mut self.rng.clone()); //its ID??
+					let root_children = self.meshblocks_roots[root_offset].all_internal_meshblocks_list();
+					for c in root_children {
+						if self.check_neighbour(&block_coords, &neighbour_coord, level, &c.coordinates, c.level) {
+							final_neighbours.insert(c.id.unwrap());
+						}
+					}
+				}
+				// task_block_neighbours.extend(final_neighbours.into_iter());
+				for nei in final_neighbours.iter() { //Add message to send!
+					let message_size = self.message_size / (cmp::max(all_meshblocks_list[*nei].level, level) +1usize).pow(2);
+					let task_to_send = self.block_to_task[*nei];
+					if task_to_send == i{
+						continue; //dont send messages to itself or it will crash!
+					}
+					task_messages_to_send[i].push_back((task_to_send, message_size));
+				}
+			}
+		}
+		self.task_messages_to_send = task_messages_to_send;
+		self.messages_to_consume = self.task_messages_to_send.iter().map(|a| a.len()).reduce(|a, b| a + b).unwrap();
+	}
+
+	fn check_neighbour(&self, origin_meshblock: &Vec<usize>, neighbour_coord: &Vec<usize>, origin_neighbour_level: usize, destination_root_child: &Vec<usize>, destination_root_child_level: usize) -> bool {
+		if origin_neighbour_level >= destination_root_child_level && neighbour_coord.iter().zip(destination_root_child.iter()).all(|(a, b)| *a == (b / 2usize.pow(origin_neighbour_level as u32 - destination_root_child_level as u32))) {
+			true //If the obtained neighbour is more refined than what its in the mesh, and the coordinates coincides, TRUE
+		} else if origin_neighbour_level < destination_root_child_level {
+			let origin_meshblock_children = Block::get_ordered_children_coordinates_from_block_coord(&origin_meshblock);
+			let new_children_aux_level = origin_neighbour_level + 1;
+			let new_cartesian_dimension = CartesianData::new(&self.meshblock_spaces_by_level[new_children_aux_level]);
+			for origin_child in origin_meshblock_children.iter() {
+				let new_smaller_neighbours = self.neighbour_patterns[new_children_aux_level].get_destination(new_cartesian_dimension.pack(origin_child), None, &mut self.rng.clone());
+				for origin_child_neighbours in new_smaller_neighbours {
+					if self.check_neighbour(origin_child, &new_cartesian_dimension.unpack(origin_child_neighbours), new_children_aux_level, destination_root_child, destination_root_child_level) {
+						return true
+					}
+				}
+			}
+			false
+		} else {
+			false
+		}
+	}
+}
+
 /**
 Mini-Kernels which imitate the behavior of real applications.
 
@@ -547,6 +1092,7 @@ fn get_all2all_linear(task_space: Vec<usize>, message_size: usize, rounds: usize
 
 #[cfg(test)]
 mod tests {
+	use std::vec;
 	use super::*;
 
 	#[test]
@@ -751,5 +1297,245 @@ mod tests {
 		}
 
 		assert_eq!(t.is_finished(Some(&mut rng)), true);
+	}
+
+	#[test]
+	fn test_block_struct() {
+
+		let mut root_block = Block {
+			id: Some(0),
+			coordinates: vec![0, 0, 0],
+			children: vec![],
+			level: 0,
+		};
+
+		// Test refine_block
+		root_block.refine_block();
+		assert_eq!(root_block.children.len(), 8);
+		assert!(root_block.id.is_none());
+		for i in 0..8 {
+			assert_eq!(root_block.children[i].id, Some(i));
+			assert_eq!(root_block.children[i].level, 1);
+		}
+
+		// Test all_internal_meshblocks_list
+		let list = root_block.all_internal_meshblocks_list();
+		assert_eq!(list.len(), 8);
+
+		// Test refine_and_relabel_tree
+		let mut to_refine = vec![0, 7];
+		let max_levels = 3;
+		let spaces_by_level = vec![vec![1,1,1], vec![2,2,2], vec![4,4,4]];
+		let next_id = root_block.refine_and_relabel_tree(&mut to_refine, max_levels, &spaces_by_level, 0);
+
+		assert_eq!(next_id, 22);
+
+		let list = root_block.all_internal_meshblocks_list();
+		assert_eq!(list.len(), 22);
+		let mut ids: Vec<usize> = list.iter().map(|b| b.id.unwrap()).collect();
+		ids.sort();
+		let expected_ids: Vec<usize> = (0..22).collect();
+		assert_eq!(ids, expected_ids);
+	}
+
+	#[test]
+	fn test_amr() {
+		let mut rng = StdRng::seed_from_u64(0);
+		let plugs = Plugs::default();
+		let tasks = 7;
+		let meshblock_space = vec![2, 2];
+		let max_levels = 2;
+		let message_size = 256;
+
+		let amr_cv = ConfigurationValue::Object("AMR".to_string(), vec![
+			("tasks".to_string(), ConfigurationValue::Number(tasks as f64)),
+			("meshblock_space".to_string(), ConfigurationValue::Array(meshblock_space.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())),
+			("max_levels".to_string(), ConfigurationValue::Number(max_levels as f64)),
+			("meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Object("MinFilter".to_string(), vec![])])),
+			("message_size".to_string(), ConfigurationValue::Number(message_size as f64)),
+		]);
+
+		let traffic_builder = TrafficBuilderArgument {
+			cv: &amr_cv,
+			rng: &mut rng,
+			plugs: &plugs,
+			topology: None,
+		};
+
+		let mut amr = AMR::new(traffic_builder);
+
+		// Test refine_mesh_and_update_variables
+		assert_eq!(amr.total_meshblocks, 7);
+
+		// Test assign_blocks_to_tasks
+		assert_eq!(amr.block_to_task.len(), amr.total_meshblocks);
+		assert_eq!(amr.tasks_to_block.len(), tasks);
+		let total_assigned_blocks: usize = amr.tasks_to_block.iter().map(|v| v.len()).sum();
+		assert_eq!(total_assigned_blocks, amr.total_meshblocks);
+		for i in 0..7 {
+			assert_eq!(amr.tasks_to_block[i].len(), 1);
+		}
+
+
+		// Test generate_amr_step_messages
+		let total_messages: usize = amr.task_messages_to_send.iter().map(|d| d.len()).sum();
+		assert!(total_messages > 0);
+		assert_eq!(amr.messages_to_consume, total_messages);
+
+		// Test check_neighbour
+		let origin = vec![0,0];
+		let neighbour_of_origin = vec![0,1];
+		let dest_child = vec![0,1];
+		assert!(amr.check_neighbour(&origin, &neighbour_of_origin,0, &dest_child, 0));
+
+		let not_neighbour = vec![1,1];
+		assert!(!amr.check_neighbour(&origin, &not_neighbour, 0, &dest_child, 0));
+	}
+
+	#[test]
+	fn test_amr_3d_random() {
+		let mut rng = StdRng::seed_from_u64(0);
+		let plugs = Plugs::default();
+		let tasks = 32;
+		let meshblock_space = vec![4, 4, 4];
+		let max_levels = 3;
+		let message_size = 256;
+
+		let amr_cv = ConfigurationValue::Object("AMR".to_string(), vec![
+			("tasks".to_string(), ConfigurationValue::Number(tasks as f64)),
+			("meshblock_space".to_string(), ConfigurationValue::Array(meshblock_space.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())),
+			("max_levels".to_string(), ConfigurationValue::Number(max_levels as f64)),
+			("meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ ConfigurationValue::Object("RandomFilter".to_string(), vec![
+				("elements_to_return".to_string(), ConfigurationValue::Number(2f64)),
+				("source".to_string(), ConfigurationValue::False),
+				("destination".to_string(), ConfigurationValue::False),
+			])])),
+			("message_size".to_string(), ConfigurationValue::Number(message_size as f64)),
+		]);
+
+		let traffic_builder = TrafficBuilderArgument {
+			cv: &amr_cv,
+			rng: &mut rng,
+			plugs: &plugs,
+			topology: None,
+		};
+
+		let mut amr = AMR::new(traffic_builder);
+
+		// Just check that it initializes without panic, and check some basics
+		assert!(amr.total_meshblocks >= 64); // it starts at 64, and should refine more
+
+		// Test assign_blocks_to_tasks
+		assert_eq!(amr.block_to_task.len(), amr.total_meshblocks);
+		assert_eq!(amr.tasks_to_block.len(), tasks);
+		let total_assigned_blocks: usize = amr.tasks_to_block.iter().map(|v| v.len()).sum();
+		assert_eq!(total_assigned_blocks, amr.total_meshblocks);
+
+		// Test generate_amr_step_messages
+		let total_messages: usize = amr.task_messages_to_send.iter().map(|d| d.len()).sum();
+		assert!(total_messages > 0);
+		assert_eq!(amr.messages_to_consume, total_messages);
+		//check the list of meshblocks and its IDs
+		let list = amr.get_all_meshblocks_list();
+		assert_eq!(list.len(), amr.total_meshblocks);
+		let mut ids = list.iter().map(|b| b.id.unwrap()).collect::<Vec<usize>>();
+		assert_eq!(ids, (0..amr.total_meshblocks).collect::<Vec<usize>>());
+	}
+	#[test]
+	fn test_amr_3d_random_big() {
+		let mut rng = StdRng::seed_from_u64(0);
+		let plugs = Plugs::default();
+		let tasks = 512;
+		let meshblock_space = vec![16, 16, 16];
+		let max_levels = 3;
+		let message_size = 256;
+
+		let amr_cv = ConfigurationValue::Object("AMR".to_string(), vec![
+			("tasks".to_string(), ConfigurationValue::Number(tasks as f64)),
+			("meshblock_space".to_string(), ConfigurationValue::Array(meshblock_space.iter().map(|&x| ConfigurationValue::Number(x as f64)).collect())),
+			("max_levels".to_string(), ConfigurationValue::Number(max_levels as f64)),
+			("meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ConfigurationValue::Object("RandomFilter".to_string(), vec![
+				("elements_to_return".to_string(), ConfigurationValue::Number(0f64)),
+				("source".to_string(), ConfigurationValue::False),
+				("destination".to_string(), ConfigurationValue::False),
+			])])),
+			("message_size".to_string(), ConfigurationValue::Number(message_size as f64)),
+		]);
+
+		let traffic_builder = TrafficBuilderArgument {
+			cv: &amr_cv,
+			rng: &mut rng,
+			plugs: &plugs,
+			topology: None,
+		};
+
+		let mut amr = AMR::new(traffic_builder);
+
+		amr.should_generate(0, 0, &mut rng);
+
+
+	}
+
+	#[test]
+	fn test_amr_z_filling() {
+		let mut rng = StdRng::seed_from_u64(0);
+		let plugs = Plugs::default();
+
+		let amr_cv = ConfigurationValue::Object("AMR".to_string(), vec![
+			("tasks".to_string(), ConfigurationValue::Number(64.0)),
+			("meshblock_space".to_string(), ConfigurationValue::Array(vec![
+				ConfigurationValue::Number(4.0),
+				ConfigurationValue::Number(4.0),
+				ConfigurationValue::Number(4.0),
+			])),
+			("max_levels".to_string(), ConfigurationValue::Number(2.0)),
+			("meshblock_label".to_string(), ConfigurationValue::Object("LinearTransform".to_string(), vec![
+				("source_size".to_string(), ConfigurationValue::Array(vec![
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+				])),
+				("target_size".to_string(), ConfigurationValue::Array(vec![
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+					ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0), ConfigurationValue::Number(2.0),
+				])),
+				("matrix".to_string(), ConfigurationValue::Array(vec![
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0)]),
+					ConfigurationValue::Array(vec![ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(0.0), ConfigurationValue::Number(1.0)]),
+				])),
+				("legend_name".to_string(), ConfigurationValue::Literal("Z-filling".to_string())),
+			])),
+			// ("sub_meshblock_label".to_string(), ConfigurationValue::Object("Identity".to_string(), vec![])),
+			("neighbour_selection".to_string(), ConfigurationValue::Literal("KingNeighbours".to_string())),
+			("refinement_pattern".to_string(), ConfigurationValue::Array(vec![ ConfigurationValue::Object("RandomFilter".to_string(), vec![
+				("source".to_string(), ConfigurationValue::False),
+				("destination".to_string(), ConfigurationValue::False),
+				("elements_to_return".to_string(), ConfigurationValue::Number(0.0)),
+			])])),
+			("message_size".to_string(), ConfigurationValue::Number(16.0)),
+		]);
+
+		let traffic_builder = TrafficBuilderArgument {
+			cv: &amr_cv,
+			rng: &mut rng,
+			plugs: &plugs,
+			topology: None,
+		};
+
+		let mut amr = AMR::new(traffic_builder);
+		assert_eq!(amr.tasks, 64);
+		assert_eq!(amr.total_meshblocks, 64);
 	}
 }

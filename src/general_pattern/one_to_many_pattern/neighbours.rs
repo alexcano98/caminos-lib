@@ -180,15 +180,22 @@ impl KingNeighbours{
     pub fn new(arg: GeneralPatternBuilderArgument) -> KingNeighbours {
         let mut sides = None;
         let mut distance = None;
+        let mut modular = false;
         match_object_panic!(arg.cv,"KingNeighbours",value,
             "sides" => sides = Some(value.as_array().expect("bad value for sides").iter().map(|v|v.as_usize().expect("bad value in sides")).collect()),
             "distance" => distance = Some(value.as_usize().expect("bad value for distance")),
+            "modular" => modular = value.as_bool().expect("bad value for modular"),
         );
         let sides: Vec<usize> = sides.expect("There were no sides in configuration of KingNeighbours.");
         let distance = distance.expect("There were no distance in configuration of KingNeighbours.");
 
         let vector_neighbours = Self::get_vectors_in_king_distance(&(sides.clone()), distance);
-        let neighbours = get_non_modular_neighbours_from_vector(&sides, &vector_neighbours);
+        let neighbours =  if modular
+        {
+            get_modular_neighbours_from_vector(&sides, &vector_neighbours)
+        }else {
+            get_non_modular_neighbours_from_vector(&sides, &vector_neighbours)
+        };
 
         KingNeighbours {
             neighbours,
@@ -234,6 +241,19 @@ impl KingNeighbours{
 
 }
 
+pub fn get_king_neighbours_cv(sides: &Vec<usize>, distance: usize, modular: bool) -> ConfigurationValue
+{
+    let sides = sides.iter().map(|v| ConfigurationValue::Number(*v as f64)).collect();
+    let distance = ConfigurationValue::Number(distance as f64);
+    let boolean = if modular { ConfigurationValue::True} else { ConfigurationValue::False };
+    ConfigurationValue::Object("KingNeighbours".parse().unwrap(), vec![
+        ("sides".to_string(), ConfigurationValue::Array(sides)),
+        ("distance".to_string(), distance),
+        ("modular".to_string(), boolean),
+        ]
+    )
+}
+
 /**
 Returns the neighbours in a hypercube
 ```ignore
@@ -243,7 +263,7 @@ Returns the neighbours in a hypercube
 #[derive(Debug, Quantifiable)]
 pub struct HypercubeNeighbours
 {
-    neighbours: Vec<Vec<usize>>
+    dimensions: usize,
 }
 
 impl GeneralPattern<usize, Vec<usize>> for HypercubeNeighbours{
@@ -252,32 +272,23 @@ impl GeneralPattern<usize, Vec<usize>> for HypercubeNeighbours{
         assert!(source_size.is_power_of_two());
         //panic if source size is different to neighbour.len()
         assert_eq!(source_size, target_size);
-        self.neighbours = Self::get_neighbours(source_size);
+        self.dimensions = source_size.ilog2() as usize;
 
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
-        self.neighbours[param].clone()
+        let mut local_neighbours = Vec::with_capacity(self.dimensions);
+        for j in 0..self.dimensions{
+            local_neighbours.push(param ^ (1 << j));
+        }
+        local_neighbours
     }
 }
 
 impl HypercubeNeighbours{
     pub fn new(_arg: GeneralPatternBuilderArgument) -> HypercubeNeighbours {
         HypercubeNeighbours {
-            neighbours: vec![]
+            dimensions: 0
         }
-    }
-    fn get_neighbours(source_size: usize) -> Vec<Vec<usize>> {
-        let mut neighbours = vec![vec![]; source_size];
-        let dimensions = source_size.ilog2();
-        //calculate the neighbours
-        for i in 0..source_size{
-            let mut local_neighbours = vec![];
-            for j in 0..dimensions{
-                local_neighbours.push(i ^ (1 << j));
-            }
-            neighbours[i] = local_neighbours;
-        }
-        neighbours
     }
 }
 
@@ -433,37 +444,35 @@ Returns all the elements as neighbours
 pub struct AllNeighbours
 {
     pattern_first_neighbour: Option<Box<dyn Pattern>>,
-    neighbours: Vec<Vec<usize>>,
+    source_size: usize,
 }
 
 impl GeneralPattern<usize, Vec<usize>> for AllNeighbours {
     fn initialize(&mut self, source_size: usize, target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
         assert_eq!(source_size,target_size);
-        if self.pattern_first_neighbour.is_none(){
-            self.neighbours = vec![vec![]; source_size];
-            for i in 0..source_size {
-                for j in 1..source_size {
-                    self.neighbours[i].push((i + j) % source_size);
-                }
-            }
-        }else {
-            self.pattern_first_neighbour.as_mut().unwrap().initialize(source_size, target_size, None, _rng);
-            let pattern = self.pattern_first_neighbour.as_ref().unwrap();
-            self.neighbours = vec![vec![]; source_size];
-            for i in 0..source_size {
-                let to_start = pattern.get_destination(i, None, _rng);
-                let mut next = 0;
-                for j in 1..source_size {
-                    if (to_start + j) % source_size == i {
-                        next = 1;
-                    }
-                    self.neighbours[i].push((to_start + j + next) % source_size);
-                }
-            }
+        self.source_size = source_size;
+        if let Some(ref mut pattern) = self.pattern_first_neighbour{
+            pattern.initialize(source_size, target_size, None, _rng);
         }
     }
     fn get_destination(&self, param: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) -> Vec<usize> {
-        self.neighbours[param].clone()
+        let mut neighbours = Vec::with_capacity(self.source_size - 1);
+        if self.pattern_first_neighbour.is_none(){
+            for j in 1..self.source_size {
+                neighbours.push((param + j) % self.source_size);
+            }
+        }else {
+            let pattern = self.pattern_first_neighbour.as_ref().unwrap();
+            let to_start = pattern.get_destination(param, None, _rng);
+            let mut next = 0;
+            for j in 1..self.source_size {
+                if (to_start + j) % self.source_size == param {
+                    next = 1;
+                }
+                neighbours.push((to_start + j + next) % self.source_size);
+            }
+        }
+        neighbours
     }
 }
 
@@ -475,7 +484,7 @@ impl AllNeighbours{
         );
         AllNeighbours {
             pattern_first_neighbour: start_pattern,
-            neighbours: vec![],
+            source_size: 0,
         }
     }
 }
@@ -786,7 +795,16 @@ mod tests {
 
     #[test]
     fn test_hypercube_neighbours(){
-        let neighbours = super::HypercubeNeighbours::get_neighbours(8);
+        let cv = crate::ConfigurationValue::Object("HypercubeNeighbours".to_string(), vec![]);
+        let plugs = crate::Plugs::default();
+        let mut rng = rand::prelude::StdRng::seed_from_u64(0);
+        let arg = crate::general_pattern::GeneralPatternBuilderArgument{
+            cv: &cv,
+            plugs: &plugs,
+        };
+        let mut hn = super::HypercubeNeighbours::new(arg);
+        hn.initialize(8, 8, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+
         let nei = vec![
             vec![1, 2, 4],
             vec![0, 3, 5],
@@ -798,11 +816,11 @@ mod tests {
             vec![3, 5, 6],
         ];
 
-        for (index, vector) in neighbours.iter().enumerate() {
-            //check if the vectors are the same, no matter the order
-            assert_eq!(vector.len(), nei[index].len());
-            for (_i, value) in vector.iter().enumerate(){
-                assert!(nei[index].contains(value));
+        for (index, expected) in nei.iter().enumerate() {
+            let vector = hn.get_destination(index, None, &mut rand::prelude::StdRng::seed_from_u64(0));
+            assert_eq!(vector.len(), expected.len());
+            for value in vector.iter(){
+                assert!(expected.contains(value));
             }
         }
     }
@@ -974,7 +992,7 @@ mod tests {
                 matrix: vec![vec![0, 1], vec![1, 1]],
                 target_size: CartesianData::new(&vec![3, 3])
             })),
-            neighbours: vec![],
+            source_size: 0,
         };
         all_neighbours.initialize(9, 9, None, &mut rand::prelude::StdRng::seed_from_u64(0));
         //print them

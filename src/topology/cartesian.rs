@@ -26,6 +26,7 @@ pub struct CartesianData
 {
 	pub sides: Vec<usize>,
 	pub size: usize,
+	pub inversed: bool,
 }
 
 impl CartesianData
@@ -35,6 +36,15 @@ impl CartesianData
 		CartesianData{
 			sides:sides.to_vec(),
 			size: sides.iter().product(),
+			inversed: false
+		}
+	}
+	pub fn new_inversed(sides:&[usize]) -> CartesianData
+	{
+		CartesianData{
+			sides:sides.to_vec().into_iter().rev().collect(),
+			size: sides.iter().product(),
+			inversed: true
 		}
 	}
 	pub fn unpack(&self, mut router_index: usize) -> Vec<usize>
@@ -53,15 +63,26 @@ impl CartesianData
 			r.push(router_index%side);
 			router_index/=side;
 		}
-		r
+		if self.inversed
+		{
+			r.into_iter().rev().collect()
+		}else {
+			r
+		}
 	}
 	pub fn pack(&self, coordinates:&[usize]) -> usize
 	{
+		let coord: Vec<usize> = if self.inversed{
+			Vec::from(coordinates).into_iter().rev().collect()
+		}else {
+			Vec::from(coordinates)
+		};
 		//check that the coordinates are within the sides
-		for (c,s) in coordinates.iter().zip(self.sides.iter())
+		for (c,s) in coord.iter().zip(self.sides.iter())
 		{
 			if *c>=*s
 			{
+				println!("coordinates: {:?}, sides: {:?}", coordinates, self.sides);
 				panic!("coordinate {} is greater than the side {}",c,s);
 			}
 		}
@@ -69,7 +90,7 @@ impl CartesianData
 		let mut stride=1;
 		for (i,side) in self.sides.iter().enumerate()
 		{
-			r+=coordinates[i]*stride;
+			r+=coord[i]*stride;
 			stride*=side;
 		}
 		r

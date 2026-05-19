@@ -1,7 +1,7 @@
 use crate::general_pattern::pattern::Pattern;
 use crate::general_pattern::GeneralPattern;
 use std::cell::{RefCell};
-use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom};
+use ::rand::{Rng,rngs::StdRng,prelude::SliceRandom, SeedableRng};
 use quantifiable_derive::Quantifiable;//the derive macro
 use crate::config_parser::ConfigurationValue;
 use crate::topology::{Topology, Location};
@@ -19,6 +19,7 @@ pub struct UniformPattern
 {
     size: usize,
     allow_self: bool,
+    rng: RefCell<Option<StdRng>>,
 }
 
 impl GeneralPattern<usize, usize>for UniformPattern
@@ -29,6 +30,8 @@ impl GeneralPattern<usize, usize>for UniformPattern
     }
     fn get_destination(&self, origin:usize, _topology: Option<&dyn Topology>, rng: &mut StdRng)->usize
     {
+        let mut internal_rng = self.rng.borrow_mut();
+        let rng = if let Some(ref mut r) = *internal_rng { r } else { rng };
         let discard_self = !self.allow_self && origin<self.size;
         let random_size = if discard_self { self.size-1 } else { self.size };
         // When discard self, act like self were swapped with the last element.
@@ -47,12 +50,15 @@ impl UniformPattern
     pub(crate) fn new(arg: GeneralPatternBuilderArgument) -> UniformPattern
     {
         let mut allow_self = false;
+        let mut seed = None;
         match_object_panic!(arg.cv,"Uniform",value,
 			"allow_self" => allow_self=value.as_bool().expect("bad value for allow_self"),
+			"seed" => seed=Some(value.as_f64().expect("bad value for seed") as u64),
 		);
         UniformPattern{
             size:0,//to be initialized later
             allow_self,
+            rng: RefCell::new(seed.map(StdRng::seed_from_u64)),
         }
     }
     pub fn uniform_pattern(allow_target_source: bool) -> UniformPattern
@@ -60,6 +66,7 @@ impl UniformPattern
         UniformPattern{
             size:0,//to be initialized later
             allow_self:allow_target_source,
+            rng: RefCell::new(None),
         }
     }
 }

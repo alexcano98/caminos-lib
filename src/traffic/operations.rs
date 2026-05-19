@@ -10,9 +10,9 @@ use crate::measures::TrafficStatistics;
 use crate::general_pattern::{new_pattern, pattern::Pattern, GeneralPatternBuilderArgument};
 use crate::topology::Topology;
 use crate::traffic::{new_traffic, TaskTrafficState, Traffic, TrafficBuilderArgument, TrafficError};
-use crate::traffic::TaskTrafficState::{Generating, WaitingData};
+use crate::traffic::TaskTrafficState::{Generating, UnspecifiedWait, WaitingData};
 use crate::ConfigurationValue;
-
+use crate::traffic::extra::{get_statistics_collector_cv, BuildStatisticsCollectorCVArgs};
 
 /**
 Applies a map over the tasks of a traffic. The source and destination sets may differ. A simple example is to shuffle the tasks in a application, as in the following configuration.
@@ -145,10 +145,16 @@ impl Traffic for TrafficMap
     fn consume(&mut self, task: usize, message: &dyn AsMessage, cycle: Time, topology: Option<&dyn Topology>, rng: &mut StdRng) -> bool
     {
 
-        let task_app = self.from_machine_to_app[task].expect("There was no origin for the message");
         let mut app_message = ReferredPayload::from(message);
-        app_message.destination = self.from_machine_to_app[app_message.destination].expect("There was no destination for the message");
-        app_message.origin = task_app;
+        //check that task is the same that app_message_destination
+        if app_message.destination != task
+        {
+            panic!("TrafficMap consumed a message with destination {} but expected {}", app_message.destination, task);
+        }
+        let task_app = self.from_machine_to_app[task].expect("There was no destination for the message");
+        let origin_app = self.from_machine_to_app[app_message.origin].expect("There was no origin for the message");
+        app_message.origin = origin_app;
+        app_message.destination = task_app;
 
         // try to consume the message in the application
         self.application.consume(task_app, &app_message, cycle, topology, rng)
@@ -283,7 +289,7 @@ impl Traffic for Sum
         if let Ok(ref message) = message{
 
             let size_msg = message.size;
-            self.statistics.track_created_message(cycle, size_msg, Some( index ));
+            self.statistics.track_created_message(cycle, size_msg);
 
             let mut payload = Vec::with_capacity(message.payload().len() + 4);
             let index_convert = index as u32;
@@ -317,7 +323,7 @@ impl Traffic for Sum
         let index=  *bytemuck::try_from_bytes::<u32>(&message.payload()[0..4]).expect("Bad index in message for TrafficSum.") as usize;
         let sub_payload = &message.payload()[4..];
 
-        self.statistics.track_consumed_message(cycle, cycle - message.creation_cycle(), message.size(), Some(index));
+        self.statistics.track_consumed_message(message.origin(), message.destination(), cycle, cycle - message.creation_cycle(), message.size());
 
         let mut sub_message = ReferredPayload::from(message);
         sub_message.payload = sub_payload;
@@ -337,14 +343,14 @@ impl Traffic for Sum
     }
     fn should_generate(&mut self, task:usize, cycle:Time, rng: &mut StdRng) -> bool
     {
-        if self.index_to_generate[task].len() > 0{ //TODO: tasks statistics should be checked
-
-            for traffic in self.index_to_generate[task].iter(){
-                self.statistics.track_task_state(task, Generating, cycle, Some(*traffic) );
-            }
-
-            return true;
-        }
+        // if self.index_to_generate[task].len() > 0{ //TODO: tasks statistics should be checked
+        //
+        //     for &traffic in self.index_to_generate[task].iter(){
+        //         self.list[traffic].track_task_state(task, Generating, cycle);
+        //     }
+        //
+        //     return true;
+        // }
 
         let mut indexes = (0..self.list.len()).collect::<Vec<usize>>();
         indexes.shuffle(rng);
@@ -356,26 +362,28 @@ impl Traffic for Sum
         }
 
         if self.index_to_generate[task].len() > 0{
-
-            for traffic in self.index_to_generate[task].iter(){
-                self.statistics.track_task_state(task, Generating, cycle, Some(*traffic) );
-            }
-
-        }else{
-
-            for (i,traffic) in self.list.iter_mut().enumerate()
-            {
-                if let Some(state) = traffic.task_state(task,cycle)
-                {
-                    self.statistics.track_task_state(task, state, cycle,  Some(i) );
-                }
-            }
+            // for traffic in self.index_to_generate[task].iter(){
+                self.statistics.track_task_state(task, Generating, cycle);
+            // }
+        }else {
+            self.statistics.track_task_state(task, UnspecifiedWait, cycle); //no generation, we dont know more.
         }
+        // else{
+        //
+        //     for (i,traffic) in self.list.iter_mut().enumerate()
+        //     {
+        //         if let Some(state) = traffic.task_state(task,cycle)
+        //         {
+        //             self.statistics.track_task_state(task, state, cycle);
+        //         }
+        //     }
+        // }
 
         self.index_to_generate[task].len() > 0
     }
     fn task_state(&mut self, task:usize, cycle:Time) -> Option<TaskTrafficState>
     {
+        //TODO: What to do if same task has two different states? Not prepared for that.
         let mut task_state = None;
         for (_i,traffic) in self.list.iter_mut().enumerate()
         {
@@ -398,7 +406,15 @@ impl Traffic for Sum
         self.tasks
     }
     fn get_statistics(&self) -> Option<TrafficStatistics> {
-        Some(self.statistics.clone())
+        let mut statistics = self.statistics.clone();
+        let mut subtraffic_statistics = vec![];
+        for t in self.list.iter(){
+            if let Some(stat) = t.get_statistics(){
+                subtraffic_statistics.push(stat);
+            }
+        }
+        statistics.set_subtraffic_statistics(subtraffic_statistics);
+        Some(statistics)
     }
 }
 
@@ -406,34 +422,49 @@ impl Sum
 {
     pub fn new(mut arg:TrafficBuilderArgument) -> Sum
     {
-        let mut list : Option<Vec<_>> =None;
+        // let mut list: Option<Vec<_>> = None;
+        let mut traffic_list_cv = None;
         let mut temporal_step = 0;
         let mut box_size = 1000;
         let mut tasks = None;
         let mut finish_when = None;
-        let mut server_task_isolation = true;
+        let mut server_task_isolation = true; //Not recommendable to set this off by now. There can be some things malfunctioning
+        let mut collect_subtraffic_statistics = false;
         match_object_panic!(arg.cv,"TrafficSum",value,
-			"list" => list = Some(value.as_array().expect("bad value for list").iter()
-				.map(|v|new_traffic(TrafficBuilderArgument{cv:v,rng:&mut arg.rng,..arg})).collect()),
-			"statistics_temporal_step" => temporal_step = value.as_f64().expect("bad value for statistics_temporal_step") as Time,
-			"tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
-			"box_size" => box_size = value.as_f64().expect("bad value for box_size") as usize,
-			"finish_when" => finish_when = Some(value.as_array().expect("bad value for finish_when").iter().map(|v|v.as_usize().expect("bad value for finish_when")).collect()),
+            // "list" => list = Some(value.as_array().expect("bad value for list").iter()
+            //     .map(|v|new_traffic(TrafficBuilderArgument{cv:v,rng:&mut arg.rng,..arg})).collect()),
+            "list" => traffic_list_cv = Some(value.as_array().expect("bad value for list")),
+            "statistics_temporal_step" => temporal_step = value.as_f64().expect("bad value for statistics_temporal_step") as Time,
+            "tasks" => tasks = Some(value.as_f64().expect("bad value for tasks") as usize),
+            "box_size" => box_size = value.as_f64().expect("bad value for box_size") as usize,
+            "collect_subtraffic_statistics" => collect_subtraffic_statistics = value.as_bool().expect("bad value for collect_subtraffic_statistics"),
+            "finish_when" => finish_when = Some(value.as_array().expect("bad value for finish_when").iter().map(|v|v.as_usize().expect("bad value for finish_when")).collect()),
             "server_task_isolation" => server_task_isolation = value.as_bool().expect("bad value for server_task_isolation"),
         );
-        let list=list.expect("There were no list");
-        assert!( !list.is_empty() , "cannot sum 0 traffics" );
-        let size = list[0].number_tasks();
-        for traffic in list.iter().skip(1)
-        {
-            assert_eq!( traffic.number_tasks(), size , "In SumTraffic all sub-traffics must involve the same number of tasks." );
-        }
+        // let list = list.expect("There were no list");
+        // assert!(!list.is_empty(), "cannot sum 0 traffics");
+        // let size = list[0].number_tasks();
+        // for traffic in list.iter().skip(1)
+        // {
+        //     assert_eq!(traffic.number_tasks(), size, "In SumTraffic all sub-traffics must involve the same number of tasks.");
+        // }
+        let traffic_list_cv = traffic_list_cv.expect("There were no list");
+        let list = traffic_list_cv.iter().map(|t|
+            if collect_subtraffic_statistics
+                {
+                    let builder = BuildStatisticsCollectorCVArgs{ traffic: t.clone(), temporal_step, box_size};
+                    let traffic = get_statistics_collector_cv(builder);
+                    new_traffic(TrafficBuilderArgument{cv:&traffic, rng:&mut arg.rng,..arg})
+                }else {
+                    new_traffic(TrafficBuilderArgument{cv:t,rng:&mut arg.rng,..arg})
+                }
+        ).collect::<Vec<_>>();
+
         let finish_when = finish_when.unwrap_or_else(|| (0..list.len()).collect()); //default wait for all
         let tasks = tasks.unwrap();
-        let list_statistics = list.iter().map(|_| TrafficStatistics::new(tasks,temporal_step, box_size, None)).collect();
-        let statistics = TrafficStatistics::new(tasks,temporal_step, box_size, Some(list_statistics));
-        //Debug and print the traffic list
-        //println!("TrafficSum list: {:?}", list);
+        let statistics = TrafficStatistics::new(tasks, temporal_step, box_size);
+
+
         Sum{
             list,
             index_to_generate: vec![VecDeque::new(); tasks ],

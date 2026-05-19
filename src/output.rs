@@ -338,6 +338,8 @@ fn create_csv(description: &ConfigurationValue, environment:&mut OutputEnvironme
 {
 	let mut fields=None;
 	let mut filename=None;
+	let mut matrix=None;
+	let mut selector=None;
 	match_object_panic!(description,"CSV",value,
 		"fields" => match value
 		{
@@ -365,32 +367,138 @@ fn create_csv(description: &ConfigurationValue, environment:&mut OutputEnvironme
 			&ConfigurationValue::Literal(ref s) => filename=Some(s.to_string()),
 			_ => panic!("bad value for filename ({:?})",value),
 		}
+		"matrix" => matrix=Some(value),
+		"selector" => selector=Some(value),
 	);
-	let fields=fields.expect("There were no fields");
 	let filename=filename.expect("There were no filename");
-	if let Some(targets) = environment.targets {
-		if !targets.contains(&filename) {
-			//TODO: perhaps we need a success type.
-			return Ok(());
-		}
-	};
-	println!("Creating CSV with name \"{}\"",filename);
+	if fields.is_none() && matrix.is_none() {
+		panic!("A CSV must have either fields or matrix");
+	}
+
 	let path = environment.files.get_outputs_path();
-	let output_path=path.join(filename);
-	let mut output_file=File::create(&output_path).expect("Could not create output file.");
-	//let header=fields.iter().map(|e|format!("{}",e)).collect::<Vec<String>>().join(", ");
-	let (headers,fields) : (Vec<_>,Vec<_>) = fields.into_iter().unzip();
-	let header = headers.join(", ");
-	writeln!(output_file,"{}",header).unwrap();
+
+	let mut grouped_contexts : BTreeMap<String, Vec<ConfigurationValue>> = BTreeMap::new();
 	for context in environment.iter()
 	{
-		//let row=fields.iter().map(|e| format!("{}",evaluate(e,&context,&path)) ).collect::<Vec<String>>().join(", ");
-		//let row=fields.iter().map(|e| evaluate(e,&context,&path).expect("ERROR TO BE TRANSPOSED").to_csv_field() ).collect::<Vec<String>>().join(", ");
-		let row=fields.iter()
-			.map(|e| Ok(evaluate(e,&context,&path)?.to_csv_field()) )
-			.collect::<Result<Vec<String>,Error>>()?
-			.join(", ");
-		writeln!(output_file,"{}",row).unwrap();
+		let sel_str = if let Some(sel) = selector {
+			reevaluate(sel, &context, &path)?.to_string()
+		} else {
+			"".to_string()
+		};
+		grouped_contexts.entry(sel_str).or_default().push(context);
+	}
+
+	for (sel_str, contexts) in grouped_contexts {
+		let current_filename = if sel_str.is_empty() {
+			filename.clone()
+		} else {
+			let path_obj = std::path::Path::new(&filename);
+			let stem = path_obj.file_stem().unwrap_or_default().to_str().unwrap_or_default();
+			let ext = path_obj.extension().unwrap_or_default().to_str().unwrap_or_default();
+			let ext_part = if ext.is_empty() { String::new() } else { format!(".{}", ext) };
+			let safe_sel : String = sel_str.chars().filter_map(|c| match c {
+				'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '+' | '=' | '_' => Some(c),
+				' ' | ',' | ';' | ':' | '/' | '\\' | '|' => Some('_'),
+				_ => None,
+			}).collect();
+			format!("{}_{}{}", stem, safe_sel, ext_part)
+		};
+
+		if let Some(targets) = environment.targets {
+			if !targets.contains(&current_filename) {
+				continue;
+			}
+		};
+
+		println!("Creating CSV with name \"{}\"",current_filename);
+		let output_path=path.join(&current_filename);
+		let mut output_file=File::create(&output_path).expect("Could not create output file.");
+
+		if let Some(ref fields) = fields {
+			let (headers,field_exprs) : (Vec<_>,Vec<_>) = fields.clone().into_iter().unzip();
+			let header = headers.join(", ");
+			writeln!(output_file,"{}",header).unwrap();
+			for context in contexts.iter()
+			{
+				let row=field_exprs.iter()
+					.map(|e| Ok(evaluate(e,context,&path)?.to_csv_field()) )
+					.collect::<Result<Vec<String>,Error>>()?
+					.join(", ");
+				writeln!(output_file,"{}",row).unwrap();
+			}
+		} else if let Some(mat_expr) = matrix {
+			let mut is_numeric = true;
+			let mut avg_matrix : Vec<Vec<f64>> = Vec::new();
+			let mut counts : Vec<Vec<usize>> = Vec::new();
+
+			for context in contexts.iter() {
+				let mat_val = reevaluate(mat_expr, context, &path)?;
+				if let ConfigurationValue::Array(rows) = mat_val {
+					for (r_idx, row_val) in rows.iter().enumerate() {
+						if r_idx >= avg_matrix.len() {
+							avg_matrix.push(Vec::new());
+							counts.push(Vec::new());
+						}
+						if let ConfigurationValue::Array(cols) = row_val {
+							for (c_idx, col_val) in cols.iter().enumerate() {
+								if c_idx >= avg_matrix[r_idx].len() {
+									avg_matrix[r_idx].push(0.0);
+									counts[r_idx].push(0);
+								}
+								if let ConfigurationValue::Number(n) = col_val {
+									avg_matrix[r_idx][c_idx] += n;
+									counts[r_idx][c_idx] += 1;
+								} else {
+									is_numeric = false;
+								}
+							}
+						} else {
+							is_numeric = false;
+						}
+					}
+				} else {
+					is_numeric = false;
+				}
+			}
+
+			if is_numeric && !avg_matrix.is_empty() {
+				for (r_idx, row) in avg_matrix.iter().enumerate() {
+					let row_str = row.iter().enumerate().map(|(c_idx, n)| {
+						let count = counts[r_idx][c_idx];
+						if count > 0 {
+							format!("{}", n / count as f64)
+						} else {
+							"0".to_string()
+						}
+					}).collect::<Vec<String>>().join(", ");
+					writeln!(output_file, "{}", row_str).unwrap();
+				}
+			} else {
+				// Fallback to printing all
+				for (idx, context) in contexts.iter().enumerate() {
+					let mat_val = reevaluate(mat_expr, context, &path)?;
+					if let ConfigurationValue::Array(rows) = mat_val {
+						for row_val in rows.iter() {
+							if let ConfigurationValue::Array(cols) = row_val {
+								let row_str = cols.iter()
+									.map(|c| c.to_csv_field())
+									.collect::<Vec<String>>()
+									.join(", ");
+								writeln!(output_file, "{}", row_str).unwrap();
+							} else {
+								writeln!(output_file, "{}", row_val.to_csv_field()).unwrap();
+							}
+						}
+					} else {
+						writeln!(output_file, "{}", mat_val.to_csv_field()).unwrap();
+					}
+
+					if idx < contexts.len() - 1 {
+						writeln!(output_file, "").unwrap();
+					}
+				}
+			}
+		}
 	}
 	Ok(())
 }

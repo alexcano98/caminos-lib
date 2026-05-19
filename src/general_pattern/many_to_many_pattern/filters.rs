@@ -77,9 +77,11 @@ impl GeneralPattern<ManyToManyParam, Vec<usize>> for RandomFilter {
 impl RandomFilter {
     pub fn new(arg: GeneralPatternBuilderArgument) -> RandomFilter {
         let mut elements_to_return = 1;
-        let source= true;
-        let destination= true;
+        let mut source= true;
+        let mut destination= true;
         match_object_panic!(arg.cv,"RandomFilter",value,
+            "source" => source= value.as_bool().expect("bad value for source"),
+            "destination" => destination= value.as_bool().expect("bad value for destination"),
             "elements_to_return" => elements_to_return=value.as_usize().expect("bad value for elements_to_return"),
         );
         RandomFilter {elements_to_return, source, destination}

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use quantifiable_derive::Quantifiable;
-use rand::prelude::StdRng;
+use rand::prelude::{SliceRandom, StdRng};
 use crate::match_object_panic;
 use crate::ConfigurationValue;
 use crate::general_pattern::many_to_many_pattern::{new_many_to_many_pattern, ManyToManyParam, ManyToManyPattern};
@@ -94,6 +94,34 @@ impl Sum{
         Sum { patterns }
     }
 }
+
+/**
+    Pattern that shuffles the list of elements that are passed as argument.
+    ```ignore
+        Shuffle{},
+    ```
+**/
+#[derive(Quantifiable, Debug)]
+pub struct Shuffle{}
+
+impl GeneralPattern<ManyToManyParam, Vec<usize>> for Shuffle {  
+
+    fn initialize(&mut self, _source_size: usize, _target_size: usize, _topology: Option<&dyn Topology>, _rng: &mut StdRng) {
+    }
+
+    fn get_destination(&self, param: ManyToManyParam, _topology: Option<&dyn Topology>, rng: &mut StdRng) -> Vec<usize> {
+        let mut list = param.list;
+        list.shuffle(rng);
+        list
+    }
+}
+
+impl Shuffle{
+    pub fn new(_arg: GeneralPatternBuilderArgument) -> Shuffle {
+        Shuffle {}
+    }
+}
+
 
 
 #[cfg(test)]

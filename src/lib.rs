@@ -2134,6 +2134,7 @@ pub fn terminal_default_options() -> getopts::Options
 	opts.optopt("t","target","Select a target to generate. And skip the rest.","NAME");
 	opts.optflag("h","help","show this help");
 	opts.optflag("","foreign","Assume to be working with foreign data. Many checks are relaxed.");
+	opts.optopt("","remote","Name of the remote to use","NAME");
 	opts
 }
 
@@ -2228,6 +2229,10 @@ pub fn terminal_main_normal_opts(args:&[String], plugs:&Plugs, option_matches:ge
 		if option_matches.opt_present("use_csv")
 		{
 			options.use_csv = Some(Path::new(&option_matches.opt_str("use_csv").unwrap()).to_path_buf());
+		}
+		if option_matches.opt_present("remote")
+		{
+			options.remote_name = Some(option_matches.opt_str("remote").unwrap());
 		}
 		return directory_main(&path,&args[0],&plugs,action,options);
 	}

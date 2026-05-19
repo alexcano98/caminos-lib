@@ -441,6 +441,8 @@ pub struct ExperimentOptions
 	pub use_csv: Option<PathBuf>,
 	/// When not None, only generate targets in the list.
 	pub targets: Option<Vec<String>>,
+	/// The name of the remote to use.
+	pub remote_name: Option<String>,
 }
 
 ///An `Experiment` object encapsulates the operations that are performed over a folder containing an experiment.
@@ -1048,11 +1050,11 @@ impl<'a> Experiment<'a>
 						let directory_name = self.files.root.as_ref().unwrap().canonicalize().expect("path does not have canonical form").file_name().expect("could not get name of the external folder").to_str().unwrap().to_string();
 						content = content.replace(&external_directory_name,&directory_name);
 						let mut new_remote_file=File::create(&path_remote).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote.to_path_buf(),e))?;
-						writeln!(new_remote_file,"{}",content).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote,e))?;
+						write!(new_remote_file,"{}",content.trim()).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote,e))?;
 					} else {
 						println!("There is not remote on the source given [{path:?}], creating a default one.");
 						let mut new_remote_file=File::create(&path_remote).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote.to_path_buf(),e))?;
-						writeln!(new_remote_file,"{}",ExperimentFiles::example_remote()).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote,e))?;
+						write!(new_remote_file,"{}",ExperimentFiles::example_remote().trim()).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote,e))?;
 					}
 				} else {
 					//Write some default files.
@@ -1061,7 +1063,7 @@ impl<'a> Experiment<'a>
 					let mut new_od_file=File::create(&path_main_od).map_err(|e|Error::could_not_generate_file(source_location!(),path_main_od.to_path_buf(),e))?;
 					writeln!(new_od_file,"{}",ExperimentFiles::example_od()).map_err(|e|Error::could_not_generate_file(source_location!(),path_main_od,e))?;
 					let mut new_remote_file=File::create(&path_remote).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote.to_path_buf(),e))?;
-					writeln!(new_remote_file,"{}",ExperimentFiles::example_remote()).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote,e))?;
+					write!(new_remote_file,"{}",ExperimentFiles::example_remote().trim()).map_err(|e|Error::could_not_generate_file(source_location!(),path_remote,e))?;
 				};
 			},
 			_ => (),
@@ -1963,6 +1965,7 @@ impl<'a> Experiment<'a>
 			Ok(x) => x,
 			//println!("parsed correctly: {:?}",x);
 		};
+		let target_remote_name = self.options.remote_name.as_deref().unwrap_or("default");
 		match parsed_remote
 		{
 			config_parser::Token::Value(ref value) =>
@@ -2019,7 +2022,7 @@ impl<'a> Experiment<'a>
 						{
 							panic!("Trying to create a remote from a non-Object");
 						}
-						if name==Some("default".to_string())
+						if name.as_deref()==Some(target_remote_name)
 						{
 							self.remote_files = Some(ExperimentFiles {
 								host,
@@ -2046,6 +2049,10 @@ impl<'a> Experiment<'a>
 			_ => panic!("Not a value"),
 		};
 		//remote values are initialized
+		if self.remote_files.is_none()
+		{
+			panic!("Could not find remote named \"{}\"", target_remote_name);
+		}
 		let host=self.remote_files.as_ref().unwrap().host.as_ref().expect("there is no host").to_owned();
 		//See ssh2 documentation https://docs.rs/ssh2/0.8.2/ssh2/index.html
 		let tcp = TcpStream::connect(format!("{}:22",host)).unwrap();
@@ -2216,9 +2223,3 @@ impl ActionProgress
 		self.bar.set_message(message);
 	}
 }
-
-
-
-
-
-
