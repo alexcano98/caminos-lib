@@ -453,6 +453,8 @@ pub fn new_routing(arg: RoutingBuilderArgument) -> Box<dyn Routing>
 			"RegionRouting" => Box::new(RegionRouting::new(arg)),
 			"GeneralDOR" => Box::new(GeneralDOR::new(arg)),
 			"FMLabel" => Box::new(FMLabel::new(arg)),
+			"FMLabel" => Box::new(FMLabel::new(arg)),
+			"RoutingOperations" => Box::new(RoutingOperations::new(arg)),
 			_ => panic!("Unknown Routing {}",cv_name),
 		}
 	}
