@@ -1367,13 +1367,15 @@ The non-minimal paths selected are of length 2.
 This labeling is intended to be used in combination with `Shortest` routing within the `Sum` routing strategy, allowing a mix of minimal and non-minimal paths.
 
 RINR and bRINR labelling algorithms are based on:
-
 Kwauk, Gyuyoung, et al. "Boomgate:
 Deadlock avoidance in non-minimal routing for high-radix networks."
 2021 IEEE international symposium on high-performance computer architecture (HPCA).
 IEEE, 2021.
 
-The sRINR algorithm is a proposal from (TODO: add HOTI reference).
+The sRINR algorithm is a proposal from:
+Cano, A., Camarero, C., Martínez, C., & Beivide, R. (2025, August).
+Deadlock-free routing for Full-mesh networks without using Virtual Channels.
+In 2025 IEEE Symposium on High-Performance Interconnects (HOTI) (pp. 12-24). IEEE.
 
 
 This implementation of the sRINR algorithm is equivalent to the one described in the cited paper when the parameters `a = 0` and `b = 0`.
